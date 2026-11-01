@@ -10,6 +10,11 @@ fn main() {
     resource
         .set_icon("../desktop/icons/icon.ico")
         .set("ProductName", "BucketBridge")
+        .set("CompanyName", "Anup Shaw (anupshaw50)")
+        .set(
+            "LegalCopyright",
+            "Copyright (C) 2026 Anup Shaw (anupshaw50)",
+        )
         .set(
             "FileDescription",
             "bb, the BucketBridge command-line S3 client",

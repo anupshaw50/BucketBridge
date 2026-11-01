@@ -53,8 +53,24 @@ There is no account, activation or licence key, and no telemetry: the app
 never contacts a server on its own. Secrets stay in the operating system's
 credential store.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/main-dark.png">
+    <img src="assets/screenshots/main-light.png" alt="BucketBridge browsing a bucket, with the transfer queue below" width="900">
+  </picture>
+</p>
+
+<table>
+  <tr>
+    <td align="center"><img src="assets/screenshots/properties.png" alt="Object properties" width="290"><br><sub>Object properties</sub></td>
+    <td align="center"><img src="assets/screenshots/sync.png" alt="Folder sync analysis" width="290"><br><sub>Folder sync analysis</sub></td>
+    <td align="center"><img src="assets/screenshots/context-menu.png" alt="Context menu" width="290"><br><sub>Context menus</sub></td>
+  </tr>
+</table>
+
 ## Contents
 
+- [Install](#install)
 - [Highlights](#highlights)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -72,6 +88,42 @@ credential store.
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
+- [Trademark](#trademark)
+- [Author](#author)
+
+## Install
+
+Download the latest version from the
+[Releases page](https://github.com/anupshaw50/BucketBridge/releases/latest).
+
+| Platform | Desktop app | Command line (`bb`) |
+|---|---|---|
+| **Windows** 10 and 11 (x64) | `BucketBridge_<version>_windows_x64.msi` installer, or the portable `.zip` (no install, run `BucketBridge.exe`) | `bb_<version>_windows_x64.zip` |
+| **macOS** 11+ (Apple silicon and Intel) | `BucketBridge_<version>_macos_universal.dmg` | `bb_<version>_macos_universal.tar.gz` |
+| **Linux** (x86_64) | `.AppImage` (any distribution), `.deb` (Debian, Ubuntu), or `.tar.gz` | `bb_<version>_linux_x86_64.tar.gz` |
+
+Package managers (coming soon; manifests are ready in [`packaging/`](packaging)):
+
+```powershell
+# Windows
+winget install AnupShaw.BucketBridge
+scoop bucket add anupshaw50 https://github.com/anupshaw50/scoop-bucket
+scoop install bucketbridge bb
+```
+
+```bash
+# macOS
+brew install --cask anupshaw50/tap/bucketbridge
+brew install anupshaw50/tap/bb
+```
+
+Check a download against `SHA256SUMS` from the release:
+`Get-FileHash <file>` (Windows), `shasum -a 256 <file>` (macOS),
+`sha256sum <file>` (Linux).
+
+> Builds are not code-signed yet. On Windows, SmartScreen may ask you to
+> confirm ("More info", then "Run anyway"). On macOS, open the app the first
+> time with right-click, then Open.
 
 ## Highlights
 
@@ -463,10 +515,19 @@ are welcome as issues.
 | [`docs/mount.md`](docs/mount.md) | The optional read-only mount |
 | [`docs/testing.md`](docs/testing.md) | Test harness and backends |
 | [`docs/packaging.md`](docs/packaging.md) | Releases, signing, licence audit |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version |
 | [`ROADMAP.md`](ROADMAP.md) | Planned features by priority |
 | [`assets/brand/README.md`](assets/brand/README.md) | Logo files, colours and how to regenerate the icons |
 
 ## Contributing
+
+Contributions are welcome. Start with [`CONTRIBUTING.md`](.github/CONTRIBUTING.md);
+report bugs and request features through the
+[issue forms](https://github.com/anupshaw50/BucketBridge/issues/new/choose), and
+report security problems privately as described in
+[`SECURITY.md`](.github/SECURITY.md). Everyone taking part follows the
+[code of conduct](.github/CODE_OF_CONDUCT.md). Good first tasks are in the
+[roadmap](ROADMAP.md).
 
 - Run the [quality checks](#quality-checks) before a commit.
 - When a desktop command or event changes, update
@@ -487,3 +548,12 @@ must make the complete source code available under the same licence.
 Its dependencies are all under permissive licences (MIT, Apache-2.0, BSD and
 similar) or MPL-2.0, which are compatible with GPL-3.0; their notices ship in
 `THIRD_PARTY_LICENSES.html` with every release.
+
+## Author
+
+BucketBridge is created and maintained by **Anup Shaw**
+([@anupshaw50](https://github.com/anupshaw50)).
+If it is useful to you, a star on GitHub helps others find it, and
+[sponsoring](https://github.com/sponsors/anupshaw50) supports further work.
+
+Copyright (C) 2026 Anup Shaw (anupshaw50).

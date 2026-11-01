@@ -7,7 +7,7 @@ import { BrandLogo } from "../../components/BrandLogo";
 export const REPOSITORY_URL = "https://github.com/anupshaw50/BucketBridge";
 
 const LICENSE_NOTICE = `BucketBridge
-Copyright (C) 2026 The BucketBridge authors
+Copyright (C) 2026 Anup Shaw (anupshaw50)
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software

@@ -4,6 +4,7 @@ description = "BucketBridge desktop app: Tauri 2 shell around the React UI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
 publish = false
 default-run = "bucketbridge"

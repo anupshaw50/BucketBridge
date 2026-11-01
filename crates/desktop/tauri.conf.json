@@ -50,9 +50,9 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg", "msi", "appimage", "deb"],
-    "publisher": "BucketBridge contributors",
+    "publisher": "Anup Shaw (anupshaw50)",
     "homepage": "https://github.com/anupshaw50/BucketBridge",
-    "copyright": "Copyright (c) 2026 BucketBridge contributors",
+    "copyright": "Copyright (C) 2026 Anup Shaw (anupshaw50)",
     "license": "GPL-3.0-only",
     "category": "DeveloperTool",
     "shortDescription": "Desktop client for S3 and S3-compatible object storage",

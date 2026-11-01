@@ -1,0 +1,46 @@
+# Deploys site/ to GitHub Pages.
+#
+# The job is skipped until Pages is set up. To enable it:
+#   1. Repository Settings > Pages > Source = "GitHub Actions".
+#   2. Settings > Secrets and variables > Actions > Variables: add
+#      PAGES_ENABLED = true.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "assets/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v6
+      - name: Collect assets
+        run: |
+          mkdir -p site/assets
+          cp -r assets/brand site/assets/brand
+          cp -r assets/screenshots site/assets/screenshots
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v5

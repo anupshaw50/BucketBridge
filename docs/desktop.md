@@ -566,9 +566,9 @@ the entries that apply to the build host, so a plain `pnpm tauri build` makes
 app and dmg on macOS, msi on Windows, and appimage and deb on Linux. `--bundles`
 overrides the list.
 
-Metadata shared by every bundle: publisher "BucketBridge contributors",
-homepage https://github.com/anupshaw50/BucketBridge, copyright "Copyright (c)
-2026 BucketBridge contributors", license GPL-3.0-only, category `DeveloperTool`,
+Metadata shared by every bundle: publisher "Anup Shaw (anupshaw50)",
+homepage https://github.com/anupshaw50/BucketBridge, copyright "Copyright (C)
+2026 Anup Shaw (anupshaw50)", license GPL-3.0-only, category `DeveloperTool`,
 and the short and long descriptions in `tauri.conf.json`. `bundle.licenseFile`
 is not set, because it would add a click-through license agreement to the DMG
 and the MSI; the GPL needs no acceptance to run the program, and every archive
@@ -626,7 +626,7 @@ by `tauri build`.
 ### Linux
 
 - deb: package name `bucket-bridge` (Tauri derives it from the product name),
-  section `net`, priority `optional`, maintainer "BucketBridge contributors".
+  section `net`, priority `optional`, maintainer "Anup Shaw (anupshaw50)".
   `Depends: libwebkit2gtk-4.1-0, libgtk-3-0` is added by the CLI itself on
   Linux, so the config does not repeat it. `Recommends: xdg-utils`, because
   the opener plugin opens URLs with `xdg-open`. The desktop entry is

@@ -1,0 +1,11 @@
+PackageIdentifier: AnupShaw.BucketBridge
+PackageVersion: 0.1.0
+InstallerLocale: en-US
+InstallerType: wix
+Scope: machine
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/anupshaw50/BucketBridge/releases/download/v0.1.0/BucketBridge_0.1.0_windows_x64.msi
+  InstallerSha256: 2B26AC512586F7A2718D689DD78E2C6B3F3E7D97E047EC9849772830D74A32FD
+ManifestType: installer
+ManifestVersion: 1.6.0

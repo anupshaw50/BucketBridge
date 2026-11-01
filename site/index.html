@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BucketBridge</title>
+<meta name="description" content="BucketBridge is an open-source S3 client for Windows, macOS and Linux, with a desktop app and a scriptable CLI.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="assets/brand/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+<div class="wrap">
+<picture><source srcset="assets/brand/logo-dark.svg" media="(prefers-color-scheme: dark)"><img class="logo" src="assets/brand/logo.svg" alt="BucketBridge"></picture>
+<h1>An open-source S3 client for Windows, macOS and Linux</h1>
+<p>Browse buckets, transfer files with pause and resume, sync folders and script it all from the <code>bb</code> command line. One Rust core powers both the desktop app and the CLI.</p>
+<a class="btn" href="#download">Download</a>
+<a class="btn alt" href="https://github.com/anupshaw50/BucketBridge">Source on GitHub</a>
+<div class="shot"><picture><source srcset="assets/screenshots/main-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/screenshots/main-light.png" alt="BucketBridge browsing a bucket"></picture></div>
+</div>
+</header>
+
+<section id="features"><div class="wrap">
+<h2>Features</h2>
+<p class="lead">Everything you need to work with S3 and S3-compatible storage.</p>
+<div class="grid">
+<div class="card"><h3>Reliable transfers</h3><p>Multipart uploads with checksums, pause, resume and retry, a shared bandwidth cap, and resume after a restart. A cancelled transfer never leaves a partial object behind.</p></div>
+<div class="card"><h3>Folder sync</h3><p>Analyse first, then execute. Upload, download or two-way sync with optional deletes and saved filters.</p></div>
+<div class="card"><h3>Safe by default</h3><p>Keys live in the OS keychain with an optional master password. Typed confirmation guards destructive actions, and objects can be encrypted before upload.</p></div>
+<div class="card"><h3>Works beyond AWS</h3><p>Custom endpoints, path-style addressing, requester pays and per-bucket region routing. Menus hide what a server does not support.</p></div>
+<div class="card"><h3>Rich object tools</h3><p>Properties, HTTP headers, user metadata, tags, storage class, versions, previews, share links and listing export.</p></div>
+<div class="card"><h3>Scriptable</h3><p>The <code>bb</code> CLI prints NDJSON with <code>--json</code>, supports <code>--dry-run</code> and uses stable exit codes.</p></div>
+</div>
+</div></section>
+
+<section id="download" class="alt"><div class="wrap">
+<h2>Download</h2>
+<p class="lead">Grab the latest build for your system from the releases page.</p>
+<div class="grid">
+<div class="card"><h3>Windows</h3><ul><li><code>.msi</code> installer</li><li>Portable <code>.zip</code></li><li><code>bb</code> CLI archive</li></ul><p><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest">Get it</a></p><p class="soon">Coming soon</p><p><code>winget install AnupShaw.BucketBridge</code></p><p><code>scoop install bucketbridge</code></p></div>
+<div class="card"><h3>macOS</h3><ul><li>Universal <code>.dmg</code></li><li><code>bb</code> CLI archive</li></ul><p><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest">Get it</a></p><p class="soon">Coming soon</p><p><code>brew install --cask anupshaw50/tap/bucketbridge</code></p></div>
+<div class="card"><h3>Linux</h3><ul><li><code>.AppImage</code></li><li><code>.deb</code></li><li><code>.tar.gz</code></li><li><code>bb</code> CLI archive</li></ul><p><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest">Get it</a></p></div>
+</div>
+</div></section>
+
+<section id="screens"><div class="wrap">
+<h2>A closer look</h2>
+<p class="lead">Transfers, properties, folder sync and context menus.</p>
+<div class="gallery">
+<figure class="shot"><img loading="lazy" src="assets/screenshots/transfers.png" alt="Transfer queue"><figcaption>Transfer queue</figcaption></figure>
+<figure class="shot"><img loading="lazy" src="assets/screenshots/properties.png" alt="Object properties"><figcaption>Object properties</figcaption></figure>
+<figure class="shot"><img loading="lazy" src="assets/screenshots/sync.png" alt="Folder sync analysis"><figcaption>Folder sync analysis</figcaption></figure>
+<figure class="shot"><img loading="lazy" src="assets/screenshots/context-menu.png" alt="Context menu"><figcaption>Context menu</figcaption></figure>
+</div>
+</div></section>
+
+<section id="cli" class="alt"><div class="wrap">
+<h2>Command line</h2>
+<p class="lead">The same core, in your terminal.</p>
+<pre>bb account add --label work --access-key-id AKIA...
+bb ls s3://my-bucket/photos/ --long
+bb cp ./site s3://my-bucket/www/ --recursive --exclude '*.tmp'
+bb sync ./backup s3://my-bucket/backup --delete --dry-run
+bb presign s3://my-bucket/file.zip --expires 1h</pre>
+</div></section>
+
+<section id="security"><div class="wrap">
+<h2>Private and open</h2>
+<div class="grid">
+<div class="card"><h3>No telemetry</h3><p>BucketBridge talks only to the storage endpoints you configure.</p></div>
+<div class="card"><h3>Keychain storage</h3><p>Secrets stay in the OS keychain, optionally sealed with a master password.</p></div>
+<div class="card"><h3>GPL-3.0</h3><p>Free software. Read, build and improve the code on GitHub.</p></div>
+</div>
+</div></section>
+
+<footer><div class="wrap">
+<p>Built by <a href="https://github.com/anupshaw50">Anup Shaw (anupshaw50)</a></p>
+<p><a href="https://github.com/anupshaw50/BucketBridge">Source on GitHub</a> &middot; <a href="https://github.com/anupshaw50/BucketBridge/blob/main/LICENSE">GPL-3.0 licence</a></p>
+<p>Copyright (C) 2026 Anup Shaw (anupshaw50)</p>
+</div></footer>
+</body>
+</html>

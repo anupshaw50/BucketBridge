@@ -1,0 +1,33 @@
+{
+    "version": "0.1.0",
+    "description": "Desktop client for S3 and S3-compatible object storage",
+    "homepage": "https://github.com/anupshaw50/BucketBridge",
+    "license": "GPL-3.0-only",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/anupshaw50/BucketBridge/releases/download/v0.1.0/BucketBridge_0.1.0_windows_x64_portable.zip",
+            "hash": "ea9f67c7ef015157559d290db140a0c1a361c4a7553226ea0504bf32424efef1"
+        }
+    },
+    "extract_dir": "BucketBridge_0.1.0_windows_x64_portable",
+    "bin": "BucketBridge.exe",
+    "shortcuts": [
+        [
+            "BucketBridge.exe",
+            "BucketBridge"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/anupshaw50/BucketBridge/releases/download/v$version/BucketBridge_$version_windows_x64_portable.zip",
+                "hash": {
+                    "url": "https://github.com/anupshaw50/BucketBridge/releases/download/v$version/SHA256SUMS",
+                    "regex": "$sha256\\s+$basename"
+                }
+            }
+        },
+        "extract_dir": "BucketBridge_$version_windows_x64_portable"
+    }
+}

@@ -1,0 +1,58 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: BucketBridge version
+      description: Shown in the app's About box, or run `bb --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen
+      options: [Desktop app, CLI (bb)]
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: S3 provider or server
+      description: For example AWS S3, MinIO, Ceph.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant log lines. Remove access keys, secret keys, tokens and private bucket names first.
+      render: text
