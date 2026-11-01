@@ -2,30 +2,24 @@ import { Anchor, Button, Code, Group, ScrollArea, Stack, Table, Text, Title } fr
 import { IconBrandGithub, IconBook, IconBug, IconRefresh } from "@tabler/icons-react";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { BrandLogo } from "../../components/BrandLogo";
 
 export const REPOSITORY_URL = "https://github.com/anupshaw50/BucketBridge";
 
-const MIT_LICENSE = `MIT License
+const LICENSE_NOTICE = `BucketBridge
+Copyright (C) 2026 The BucketBridge authors
 
-Copyright (c) 2026 The BucketBridge authors
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 3.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.`;
+You should have received a copy of the GNU General Public License along with
+this program (the LICENSE file next to it). If not, see
+<https://www.gnu.org/licenses/>.`;
 
 /** Version, license, links, and the statement that nothing needs activating. */
 export function AboutDialog({ onClose }: { onClose: () => void }) {
@@ -40,10 +34,13 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
     <AppModal opened onClose={onClose} title="About BucketBridge" size="lg">
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start">
-          <Stack gap={2}>
-            <Title order={3}>{info?.name ?? "BucketBridge"}</Title>
+          <Stack gap={6}>
+            <BrandLogo height={36} withWordmark />
+            <Title order={3} className="bb-visually-hidden">
+              {info?.name ?? "BucketBridge"}
+            </Title>
             <Text size="sm" c="dimmed">
-              Version {info?.version ?? "unknown"} · {info?.license ?? "MIT"} license
+              Version {info?.version ?? "unknown"} · {info?.license ?? "GPL-3.0-only"} license
             </Text>
           </Stack>
         </Group>
@@ -97,7 +94,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
         </Text>
         <ScrollArea h={180} type="auto">
           <Code block fz="xs">
-            {MIT_LICENSE}
+            {LICENSE_NOTICE}
           </Code>
         </ScrollArea>
         <Group justify="flex-end">

@@ -1,6 +1,7 @@
 import { Button, EmptyState, Group, Loader, Stack, Text } from "@mantine/core";
-import { IconCloudUpload, IconUserPlus } from "@tabler/icons-react";
+import { IconUserPlus } from "@tabler/icons-react";
 import { useEffect } from "react";
+import { BrandLogo } from "../components/BrandLogo";
 import { BookmarksSection } from "../features/bookmarks/BookmarksSection";
 import { BucketTree } from "../features/buckets/BucketTree";
 import { LogPanel } from "../features/log/LogPanel";
@@ -14,7 +15,7 @@ function Welcome() {
   const model = useModel();
   return (
     <EmptyState
-      icon={<IconCloudUpload size={32} />}
+      icon={<BrandLogo height={40} />}
       title="Welcome to BucketBridge"
       description="Add an S3 account to browse buckets, transfer files and keep folders in sync. Secret keys are kept in the operating system's credential store."
       py="xl"

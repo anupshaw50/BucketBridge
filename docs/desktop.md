@@ -34,8 +34,9 @@ crates/desktop/
 ├── capabilities/
 │   └── default.json       permissions of the main window
 ├── icons/
-│   ├── icon.svg           source artwork
-│   └── ...                generated with `tauri icon`, do not edit by hand
+│   ├── icon.svg           source artwork (same as assets/brand/app-icon.svg)
+│   └── ...                generated with `pnpm tauri icon crates/desktop/icons/icon.svg
+│                          --output crates/desktop/icons`, do not edit by hand
 ├── src/
 │   ├── main.rs            the binary: calls bucketbridge_desktop::run()
 │   ├── lib.rs             run(): plugins in order, invoke handler, exit handling
@@ -567,10 +568,11 @@ overrides the list.
 
 Metadata shared by every bundle: publisher "BucketBridge contributors",
 homepage https://github.com/anupshaw50/BucketBridge, copyright "Copyright (c)
-2026 BucketBridge contributors", license MIT, category `DeveloperTool`, and the
-short and long descriptions in `tauri.conf.json`. `bundle.licenseFile` is not
-set, because it would add a click-through license agreement to the DMG and the
-MSI, which MIT does not need.
+2026 BucketBridge contributors", license GPL-3.0-only, category `DeveloperTool`,
+and the short and long descriptions in `tauri.conf.json`. `bundle.licenseFile`
+is not set, because it would add a click-through license agreement to the DMG
+and the MSI; the GPL needs no acceptance to run the program, and every archive
+ships the `LICENSE` file.
 
 Artifacts, under `target/release/bundle/` (`target/debug/bundle/` with
 `--debug`, `target/<triple>/release/bundle/` with `--target`):

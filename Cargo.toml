@@ -5,7 +5,7 @@ members = ["crates/core", "crates/cli", "crates/desktop", "tests"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-only"
 repository = "https://github.com/anupshaw50/BucketBridge"
 
 [workspace.dependencies]

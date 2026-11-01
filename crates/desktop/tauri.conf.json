@@ -53,7 +53,7 @@
     "publisher": "BucketBridge contributors",
     "homepage": "https://github.com/anupshaw50/BucketBridge",
     "copyright": "Copyright (c) 2026 BucketBridge contributors",
-    "license": "MIT",
+    "license": "GPL-3.0-only",
     "category": "DeveloperTool",
     "shortDescription": "Desktop client for S3 and S3-compatible object storage",
     "longDescription": "BucketBridge is an open-source desktop client for S3 and S3-compatible object storage. Browse buckets, move files and folders through a resumable transfer queue, and keep local folders in sync. It sends no telemetry.",

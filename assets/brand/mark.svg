@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="68" height="72" viewBox="0 0 68 72">
+  <title>BucketBridge</title>
+  <g transform="translate(0 0) scale(1)">
+    <path d="M 6 30.5 A 28 28 0 0 1 62 30.5" fill="none" stroke="#2563EB" stroke-width="5"/>
+    <rect x="0" y="36" width="68" height="8" rx="2.5" fill="#111827"/>
+    <rect x="4" y="50" width="60" height="8" rx="2.5" fill="#374151"/>
+    <rect x="9" y="64" width="50" height="8" rx="2.5" fill="#6B7280"/>
+  </g>
+</svg>

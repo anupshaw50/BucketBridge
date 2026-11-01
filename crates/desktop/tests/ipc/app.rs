@@ -217,7 +217,7 @@ fn app_info_names_the_app_and_its_folders() {
         json!({
             "name": "BucketBridge",
             "version": env!("CARGO_PKG_VERSION"),
-            "license": "MIT",
+            "license": "GPL-3.0-only",
             "repository_url": "https://github.com/anupshaw50/BucketBridge",
             "config_dir": dirs.config_dir.to_str().unwrap(),
             "data_dir": dirs.data_dir.to_str().unwrap(),

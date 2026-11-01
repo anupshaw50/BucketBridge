@@ -36,7 +36,7 @@ describe("about dialog", () => {
     const dialog = await screen.findByRole("dialog", { name: "About BucketBridge" });
     expect(await within(dialog).findByText(/Version 0\.1\.0/)).toBeInTheDocument();
     expect(within(dialog).getByText(/no activation, registration or license key is required/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Permission is hereby granted/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/GNU General Public License as published/)).toBeInTheDocument();
     for (const name of ["Source code", "Online help", "Contact and issues", "Check for updates"]) {
       await user.click(within(dialog).getByRole("button", { name }));
     }
