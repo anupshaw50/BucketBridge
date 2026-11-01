@@ -68,6 +68,7 @@ credential store.
 - [Quality checks](#quality-checks)
 - [Releases and packaging](#releases-and-packaging)
 - [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
@@ -436,6 +437,14 @@ their secrets are configured. Details: [`docs/packaging.md`](docs/packaging.md).
   password is set; use `BB_SHORTENER_TOKEN` instead.
 - Window size and position are not remembered between runs.
 
+## Roadmap
+
+Planned work is in [`ROADMAP.md`](ROADMAP.md), grouped by priority with rough
+sizes. The first priority is access and data movement: AWS IAM Identity Center
+(SSO), assume role, AWS shared configuration profiles, cross-account copy and
+move, saved sync jobs, and an overwrite policy for existing files. Suggestions
+are welcome as issues.
+
 ## Documentation
 
 | Document | Contents |
@@ -454,6 +463,7 @@ their secrets are configured. Details: [`docs/packaging.md`](docs/packaging.md).
 | [`docs/mount.md`](docs/mount.md) | The optional read-only mount |
 | [`docs/testing.md`](docs/testing.md) | Test harness and backends |
 | [`docs/packaging.md`](docs/packaging.md) | Releases, signing, licence audit |
+| [`ROADMAP.md`](ROADMAP.md) | Planned features by priority |
 | [`assets/brand/README.md`](assets/brand/README.md) | Logo files, colours and how to regenerate the icons |
 
 ## Contributing
