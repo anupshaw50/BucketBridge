@@ -1,0 +1,56 @@
+[package]
+name = "bucketbridge-desktop"
+description = "BucketBridge desktop app: Tauri 2 shell around the React UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+default-run = "bucketbridge"
+
+# The commands, the application state and the event forwarding live in the
+# library so that the integration tests in tests/ can drive them through
+# Tauri's mock runtime; the binary only calls `bucketbridge_desktop::run`.
+[lib]
+name = "bucketbridge_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bucketbridge"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[features]
+# Read-only drive mount (Linux, macOS and Windows); see docs/mount.md.
+mount = ["bucketbridge-core/mount"]
+
+[dependencies]
+bucketbridge-core.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-clipboard-manager = "2.5.0"
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-opener = "2.7.2"
+tauri-plugin-single-instance = "2.5.5"
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["registry"] }
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+aws-smithy-mocks.workspace = true
+aws-smithy-runtime-api = { workspace = true, features = ["client", "http-1x"] }
+aws-smithy-types.workspace = true
+aws-sdk-iam.workspace = true
+bucketbridge-tests.workspace = true
+reqwest.workspace = true
+tauri = { version = "2.12.5", features = ["test"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

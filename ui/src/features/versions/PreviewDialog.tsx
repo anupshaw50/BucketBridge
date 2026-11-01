@@ -1,0 +1,342 @@
+import { ActionIcon, Alert, Badge, Button, Group, Loader, NumberInput, Select, Stack, Text, Tooltip } from "@mantine/core";
+import {
+  IconAlertCircle,
+  IconBraces,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
+  IconFile,
+  IconFileText,
+  IconPhoto,
+} from "@tabler/icons-react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { toBbError } from "../../api/errors";
+import type { ObjectPreview, PreviewKind } from "../../api/types";
+import { useModel } from "../../app/context";
+import { AppModal } from "../../components/AppModal";
+import { formatBytes, formatCount, formatDateTime } from "../../lib/format";
+import { baseName, s3Uri } from "../../lib/s3keys";
+import { imageSource } from "./imageUrl";
+
+export interface PreviewDialogProps {
+  accountId: string;
+  bucket: string;
+  objectKey: string;
+  /** The version to show; `null` is the current one. */
+  versionId: string | null;
+  onClose: () => void;
+}
+
+const DEFAULT_PAGE_SIZE = 131_072;
+const PAGE_SIZES = [
+  { value: "65536", label: "64 KiB" },
+  { value: "131072", label: "128 KiB" },
+  { value: "262144", label: "256 KiB" },
+  { value: "524288", label: "512 KiB" },
+  { value: "1048576", label: "1 MiB" },
+];
+
+interface Loaded {
+  id: number;
+  preview: ObjectPreview | null;
+  error: string | null;
+}
+
+function KindIcon({ kind }: { kind: PreviewKind | null }) {
+  switch (kind) {
+    case "image":
+    case "too_large":
+      return <IconPhoto size={18} aria-hidden />;
+    case "json":
+      return <IconBraces size={18} aria-hidden />;
+    case "text":
+      return <IconFileText size={18} aria-hidden />;
+    case "binary":
+    case "empty":
+    case null:
+      return <IconFile size={18} aria-hidden />;
+  }
+}
+
+/** Shows one object, or one version of it: an image, text or JSON (page by page), or why there is nothing to show. */
+export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose }: PreviewDialogProps) {
+  const model = useModel();
+  const [request, setRequest] = useState({ id: 0, page: 0, pageSize: DEFAULT_PAGE_SIZE });
+  const [sizeChoice, setSizeChoice] = useState(String(DEFAULT_PAGE_SIZE));
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [brokenImage, setBrokenImage] = useState<string | null>(null);
+  const typedPage = useRef<number | "">("");
+
+  useEffect(() => {
+    let active = true;
+    model.api
+      .preview_object({
+        account_id: accountId,
+        bucket,
+        key: objectKey,
+        version_id: versionId,
+        page: request.page,
+        page_size: request.pageSize,
+      })
+      .then(
+        (preview) => {
+          if (active) {
+            setLoaded({ id: request.id, preview, error: null });
+          }
+        },
+        (raw: unknown) => {
+          if (active) {
+            setLoaded({ id: request.id, preview: null, error: toBbError(raw).message });
+          }
+        },
+      );
+    return () => {
+      active = false;
+    };
+  }, [model, accountId, bucket, objectKey, versionId, request]);
+
+  // While the next page loads, the last answer stays on screen (and keeps the focus).
+  const loading = loaded?.id !== request.id;
+  const current = loaded;
+  const preview = current?.preview ?? null;
+  const image = preview?.kind === "image" ? preview : null;
+  const imageBase64 = image?.image_base64 ?? null;
+  const imageType = image?.media_type ?? null;
+  const source = useMemo(
+    () => (imageBase64 !== null && imageType !== null ? imageSource(imageBase64, imageType) : null),
+    [imageBase64, imageType],
+  );
+  useEffect(() => () => source?.revoke(), [source]);
+
+  const goTo = (page: number) => {
+    if (preview !== null && !loading) {
+      const clamped = Math.max(0, Math.min(preview.page_count - 1, Math.trunc(page)));
+      setRequest((r) => ({ id: r.id + 1, page: clamped, pageSize: r.pageSize }));
+    }
+  };
+  const applySize = () => setRequest((r) => ({ id: r.id + 1, page: 0, pageSize: Number(sizeChoice) }));
+  const paged = preview !== null && (preview.kind === "text" || preview.kind === "json") && preview.page_count > 1 && !loading;
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!paged || !event.altKey) {
+      return;
+    }
+    const page = preview.page;
+    const target =
+      event.key === "ArrowLeft"
+        ? page - 1
+        : event.key === "ArrowRight"
+          ? page + 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? preview.page_count - 1
+              : null;
+    if (target !== null) {
+      event.preventDefault();
+      goTo(target);
+    }
+  };
+
+  let body: React.ReactNode;
+  if (current === null) {
+    body = (
+      <Group justify="center" p="xl">
+        <Loader size="sm" aria-label="Loading preview" />
+      </Group>
+    );
+  } else if (preview === null) {
+    body = (
+      <Alert color="red" icon={<IconAlertCircle size={16} />} title="The preview could not be loaded" role="alert">
+        <Text size="sm" style={{ overflowWrap: "anywhere" }}>
+          {current.error}
+        </Text>
+      </Alert>
+    );
+  } else if (preview.kind === "text" || preview.kind === "json") {
+    body = (
+      <pre className="bb-preview-text" tabIndex={0} aria-label={`Contents of ${baseName(objectKey)}`}>
+        {preview.text}
+      </pre>
+    );
+  } else if (preview.kind === "image") {
+    body =
+      source === null || brokenImage === source.url ? (
+        <Alert color="yellow" icon={<IconAlertCircle size={16} />} title="The image cannot be shown" role="alert">
+          This system cannot draw {preview.media_type ?? "this image type"}. Download the object to open it with another program.
+        </Alert>
+      ) : (
+        <div className="bb-preview-frame">
+          <img
+            className="bb-preview-image"
+            src={source.url}
+            alt={`Preview of ${baseName(objectKey)}`}
+            onError={() => setBrokenImage(source.url)}
+          />
+        </div>
+      );
+  } else if (preview.kind === "too_large") {
+    body = (
+      <Alert color="yellow" icon={<IconAlertCircle size={16} />} title="Too large to preview" role="status">
+        This {preview.media_type ?? "image"} is {formatBytes(preview.size)}. Images above 8 MiB are not previewed; download the object to
+        open it.
+      </Alert>
+    );
+  } else if (preview.kind === "empty") {
+    body = (
+      <Alert color="gray" icon={<IconAlertCircle size={16} />} title="Empty object" role="status">
+        This object has no content.
+      </Alert>
+    );
+  } else {
+    body = (
+      <Alert color="gray" icon={<IconAlertCircle size={16} />} title="Binary data" role="status">
+        This object holds data that is neither text nor an image ({formatBytes(preview.size)}
+        {preview.content_type === null ? "" : `, stored as ${preview.content_type}`}). Download it to open it with another program.
+      </Alert>
+    );
+  }
+
+  return (
+    <AppModal
+      opened
+      onClose={onClose}
+      size="xl"
+      title={
+        <Group gap="xs" wrap="nowrap">
+          <KindIcon kind={preview?.kind ?? null} />
+          <Text fw={600} className="bb-ellipsis" title={s3Uri(bucket, objectKey)}>
+            {`Preview: ${baseName(objectKey)}`}
+          </Text>
+          {versionId === null ? null : (
+            <Badge variant="light" size="sm" title={versionId}>
+              {`Version ${versionId}`}
+            </Badge>
+          )}
+        </Group>
+      }
+    >
+      <div onKeyDown={onKeyDown}>
+        <Stack gap="sm">
+          {preview === null ? null : (
+            <Group gap="xs" wrap="wrap">
+              <Badge variant="outline" size="sm">
+                {preview.kind === "json" ? (preview.formatted ? "JSON (formatted)" : "JSON") : preview.kind.replace("_", " ")}
+              </Badge>
+              <Text size="xs" c="dimmed">
+                {[
+                  formatBytes(preview.size),
+                  preview.content_type,
+                  preview.last_modified === null ? null : formatDateTime(preview.last_modified),
+                ]
+                  .filter((part): part is string => part !== null && part !== "")
+                  .join(" · ")}
+              </Text>
+            </Group>
+          )}
+          <div aria-busy={loading || undefined} style={loading && current !== null ? { opacity: 0.6 } : undefined}>
+            {body}
+          </div>
+          {preview !== null && (preview.kind === "text" || preview.kind === "json") ? (
+            <Group justify="space-between" wrap="wrap" gap="xs">
+              <Group gap={4} wrap="nowrap">
+                <Tooltip label="First page (Alt+Home)">
+                  <ActionIcon variant="default" aria-label="First page" disabled={!paged || preview.page === 0} onClick={() => goTo(0)}>
+                    <IconChevronsLeft size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Previous page (Alt+Left)">
+                  <ActionIcon
+                    variant="default"
+                    aria-label="Previous page"
+                    disabled={!paged || preview.page === 0}
+                    onClick={() => goTo(preview.page - 1)}
+                  >
+                    <IconChevronLeft size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <NumberInput
+                  key={`${preview.page}:${preview.page_size}`}
+                  aria-label="Page number"
+                  size="xs"
+                  w={70}
+                  min={1}
+                  max={preview.page_count}
+                  allowDecimal={false}
+                  disabled={!paged}
+                  defaultValue={preview.page + 1}
+                  onChange={(value) => {
+                    typedPage.current = typeof value === "number" ? value : "";
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && typedPage.current !== "") {
+                      event.preventDefault();
+                      goTo(typedPage.current - 1);
+                    }
+                  }}
+                />
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  disabled={!paged}
+                  onClick={() => {
+                    if (typedPage.current !== "") {
+                      goTo(typedPage.current - 1);
+                    }
+                  }}
+                >
+                  Go
+                </Button>
+                <Tooltip label="Next page (Alt+Right)">
+                  <ActionIcon
+                    variant="default"
+                    aria-label="Next page"
+                    disabled={!paged || preview.page >= preview.page_count - 1}
+                    onClick={() => goTo(preview.page + 1)}
+                  >
+                    <IconChevronRight size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Last page (Alt+End)">
+                  <ActionIcon
+                    variant="default"
+                    aria-label="Last page"
+                    disabled={!paged || preview.page >= preview.page_count - 1}
+                    onClick={() => goTo(preview.page_count - 1)}
+                  >
+                    <IconChevronsRight size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <Text size="xs" c="dimmed" aria-live="polite">
+                  {`Page ${formatCount(preview.page + 1)} of ${formatCount(preview.page_count)}`}
+                </Text>
+              </Group>
+              <Group gap="xs" wrap="nowrap">
+                <Text size="xs" c="dimmed">
+                  {`Bytes ${formatCount(preview.offset)} to ${formatCount(Math.max(preview.offset, preview.offset + preview.length - 1))}`}
+                </Text>
+                <Select
+                  aria-label="Page size"
+                  size="xs"
+                  w={100}
+                  allowDeselect={false}
+                  data={PAGE_SIZES}
+                  value={sizeChoice}
+                  onChange={(value) => setSizeChoice(value ?? String(DEFAULT_PAGE_SIZE))}
+                />
+                <Button size="compact-xs" variant="default" onClick={applySize}>
+                  Apply
+                </Button>
+              </Group>
+            </Group>
+          ) : null}
+          <Group justify="flex-end">
+            <Button variant="default" size="xs" onClick={onClose}>
+              Close
+            </Button>
+          </Group>
+        </Stack>
+      </div>
+    </AppModal>
+  );
+}

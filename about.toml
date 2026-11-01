@@ -1,0 +1,43 @@
+# cargo-about configuration. Generates THIRD_PARTY_LICENSES.html from about.hbs:
+#
+#   cargo about generate --locked --workspace --fail -o THIRD_PARTY_LICENSES.html about.hbs
+#
+# The release workflow ships the result next to every artefact.
+# Reference: https://embarkstudios.github.io/cargo-about/
+
+# Same licences as [licenses] allow in deny.toml. The order is the preference
+# when a crate offers a choice, so "MIT OR Apache-2.0" is listed under MIT.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "MIT-0",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "MPL-2.0",
+]
+
+# The platforms BucketBridge ships for, as in deny.toml.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+]
+
+# Build tools and test-only crates are not part of any shipped binary.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Unpublished workspace members fall under the project's own licence.
+private = { ignore = true }
+
+# Built-in clarifications for crates whose licence files are packaged
+# incompletely: chrono, the macOS core-foundation family ("cocoa"), the GTK
+# system bindings ("gtk") under Tauri's Linux webview, and rustls.
+workarounds = ["chrono", "cocoa", "gtk", "rustls"]

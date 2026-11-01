@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BucketBridge third-party licences</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; line-height: 1.5; margin: 0; padding: 1rem; }
+    main { max-width: 60rem; margin: 0 auto; }
+    h3 { margin-bottom: 0.25rem; }
+    ul.crates { columns: 16rem 3; margin: 0.25rem 0 0.75rem; padding-left: 1.25rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; max-height: 24rem; overflow-y: auto; padding: 0.75rem; border: 1px solid rgba(128, 128, 128, 0.5); border-radius: 4px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Third-party licences</h1>
+  <p>BucketBridge is distributed under the MIT licence. The desktop application and the <code>bb</code> command-line tool also contain the Rust crates listed below. Each crate is used under the licence shown with it, and the full licence text follows the list of crates that use it.</p>
+
+  <h2>Licences</h2>
+  <ul>
+    {{#each overview}}
+    <li><a href="#{{id}}">{{name}}</a></li>
+    {{/each}}
+  </ul>
+
+  <h2>Licence texts</h2>
+  {{#each licenses}}
+  <section>
+    <h3{{#if first_of_kind}} id="{{id}}"{{/if}}>{{name}}</h3>
+    <p>Used by:</p>
+    <ul class="crates">
+      {{#each used_by}}
+      {{#if crate.source}}
+      <li><a href="https://crates.io/crates/{{crate.name}}/{{crate.version}}">{{crate.name}} {{crate.version}}</a></li>
+      {{/if}}
+      {{/each}}
+    </ul>
+    <pre>{{text}}</pre>
+  </section>
+  {{/each}}
+</main>
+</body>
+</html>

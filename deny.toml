@@ -1,0 +1,86 @@
+# cargo-deny policy for the BucketBridge workspace.
+#
+# Run all checks locally with `cargo deny check` (docs/development.md).
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# The platforms BucketBridge ships for (docs/packaging.md). Dependencies that
+# only apply to other targets (Android, iOS, BSD, WebAssembly) are ignored.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+]
+# Include optional features, such as the MinIO harness in bucketbridge-tests.
+all-features = true
+
+[advisories]
+# Every vulnerability advisory fails the check; cargo-deny has no setting that
+# lowers that. To accept one temporarily, add its ID to `ignore` together with
+# a reason, for example:
+#   { id = "RUSTSEC-0000-0000", reason = "why it does not apply; tracking link" }
+ignore = []
+# Unmaintained and unsound advisories fail the check when they affect a crate
+# that a workspace member depends on directly, because only those can be
+# replaced in this repository. Advisories for transitive dependencies (for
+# example the GTK 3 bindings under Tauri's Linux webview) are left to the
+# upstream projects and do not block CI.
+unmaintained = "workspace"
+unsound = "workspace"
+# A yanked version in Cargo.lock fails the check. Fix it with
+# `cargo update -p <crate>`.
+yanked = "deny"
+
+[licenses]
+# Every crate must be usable under these licences. Anything not listed fails
+# the check, which includes GPL, LGPL, and AGPL. Do not add a copyleft licence
+# here: if a dependency really needs one, add a crate-scoped entry to
+# `exceptions` below with a comment that justifies it.
+allow = [
+    # Permissive licences.
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Zlib",
+    # Unicode data licence: unicode-ident and the ICU4X crates under url/idna.
+    "Unicode-3.0",
+    # File-level copyleft, required by Tauri's HTML/CSS parser stack
+    # (cssparser, selectors, dtoa-short) and by option-ext under `directories`.
+    # The crates are used unmodified from crates.io, where their source stays
+    # published, and their licence text ships in THIRD_PARTY_LICENSES.html.
+    "MPL-2.0",
+]
+# Licences detected from a licence file (rather than a manifest expression)
+# must match the SPDX text closely.
+confidence-threshold = 0.93
+# The list above is a policy, not an inventory: unused entries are fine.
+unused-allowed-license = "allow"
+exceptions = []
+
+[licenses.private]
+# Unpublished workspace members (publish = false) fall under the project's own
+# MIT licence and are not checked.
+ignore = true
+
+[bans]
+# Tauri and the AWS SDK pull in several major versions of some crates (for
+# example windows-sys and hashbrown). Report duplicates without failing.
+multiple-versions = "warn"
+# No `*` version requirements. Path dependencies between workspace members are
+# exempt where cargo allows them (private crates and dev-dependencies).
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io. Git dependencies and other registries fail the check.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

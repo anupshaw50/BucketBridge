@@ -1,0 +1,344 @@
+//! The NDJSON records printed with `--json`, one per item. Field names are
+//! stable and documented in `docs/cli.md`. Listings of buckets and objects
+//! print the IPC contract types (`Bucket`, `ObjectEntry`) unchanged.
+
+use bucketbridge_core::BbError;
+use bucketbridge_core::model::{Account, ObjectVersion, Side, SyncAction, SyncDirection};
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+
+/// `bb ls --versions`: a version, a delete marker, or a folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VersionRecord {
+    /// Object key; folders end with `/`.
+    pub key: String,
+    /// Version ID; `null` for folders.
+    pub version_id: Option<String>,
+    /// The current version of the key.
+    pub is_latest: bool,
+    /// A delete marker rather than data.
+    pub is_delete_marker: bool,
+    /// Size in bytes (0 for delete markers and folders).
+    pub size: u64,
+    /// Entity tag without quotes.
+    pub etag: Option<String>,
+    /// Last modification time.
+    pub last_modified: Option<DateTime<Utc>>,
+    /// Storage class.
+    pub storage_class: Option<String>,
+    /// A common prefix (folder) of a non-recursive listing.
+    pub is_prefix: bool,
+}
+
+impl VersionRecord {
+    /// A folder row.
+    pub fn prefix(key: &str) -> Self {
+        VersionRecord {
+            key: key.to_owned(),
+            version_id: None,
+            is_latest: false,
+            is_delete_marker: false,
+            size: 0,
+            etag: None,
+            last_modified: None,
+            storage_class: None,
+            is_prefix: true,
+        }
+    }
+}
+
+impl From<&ObjectVersion> for VersionRecord {
+    fn from(version: &ObjectVersion) -> Self {
+        VersionRecord {
+            key: version.key.clone(),
+            version_id: Some(version.version_id.clone()),
+            is_latest: version.is_latest,
+            is_delete_marker: version.is_delete_marker,
+            size: version.size,
+            etag: version.etag.clone(),
+            last_modified: version.last_modified,
+            storage_class: version.storage_class.clone(),
+            is_prefix: false,
+        }
+    }
+}
+
+/// `bb mb` and `bb rb`: the bucket that was created or removed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BucketRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Region requested with `--region` (`null`: the default).
+    pub region: Option<String>,
+}
+
+/// `bb rm`: one object or version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeleteRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Object key.
+    pub key: String,
+    /// The version deleted with `--versions` or `--version-id`; `null`
+    /// otherwise.
+    pub version_id: Option<String>,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Whether the object or version was deleted.
+    pub deleted: bool,
+    /// Why it could not be deleted.
+    pub error: Option<BbError>,
+}
+
+/// `bb restore-version`: the version that was copied over its key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RestoreRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Object key.
+    pub key: String,
+    /// The version that was restored.
+    pub restored_version_id: String,
+    /// The new current version, when the server reports one.
+    pub version_id: Option<String>,
+    /// Entity tag of the new version, without quotes.
+    pub etag: Option<String>,
+    /// Size in bytes.
+    pub size: u64,
+}
+
+/// `bb cp` and `bb mv`: one file or object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CopyRecord {
+    /// Source: a local path or an `s3://` URI.
+    pub source: String,
+    /// Destination: a local path or an `s3://` URI.
+    pub destination: String,
+    /// Size in bytes, when known.
+    pub size: Option<u64>,
+    /// Entity tag of the new object, without quotes.
+    pub etag: Option<String>,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Whether the copy (upload, download or server-side copy) was made.
+    pub copied: bool,
+    /// Whether the source was deleted (`bb mv` only).
+    pub source_deleted: bool,
+    /// Why the copy or the source deletion failed.
+    pub error: Option<BbError>,
+}
+
+/// `bb presign`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PresignRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Object key.
+    pub key: String,
+    /// `get` or `put`.
+    pub method: &'static str,
+    /// Lifetime in seconds.
+    pub expires_secs: u64,
+    /// When the URL stops working.
+    pub expires_at: DateTime<Utc>,
+    /// The presigned URL.
+    pub url: String,
+    /// The short link, with `--shorten`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_url: Option<String>,
+}
+
+/// `bb mpu list`: one uncompleted multipart upload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UploadRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Object key.
+    pub key: String,
+    /// Upload ID.
+    pub upload_id: String,
+    /// When the upload was started.
+    pub initiated: Option<DateTime<Utc>>,
+    /// Storage class of the future object.
+    pub storage_class: Option<String>,
+    /// Who started the upload.
+    pub initiator: Option<String>,
+}
+
+/// `bb account list` and `bb account add`: a stored account (the secrets
+/// themselves are never printed, only the references to them).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AccountRecord {
+    /// The account as in `docs/desktop-api.md`.
+    #[serde(flatten)]
+    pub account: Account,
+    /// Whether it is the default account.
+    pub is_default: bool,
+}
+
+/// `bb account remove` and `bb account default`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AccountChangeRecord {
+    /// Account ID.
+    pub id: String,
+    /// Account label.
+    pub label: String,
+}
+
+/// `bb mpu abort`: one upload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AbortRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Object key.
+    pub key: String,
+    /// Upload ID.
+    pub upload_id: String,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Whether the upload was aborted.
+    pub aborted: bool,
+    /// Why it could not be aborted.
+    pub error: Option<BbError>,
+}
+
+/// `bb sync`: one record per row that needs attention, then one summary.
+/// The `type` field tells them apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SyncRecord {
+    /// A file the plan copies or deletes, or cannot sync.
+    Row(SyncRowRecord),
+    /// How the whole run ended.
+    Summary(SyncSummaryRecord),
+}
+
+/// `bb sync`: one row of the plan, printed when it finished (or, with
+/// `--dry-run`, when it is planned).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SyncRowRecord {
+    /// The stored plan that runs the row; `null` for a dry run and when
+    /// nothing was left to execute.
+    pub plan_id: Option<String>,
+    /// Path below the local folder and the S3 prefix, with `/` separators.
+    pub path: String,
+    /// `copy`, `delete` or `failed` (a file the analysis could not plan).
+    pub action: SyncAction,
+    /// The side a copy writes to or a delete removes from; `null` for
+    /// `failed`.
+    pub target: Option<Side>,
+    /// The local file; `null` for `failed`.
+    pub local: Option<String>,
+    /// The `s3://` URI of the object; `null` for `failed`.
+    pub remote: Option<String>,
+    /// Size in bytes of the file that is copied or deleted, when known.
+    pub size: Option<u64>,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Whether the copy or deletion was made.
+    pub done: bool,
+    /// Why the row failed.
+    pub error: Option<String>,
+}
+
+/// `bb sync`: the last record. Every row of the plan is counted in exactly
+/// one of `equal`, `copied`, `deleted`, `failed` and `pending`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SyncSummaryRecord {
+    /// The plan left in the store, which `--resume` continues; `null` when
+    /// none is left (a dry run, nothing to do, or every row done).
+    pub plan_id: Option<String>,
+    /// `upload`, `download` or `bidirectional`.
+    pub direction: SyncDirection,
+    /// Whether `--delete` was given.
+    pub delete: bool,
+    /// The local folder (absolute).
+    pub local: String,
+    /// The S3 folder, `s3://bucket/prefix/`.
+    pub remote: String,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Whether the run was interrupted before it finished.
+    pub cancelled: bool,
+    /// Rows where both sides already agree.
+    pub equal: usize,
+    /// Rows copied.
+    pub copied: usize,
+    /// Rows deleted.
+    pub deleted: usize,
+    /// Rows that could not be synced, or failed while running.
+    pub failed: usize,
+    /// Rows still to do: not attempted (interrupted), or with `--dry-run`
+    /// the rows a real run would execute.
+    pub pending: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bucketbridge_core::ErrorKind;
+    use serde_json::json;
+
+    #[test]
+    fn field_names_are_stable() {
+        let record = DeleteRecord {
+            bucket: "b".into(),
+            key: "k".into(),
+            version_id: None,
+            dry_run: false,
+            deleted: false,
+            error: Some(BbError {
+                code: ErrorKind::Auth,
+                message: "denied".into(),
+            }),
+        };
+        assert_eq!(
+            serde_json::to_value(&record).unwrap(),
+            json!({
+                "bucket": "b",
+                "key": "k",
+                "version_id": null,
+                "dry_run": false,
+                "deleted": false,
+                "error": { "code": "auth", "message": "denied" }
+            })
+        );
+        let copy = CopyRecord {
+            source: "s3://a/x".into(),
+            destination: "s3://b/y".into(),
+            size: Some(3),
+            etag: None,
+            dry_run: true,
+            copied: false,
+            source_deleted: false,
+            error: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&copy).unwrap(),
+            json!({
+                "source": "s3://a/x",
+                "destination": "s3://b/y",
+                "size": 3,
+                "etag": null,
+                "dry_run": true,
+                "copied": false,
+                "source_deleted": false,
+                "error": null
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(VersionRecord::prefix("dir/")).unwrap(),
+            json!({
+                "key": "dir/",
+                "version_id": null,
+                "is_latest": false,
+                "is_delete_marker": false,
+                "size": 0,
+                "etag": null,
+                "last_modified": null,
+                "storage_class": null,
+                "is_prefix": true
+            })
+        );
+    }
+}

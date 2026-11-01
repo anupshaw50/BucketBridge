@@ -1,0 +1,406 @@
+# Release build. A pushed v* tag builds every artefact, writes SHA256SUMS,
+# and attaches everything to a draft GitHub release. A manual run (workflow_dispatch) is a dry run:
+# it builds and checksums the same artefacts and keeps them as a workflow
+# artifact named release-assets, but creates no release.
+#
+# Signing is optional and switches on per platform when its secrets exist
+# (docs/packaging.md lists them). Without them the builds still succeed:
+# unsigned on Windows, ad-hoc signed and not notarised on macOS.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # aws-lc-sys needs NASM on Windows x64 unless it may use the prebuilt NASM
+  # objects shipped in the crate. The variable has no effect elsewhere.
+  AWS_LC_SYS_PREBUILT_NASM: "1"
+  NODE_VERSION: "26"
+  # pnpm major used when package.json does not pin pnpm (scripts/ci/pnpm-version.mjs).
+  PNPM_FALLBACK_VERSION: "12"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  notices:
+    name: Third-party licence notice (cargo-about)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-about
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9
+          fallback: none
+
+      - name: Generate THIRD_PARTY_LICENSES.html
+        run: cargo about generate --locked --workspace --fail --output-file THIRD_PARTY_LICENSES.html about.hbs
+
+      # The build jobs download this artifact by name.
+      - name: Upload THIRD_PARTY_LICENSES.html
+        uses: actions/upload-artifact@v7
+        with:
+          name: third-party-licenses
+          path: THIRD_PARTY_LICENSES.html
+          if-no-files-found: error
+          overwrite: true
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: notices
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+          - platform: macos
+            os: macos-latest
+          # The oldest supported Ubuntu runner: its glibc is the minimum the
+          # Linux artefacts need on the target system.
+          - platform: linux
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    env:
+      WINDOWS_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
+      MACOS_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+      MACOS_NOTARIZATION: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL || 'http://timestamp.digicert.com' }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux system packages
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential curl wget file pkg-config \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Resolve pnpm version
+        id: pnpm-version
+        run: node scripts/ci/pnpm-version.mjs "$PNPM_FALLBACK_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ steps.pnpm-version.outputs.version }}
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Read release metadata
+        id: meta
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: |
+          if [ -n "$TAG" ]; then
+            node scripts/ci/release.mjs info --tag "$TAG" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/ci/release.mjs info >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the third-party licence notice
+        uses: actions/download-artifact@v8
+        with:
+          name: third-party-licenses
+          path: ${{ runner.temp }}/notices
+
+      # `pnpm tauri build` builds the UI itself through the beforeBuildCommand
+      # in crates/desktop/tauri.conf.json, and it produces the only desktop
+      # executables that are shipped: a plain `cargo build` of the desktop
+      # crate is a development binary that loads the UI from the dev server.
+
+      # The macOS job builds a universal bb in its own section below.
+      - name: Build bb
+        if: matrix.platform == 'windows' || matrix.platform == 'linux'
+        run: cargo build --release --locked -p bucketbridge-cli
+
+      # ---------------------------------------------------------------- Windows
+
+      - name: Import the Windows code-signing certificate
+        id: wincert
+        if: matrix.platform == 'windows' && env.WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          try {
+            $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $imported = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          } finally {
+            Remove-Item -LiteralPath $pfx -Force
+          }
+          $cert = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+          if (-not $cert) { throw 'WINDOWS_CERTIFICATE does not contain a certificate with a private key.' }
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      - name: Build the Windows installer
+        if: matrix.platform == 'windows'
+        env:
+          CERT_THUMBPRINT: ${{ steps.wincert.outputs.thumbprint }}
+        run: |
+          if [ -n "$CERT_THUMBPRINT" ]; then
+            # Tauri signs the executable inside the MSI and the MSI itself.
+            config="$RUNNER_TEMP/tauri-windows-signing.json"
+            node -e 'const e = process.env; process.stdout.write(JSON.stringify({ bundle: { windows: {
+              certificateThumbprint: e.CERT_THUMBPRINT, digestAlgorithm: "sha256",
+              timestampUrl: e.WINDOWS_TIMESTAMP_URL, tsp: true } } }));' > "$config"
+            pnpm tauri build --bundles msi --config "$config"
+          else
+            echo "::warning::WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD are not set: the Windows artefacts are unsigned."
+            pnpm tauri build --bundles msi
+          fi
+
+      - name: Stage the Windows installer and executables
+        if: matrix.platform == 'windows'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          DESKTOP_BIN: ${{ steps.meta.outputs.desktop_bin }}
+        run: |
+          node scripts/ci/release.mjs pick target/release/bundle/msi .msi "dist/BucketBridge_${VERSION}_windows_x64.msi"
+          mkdir -p "$RUNNER_TEMP/stage"
+          cp "target/release/${DESKTOP_BIN}.exe" "$RUNNER_TEMP/stage/BucketBridge.exe"
+          cp target/release/bb.exe "$RUNNER_TEMP/stage/bb.exe"
+
+      # tauri build leaves an unsigned copy of the executable in target/release,
+      # so the executables for the zip archives are signed here.
+      - name: Sign the portable Windows executables
+        if: matrix.platform == 'windows' && env.WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        env:
+          CERT_THUMBPRINT: ${{ steps.wincert.outputs.thumbprint }}
+        run: |
+          $kitsBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $signtool = Get-ChildItem -LiteralPath $kitsBin -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object -Property { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe was not found under $kitsBin" }
+          $files = @(
+            (Join-Path $env:RUNNER_TEMP 'stage\BucketBridge.exe'),
+            (Join-Path $env:RUNNER_TEMP 'stage\bb.exe')
+          )
+          & $signtool sign /fd sha256 /sha1 $env:CERT_THUMBPRINT /d BucketBridge /tr $env:WINDOWS_TIMESTAMP_URL /td sha256 @files
+          if ($LASTEXITCODE -ne 0) { throw "signtool sign failed with exit code $LASTEXITCODE" }
+          & $signtool verify /pa @files
+          if ($LASTEXITCODE -ne 0) { throw "signtool verify failed with exit code $LASTEXITCODE" }
+
+      - name: Package the Windows archives
+        if: matrix.platform == 'windows'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          notice="$RUNNER_TEMP/notices/THIRD_PARTY_LICENSES.html"
+          node scripts/ci/archive.mjs "dist/BucketBridge_${VERSION}_windows_x64_portable.zip" \
+            "BucketBridge.exe=$RUNNER_TEMP/stage/BucketBridge.exe" LICENSE=LICENSE "THIRD_PARTY_LICENSES.html=$notice"
+          node scripts/ci/archive.mjs "dist/bb_${VERSION}_windows_x64.zip" \
+            "bb.exe=$RUNNER_TEMP/stage/bb.exe" LICENSE=LICENSE "THIRD_PARTY_LICENSES.html=$notice"
+
+      # ------------------------------------------------------------------ macOS
+
+      - name: Build the macOS disk image
+        if: matrix.platform == 'macos'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # The Tauri CLI treats a variable that is set but empty as configured,
+          # so everything that does not apply to this build is unset.
+          if [ "$MACOS_SIGNING" != true ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            # An ad-hoc signature keeps macOS on Apple silicon from reporting
+            # the downloaded app as damaged.
+            export APPLE_SIGNING_IDENTITY=-
+            echo "::warning::APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD are not set: the app is ad-hoc signed and not notarised."
+          elif [ "$MACOS_NOTARIZATION" != true ]; then
+            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            echo "::warning::APPLE_ID, APPLE_PASSWORD, and APPLE_TEAM_ID are not all set: the app is signed but not notarised."
+          fi
+          pnpm tauri build --target universal-apple-darwin --bundles dmg
+
+      - name: Build bb (universal)
+        if: matrix.platform == 'macos'
+        run: |
+          cargo build --release --locked -p bucketbridge-cli --target aarch64-apple-darwin
+          cargo build --release --locked -p bucketbridge-cli --target x86_64-apple-darwin
+          mkdir -p "$RUNNER_TEMP/stage"
+          lipo -create -output "$RUNNER_TEMP/stage/bb" \
+            target/aarch64-apple-darwin/release/bb target/x86_64-apple-darwin/release/bb
+          lipo "$RUNNER_TEMP/stage/bb" -verify_arch arm64 x86_64
+          codesign --force --sign - "$RUNNER_TEMP/stage/bb"
+
+      - name: Stage the macOS artefacts
+        if: matrix.platform == 'macos'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          dmg="dist/BucketBridge_${VERSION}_macos_universal.dmg"
+          node scripts/ci/release.mjs pick target/universal-apple-darwin/release/bundle/dmg .dmg "$dmg"
+          if [ "$MACOS_SIGNING" = true ] && [ "$MACOS_NOTARIZATION" = true ]; then
+            # Tauri notarises and staples the app inside the image; the disk
+            # image itself is notarised and stapled here.
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+          fi
+          node scripts/ci/archive.mjs "dist/bb_${VERSION}_macos_universal.tar.gz" \
+            "bb=$RUNNER_TEMP/stage/bb" LICENSE=LICENSE "THIRD_PARTY_LICENSES.html=$RUNNER_TEMP/notices/THIRD_PARTY_LICENSES.html"
+
+      # ------------------------------------------------------------------ Linux
+
+      - name: Build the Linux packages
+        if: matrix.platform == 'linux'
+        run: pnpm tauri build --bundles appimage,deb
+
+      - name: Stage the Linux artefacts
+        if: matrix.platform == 'linux'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          DESKTOP_BIN: ${{ steps.meta.outputs.desktop_bin }}
+        run: |
+          notice="$RUNNER_TEMP/notices/THIRD_PARTY_LICENSES.html"
+          node scripts/ci/release.mjs pick target/release/bundle/appimage .AppImage "dist/BucketBridge_${VERSION}_linux_x86_64.AppImage"
+          node scripts/ci/release.mjs pick target/release/bundle/deb .deb "dist/BucketBridge_${VERSION}_linux_amd64.deb"
+          node scripts/ci/archive.mjs "dist/BucketBridge_${VERSION}_linux_x86_64.tar.gz" \
+            "bucketbridge=target/release/${DESKTOP_BIN}" LICENSE=LICENSE "THIRD_PARTY_LICENSES.html=$notice"
+          node scripts/ci/archive.mjs "dist/bb_${VERSION}_linux_x86_64.tar.gz" \
+            bb=target/release/bb LICENSE=LICENSE "THIRD_PARTY_LICENSES.html=$notice"
+
+      # -------------------------------------------------------------------- all
+
+      - name: Upload the artefacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  checksums:
+    name: Checksums
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download the build artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bundle-*
+          merge-multiple: true
+          path: dist
+
+      - name: Download the third-party licence notice
+        uses: actions/download-artifact@v8
+        with:
+          name: third-party-licenses
+          path: dist
+
+      - name: Write SHA256SUMS
+        run: node scripts/ci/sha256sums.mjs dist
+
+      - name: Verify SHA256SUMS
+        working-directory: dist
+        run: sha256sum --check --strict SHA256SUMS
+
+      - name: Upload the release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  draft-release:
+    name: Draft GitHub release
+    needs: checksums
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="Check downloads against SHA256SUMS: \`sha256sum --check --ignore-missing SHA256SUMS\` on Linux, \`shasum -a 256 --check --ignore-missing SHA256SUMS\` on macOS. See docs/packaging.md for Windows."
+          if is_draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2> "$RUNNER_TEMP/gh-view.err"); then
+            if [ "$is_draft" != true ]; then
+              echo "::error::Release $TAG is already published; its assets are left unchanged."
+              exit 1
+            fi
+            gh release upload "$TAG" dist/* --clobber
+          elif grep -q "release not found" "$RUNNER_TEMP/gh-view.err"; then
+            gh release create "$TAG" dist/* --draft --verify-tag --title "BucketBridge ${TAG#v}" --notes "$notes" --generate-notes
+          else
+            cat "$RUNNER_TEMP/gh-view.err" >&2
+            exit 1
+          fi

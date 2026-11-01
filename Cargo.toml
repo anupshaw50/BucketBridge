@@ -1,0 +1,147 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/cli", "crates/desktop", "tests"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/anupshaw50/BucketBridge"
+
+[workspace.dependencies]
+# Workspace crates.
+bucketbridge-core = { path = "crates/core", version = "0.1.0" }
+bucketbridge-tests = { path = "tests" }
+
+# AWS SDK. Every aws-sdk-* crate must turn default features off and enable
+# exactly `default-https-client` and `rt-tokio` (hyper 1 + rustls 0.23): the
+# default `rustls` feature pulls in the legacy hyper 0.14 / rustls 0.21 stack,
+# which has RustSec advisories and fails `cargo deny`. Check with
+# `cargo tree --workspace --all-features -i hyper@0.14` (must find nothing).
+aws-sdk-s3 = { version = "1.156.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+# STS GetSessionToken for MFA sessions (crates/core/src/mfa.rs).
+aws-sdk-iam = { version = "1.133.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-sts = { version = "1.123.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+# CloudFront distributions and invalidations (crates/core/src/cloudfront.rs).
+aws-sdk-cloudfront = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-smithy-async = "1.3.1"
+# The SDK's hyper 1.x client (rustls with aws-lc-rs), used to build the
+# proxy-aware HTTP client (crates/core/src/proxy.rs).
+aws-smithy-http-client = { version = "1.5.2", features = ["rustls-aws-lc", "rt-tokio"] }
+aws-smithy-runtime-api = "1.19.2"
+aws-smithy-types = "1.9.1"
+# The SDK's own checksum implementations (crc32, crc32c, crc64nvme, sha1,
+# sha256); the transfer engine computes upload checksums with them.
+aws-smithy-checksums = "0.65.0"
+
+# Secrets, master password and proxies (crates/core/src/{secrets,proxy}).
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+base64 = "0.22.1"
+getrandom = "0.4.3"
+hyper-rustls = { version = "0.27.10", default-features = false, features = ["aws-lc-rs", "http1", "http2", "tls12"] }
+keyring-core = "1.0.1"
+percent-encoding = "2.3.2"
+rustls = { version = "0.23.31", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls-native-certs = "0.8.5"
+tower-service = "0.3.3"
+# OS keychain stores, one per platform; crates/core selects them per target.
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+windows-native-keyring-store = { version = "1.1.0", default-features = false }
+zbus-secret-service-keyring-store = { version = "1.0.1", features = ["crypto-rust"] }
+
+# General purpose.
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4.6.7", features = ["derive"] }
+directories = "6.0.0"
+futures = "0.3.34"
+http = "1.5.0"
+# Content-MD5 of S3 requests that require an integrity header.
+md-5 = "0.11.0"
+http-body = "1.1.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7.20"
+# Read-only mount (optional `mount` feature); no libfuse needed on Linux.
+fuser = { version = "0.18", default-features = false }
+# Read-only mount on Windows (optional `mount` feature): the Dokan user-mode
+# library, installed by the user like macFUSE.
+dokan = "0.3.1"
+dokan-sys = "0.3.1"
+widestring = "0.4.3"
+winapi = { version = "0.3.9", features = ["ntdef", "ntstatus", "winnt"] }
+toml = "1.1.8"
+uuid = { version = "1.29.0", features = ["v4"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
+
+# Export of listings (crates/core/src/export.rs). Parquet goes through the
+# crate's low-level writer: no arrow, no compression codec except Snappy (pure
+# Rust). XLSX is written in constant-memory mode, so a listing of any size
+# needs bounded memory. calamine reads XLSX files back in tests.
+calamine = "0.37.0"
+parquet = { version = "60.1.0", default-features = false, features = ["snap"] }
+rust_xlsxwriter = { version = "0.102.0", features = ["constant_memory"] }
+# Opens the XLSX package in tests; the features rust_xlsxwriter already uses.
+zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
+
+# Client-side encryption (crates/core/src/cse.rs): gzip (pure Rust backend) and
+# zstd (the C library, built by zstd-sys) compression before AES-256-GCM.
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
+zstd = { version = "0.14.3", default-features = false }
+
+# Filters, sync and the event log. regex-automata is the engine globset uses; it
+# is used directly (same features as globset) so globs match the same bytes on
+# every OS.
+csv = "1.4.0"
+globset = { version = "0.4.21", default-features = false }
+regex-automata = { version = "0.4.18", default-features = false, features = ["std", "perf", "syntax", "meta", "nfa", "hybrid"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std"] }
+# Unicode normalisation (NFC) for the sync planner's local-name collision checks
+# (MIT OR Apache-2.0, with the Unicode data licence).
+unicode-normalization = { version = "0.1.26", default-features = false, features = ["std"] }
+
+# Test support.
+assert_cmd = "2.2.2"
+aws-smithy-mocks = "0.3.0"
+bytes = "1.12.1"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
+reqwest = { version = "0.13.5", default-features = false }
+s3s = "0.17.0"
+s3s-fs = "0.17.0"
+testcontainers-modules = { version = "0.15.0", default-features = false, features = ["aws-lc-rs", "minio"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "tls12"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+expect_used = "warn"
+todo = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# Key derivation (vault and client-side encryption) at 64 MiB and more is far
+# too slow unoptimized; the tests derive many keys.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+strip = true

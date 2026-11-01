@@ -1,0 +1,43 @@
+[package]
+name = "bucketbridge-tests"
+description = "Integration-test harness and integration tests for BucketBridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+# Run the MinIO-only tests against a MinIO container (needs Docker and
+# BB_TEST_BACKEND=minio).
+minio = ["dep:testcontainers-modules"]
+
+[dependencies]
+base64.workspace = true
+bucketbridge-core.workspace = true
+bytes.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+# The object store checks the MD5 of SSE-C keys like S3 does.
+md-5.workspace = true
+s3s.workspace = true
+s3s-fs.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+testcontainers-modules = { workspace = true, optional = true }
+
+[dev-dependencies]
+calamine.workspace = true
+chrono.workspace = true
+csv.workspace = true
+futures.workspace = true
+md-5.workspace = true
+parquet.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+# The queue tests relay connections through a proxy they can break.
+tokio = { workspace = true, features = ["io-util"] }
+
+[lints]
+workspace = true

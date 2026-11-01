@@ -1,0 +1,39 @@
+# Environment
+.env
+*.env.local/
+/secrets/
+
+# OS
+.DS_Store
+.AppleDouble
+.Library/
+
+# Rust
+/target
+
+# Coding agent files
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
+GEMINI.md
+.gemini/
+.codex/
+.cursor/
+.cursorrules
+.github/copilot-instructions.md
+.windsurfrules
+.clinerules
+.continue/
+.aider*
+
+# Node / UI
+node_modules/
+ui/dist/
+ui/coverage/
+ui/test-results/
+ui/playwright-report/
+*.tsbuildinfo
+
+# Tauri generated
+crates/desktop/gen/

@@ -1,0 +1,97 @@
+[package]
+name = "bucketbridge-core"
+description = "Core library of BucketBridge: data model, configuration, and the S3 transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Read-only mount of a bucket: FUSE on Linux and macOS, Dokan on Windows; see
+# docs/mount.md.
+mount = ["dep:fuser", "dep:dokan", "dep:dokan-sys", "dep:winapi", "dep:widestring"]
+
+[dependencies]
+aes-gcm.workspace = true
+argon2.workspace = true
+aws-sdk-cloudfront.workspace = true
+aws-sdk-iam.workspace = true
+aws-sdk-s3.workspace = true
+aws-sdk-sts.workspace = true
+aws-smithy-async.workspace = true
+aws-smithy-checksums.workspace = true
+aws-smithy-http-client.workspace = true
+# `test-util` supplies `RuntimeComponentsBuilder::for_tests`: the shortener calls an HTTP connector
+# outside any SDK client, and a connector only reads the timeouts and the sleep implementation.
+aws-smithy-runtime-api = { workspace = true, features = ["client", "http-1x", "test-util"] }
+aws-smithy-types = { workspace = true, features = ["http-body-1-x"] }
+base64.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+csv.workspace = true
+directories.workspace = true
+flate2.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+globset.workspace = true
+http.workspace = true
+http-body.workspace = true
+# The proxy-aware HTTP client (src/proxy.rs) uses hyper's client side.
+hyper = { workspace = true, features = ["client", "http2"] }
+hyper-rustls.workspace = true
+hyper-util = { workspace = true, features = ["client-legacy", "client-proxy", "http1", "http2"] }
+keyring-core.workspace = true
+md-5.workspace = true
+parquet.workspace = true
+percent-encoding.workspace = true
+regex-automata.workspace = true
+rust_xlsxwriter.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+tokio-rustls.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tower-service.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+unicode-normalization.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+zstd.workspace = true
+
+# The OS keychain behind src/secrets/store.rs, one store per platform.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store.workspace = true
+# Dokan mount adapter (feature `mount`); the driver is installed by the user.
+dokan = { workspace = true, optional = true }
+dokan-sys = { workspace = true, optional = true }
+winapi = { workspace = true, optional = true }
+widestring = { workspace = true, optional = true }
+
+# FUSE mount adapter (feature `mount`).
+[target.'cfg(unix)'.dependencies]
+fuser = { workspace = true, optional = true }
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+zbus-secret-service-keyring-store.workspace = true
+
+[dev-dependencies]
+aws-smithy-http-client = { workspace = true, features = ["test-util"] }
+aws-smithy-mocks.workspace = true
+aws-smithy-runtime-api = { workspace = true, features = ["test-util"] }
+calamine.workspace = true
+rcgen.workspace = true
+tokio = { workspace = true, features = ["io-util", "test-util"] }
+tracing-subscriber = { workspace = true, features = ["registry"] }
+zip.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,52 @@
+[package]
+name = "bucketbridge-cli"
+description = "bb, the BucketBridge command-line S3 client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "bucketbridge_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bb"
+path = "src/main.rs"
+
+[features]
+# Run the MinIO-only CLI tests against MinIO (needs Docker and
+# BB_TEST_BACKEND=minio); see docs/testing.md.
+minio = ["bucketbridge-tests/minio"]
+# `bb mount` (Linux, macOS and Windows); see docs/mount.md.
+mount = ["bucketbridge-core/mount"]
+
+[dependencies]
+bucketbridge-core.workspace = true
+chrono.workspace = true
+clap.workspace = true
+futures.workspace = true
+# Generated console passwords.
+getrandom.workspace = true
+# Reads secrets from the terminal without echo.
+rpassword = "7.5.4"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+# SSE-C key files are zeroed after they are read.
+zeroize.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+aws-smithy-mocks.workspace = true
+aws-smithy-runtime-api = { workspace = true, features = ["client", "http-1x"] }
+aws-smithy-types.workspace = true
+aws-sdk-iam.workspace = true
+bucketbridge-tests.workspace = true
+csv.workspace = true
+reqwest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

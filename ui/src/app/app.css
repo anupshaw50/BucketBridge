@@ -1,0 +1,656 @@
+/* Layout and dense list styles. Colours come from Mantine's CSS variables, so
+   both light and dark schemes work without extra rules. */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--mantine-color-body);
+}
+
+.bb-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.bb-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-empty-name] {
+  font-style: italic;
+  color: var(--mantine-color-dimmed);
+}
+
+.bb-app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  height: 100vh;
+  min-width: 720px;
+}
+
+.bb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-default);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.bb-toolbar > * {
+  flex-shrink: 0;
+}
+
+.bb-toolbar .mantine-Divider-root {
+  height: 20px;
+  margin: 0 4px;
+}
+
+.bb-main {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bb-workspace {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  height: 100%;
+}
+
+.bb-sidebar {
+  border-right: 1px solid var(--mantine-color-default-border);
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.bb-content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- bucket tree ---- */
+
+.bb-tree-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.bb-pane-header {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.bb-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.bb-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding-right: 8px;
+  font-size: 13px;
+  cursor: default;
+  user-select: none;
+}
+
+.bb-tree-row:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.bb-tree-row[data-selected] {
+  background: var(--mantine-primary-color-light);
+}
+
+.bb-tree-row:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+.bb-tree-toggle {
+  display: inline-flex;
+  width: 16px;
+  flex-shrink: 0;
+  justify-content: center;
+  color: var(--mantine-color-dimmed);
+}
+
+.bb-tree-icon {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+}
+
+/* ---- object browser ---- */
+
+.bb-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bb-location {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.bb-browser-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.bb-load-more {
+  padding: 4px 8px;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.bb-grid {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+
+.bb-grid:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--mantine-primary-color-filled);
+}
+
+.bb-grid-head {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-default);
+}
+
+.bb-grid-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.bb-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 160px 140px;
+  align-items: center;
+  font-size: 13px;
+  padding: 0 8px;
+  cursor: default;
+  user-select: none;
+}
+
+.bb-head-row {
+  position: static;
+  height: 28px;
+}
+
+.bb-row > div {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+
+.bb-row:not(.bb-head-row):hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.bb-row[data-selected] {
+  background: var(--mantine-primary-color-light);
+}
+
+.bb-row[data-focused] {
+  box-shadow: inset 0 0 0 1px var(--mantine-primary-color-filled);
+}
+
+.bb-state-row {
+  padding: 0 8px;
+}
+
+.bb-row[data-cut] {
+  opacity: 0.55;
+}
+
+.bb-col-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bb-col-size {
+  text-align: right;
+}
+
+.bb-col-modified,
+.bb-col-class {
+  color: var(--mantine-color-dimmed);
+}
+
+.bb-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.bb-folder-icon {
+  flex-shrink: 0;
+  color: var(--mantine-color-yellow-6);
+}
+
+.bb-file-icon {
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+}
+
+/* ---- bottom panels ---- */
+
+.bb-panel {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--mantine-color-default-border);
+  min-height: 0;
+}
+
+.bb-transfer-panel {
+  height: 230px;
+}
+
+.bb-log-panel {
+  height: 190px;
+}
+
+.bb-panel-header {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-default);
+}
+
+.bb-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.bb-task {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 96px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.bb-task-icon {
+  color: var(--mantine-color-dimmed);
+}
+
+.bb-task-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bb-task-meta {
+  white-space: nowrap;
+}
+
+.bb-task-arrow {
+  color: var(--mantine-color-dimmed);
+}
+
+.bb-task-state {
+  justify-self: start;
+}
+
+.bb-log-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 150px 70px 90px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.bb-log-row[data-level="error"] {
+  background: var(--mantine-color-red-light);
+}
+
+.bb-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 8px;
+  min-height: 24px;
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-default);
+}
+
+/* ---- dialogs ---- */
+
+.bb-settings {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 420px;
+}
+
+.bb-settings-nav {
+  border-right: 1px solid var(--mantine-color-default-border);
+  padding-right: 8px;
+}
+
+.bb-settings-page {
+  max-height: 60vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.bb-picker-list {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.bb-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+}
+
+.bb-picker-item:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.bb-sync-table {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  font-size: 12px;
+}
+
+.bb-sync-scroll {
+  height: 260px;
+  overflow: auto;
+}
+
+.bb-sync-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 70px 56px 76px 130px 76px 130px minmax(0, 1.2fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.bb-sync-head {
+  position: static;
+  height: 26px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-default);
+}
+
+.bb-sync-row[data-failed] {
+  background: var(--mantine-color-red-light);
+}
+
+.bb-sync-row [data-error] {
+  color: var(--mantine-color-red-6);
+}
+
+/* Tools and export (T12) */
+.bb-diag-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.bb-diag-step {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+}
+
+.bb-diag-step + .bb-diag-step {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.bb-diag-step[data-status="fail"] {
+  background: var(--mantine-color-red-light);
+}
+
+.bb-diag-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bb-upload-scroll {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+/* ---- versions and preview ---- */
+
+.bb-versions-scroll {
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.bb-version-group td {
+  background: var(--mantine-color-default-hover);
+}
+
+.bb-version-row[data-marker] td {
+  color: var(--mantine-color-red-text);
+}
+
+.bb-preview-text {
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bb-preview-frame {
+  display: flex;
+  justify-content: center;
+  max-height: 55vh;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.bb-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+}
+
+/* ---- context menus ---- */
+
+.bb-context-menu {
+  position: fixed;
+  /* Above every stacked dialog (dialogs start at 300 and rise by two). */
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 340px;
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  box-shadow: var(--mantine-shadow-md);
+  outline: none;
+}
+
+.bb-menu-entry {
+  position: relative;
+}
+
+.bb-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--mantine-radius-xs);
+  background: transparent;
+  color: var(--mantine-color-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.bb-menu-item:hover:not(:disabled),
+.bb-menu-item:focus-visible,
+.bb-menu-item[aria-expanded="true"] {
+  background: var(--mantine-color-default-hover);
+  outline: none;
+}
+
+.bb-menu-item:disabled {
+  color: var(--mantine-color-dimmed);
+  opacity: 0.7;
+}
+
+.bb-menu-item-danger:not(:disabled) {
+  color: var(--mantine-color-red-6);
+}
+
+.bb-menu-icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bb-menu-shortcut {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--mantine-color-dimmed);
+  font-size: 11px;
+}
+
+.bb-menu-chevron {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--mantine-color-dimmed);
+}
+
+.bb-menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--mantine-color-default-border);
+}
+
+.bb-bookmarks {
+  flex: 0 0 auto;
+  max-height: 30%;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.bb-bookmark-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 4px;
+}
+
+.bb-bookmark-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.bb-bookmark-row:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.bb-bookmark-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bb-bookmark-tools {
+  flex: 0 0 auto;
+  opacity: 0;
+}
+
+.bb-bookmark-row:hover .bb-bookmark-tools,
+.bb-bookmark-row:focus-within .bb-bookmark-tools {
+  opacity: 1;
+}

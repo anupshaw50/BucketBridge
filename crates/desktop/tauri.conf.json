@@ -1,0 +1,85 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BucketBridge",
+  "identifier": "io.github.anupshaw50.bucketbridge",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../../ui/dist",
+    "beforeDevCommand": {
+      "script": "pnpm --dir ui dev",
+      "cwd": "../.."
+    },
+    "beforeBuildCommand": {
+      "script": "pnpm --dir ui build",
+      "cwd": "../.."
+    },
+    "removeUnusedCommands": true
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BucketBridge",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
+        "preventOverflow": true,
+        "resizable": true,
+        "dragDropEnabled": true,
+        "generalAutofillEnabled": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost",
+        "object-src": "'none'",
+        "frame-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      },
+      "dangerousDisableAssetCspModification": ["style-src"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "msi", "appimage", "deb"],
+    "publisher": "BucketBridge contributors",
+    "homepage": "https://github.com/anupshaw50/BucketBridge",
+    "copyright": "Copyright (c) 2026 BucketBridge contributors",
+    "license": "MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "Desktop client for S3 and S3-compatible object storage",
+    "longDescription": "BucketBridge is an open-source desktop client for S3 and S3-compatible object storage. Browse buckets, move files and folders through a resumable transfer queue, and keep local folders in sync. It sends no telemetry.",
+    "icon": [
+      "icons/128x128.png",
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US",
+        "upgradeCode": "9007ebcf-3edf-51a1-bab5-e9c1a0a5e61b"
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "net",
+        "recommends": ["xdg-utils"]
+      }
+    }
+  }
+}
