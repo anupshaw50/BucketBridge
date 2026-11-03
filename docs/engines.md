@@ -17,6 +17,9 @@ task runners (see "Transfer queue runners" below).
 | `upload.rs` | the upload engine, `UploadState` |
 | `download.rs` | the download engine, `DownloadSink`, `FileSink`, `DownloadState` |
 | `remote.rs` | copy, move and delete |
+| `policy.rs` | the overwrite policy (`IfExists`), `Conflict`, `ConflictResolver`, the `mtime` metadata helpers |
+| `job.rs` | `JobOptions` (per-call options in the group ID), `ConflictBroker` (the questions of `ask`) |
+| `cross.rs` | copy and move between accounts: `copy_to`, `move_to`, `RemoteSource`, `verify_copy` |
 | `expand.rs` | selections to work items, rename planning |
 | `runner.rs` | `S3Runner`: the task runners of the transfer queue, `S3Provider`, `RunnerState` |
 | `enqueue.rs` | the enqueue commands: `enqueue_upload`, ..., `enqueue_rename` |
@@ -318,6 +321,127 @@ version. Cleanup is that of any download (the partial file). Tasks and events sh
   error names up to five of them and takes its kind from the first failure
   (`AccessDenied` is `auth`). A key made only of `/` is refused.
 
+## Overwrite policy
+
+What a transfer does when its destination exists is the `IfExists` policy:
+`ask`, `overwrite`, `skip`, `overwrite_if_newer` or `rename`. Its default is
+the `transfer.if_exists` setting (default `overwrite`, the behaviour of 0.1);
+`TransferOptions::if_exists` carries it into the engines and
+`TransferEngine::with_if_exists(policy)` overrides it per call. A conflict
+resolver for `ask` is attached with `with_conflict_resolver`.
+
+The engines that write ask the policy before they do: `upload` (so also
+`upload_file` and the encrypted upload, which decides about the original
+file, not its ciphertext), `download_file`, `copy`, `move_object` and
+`copy_to`/`move_to`. With `overwrite` nothing is checked and no request is
+made. Otherwise the destination is looked up (`HeadObject`, or the local file
+system); a destination that does not exist just proceeds, whatever the
+policy. Folder markers and folders merge and never conflict. For an existing
+destination:
+
+| Policy | Effect |
+|---|---|
+| `overwrite` | write over it |
+| `skip` | write nothing; the run ends `Outcome::Skipped(SkipReason::Exists)` |
+| `overwrite_if_newer` | write when the source is newer, else `Skipped(NotNewer)` |
+| `rename` | write to `name (1).ext`, `name (2).ext`, ... (the first free name; in the last key segment or file name; `.hidden` becomes `.hidden (1)`). The result says where it went: `renamed_to` |
+| `ask` | the resolver answers with one of the four above; without a resolver the run fails with `usage` |
+
+Times are compared in whole seconds. The time of an object is its `mtime`
+user metadata when it has one (see "Modification times"), else
+`Last-Modified`; the time of a local file is its modification time. A time
+that is unknown is never newer, so the destination is kept. A skip is never
+silent: `Outcome::Skipped` is a variant of its own (a move that is skipped
+keeps its source, because it never copied), the queue turns it into the task
+state `skipped` with the reason as `error`, and the CLI reports the item.
+`sync` is not affected: the sync executor always overwrites what its plan
+decided to write.
+
+A resumed multipart upload or partial download was placed by the run that
+began it and is not asked about again (a `rename` is stable: the name it
+picked is still free).
+
+### `ask` in the queue
+
+`S3Runner` owns a `ConflictBroker`. A task that finds an existing destination
+under `ask` registers a `PendingConflict` (task, group, what exists where) and
+waits for `ConflictBroker::answer(task_id, choice, apply_to_batch)`; the task
+stays `running`, holds its slot and sends no byte. Subscribers
+(`ConflictBroker::subscribe`) get `Asked` and `Resolved` events. With
+`apply_to_batch` the answer also settles the other waiting tasks of the same
+group and every later one (the group is the unit of one `enqueue_*` call).
+Pausing or cancelling a waiting task drops its question. The decision is not
+remembered for a task: a retry asks again unless a batch answer covers it.
+
+### Per-call options
+
+`JobOptions { if_exists, preserve_mtime, dst_account }` belongs to one
+`enqueue_*_with` call. It rides in the group ID of the call's tasks as a
+suffix (`<uuid>~ie=skip;mt=0;da=<account>`), so it survives a restart with the
+queue and needs no field in the task. A missing option means the setting.
+
+## Modification times
+
+`data_integrity.preserve_mtime` (default `true`, `TransferOptions::preserve_mtime`,
+`with_preserve_mtime`, CLI `--no-preserve-mtime`).
+
+* Upload: the local modification time is stored in the user metadata
+  `x-amz-meta-mtime`, as Unix seconds with a fraction when there is one
+  (`1700000000`, `1700000000.123456789`). A caller that sets `mtime` itself
+  (through `UploadHeaders`) wins. Reading also accepts an RFC 3339 time.
+* Download: after the file is complete (still as `<file>.bbpart`, before the
+  rename) its modification time is set to the `mtime` metadata of the object,
+  else to its `Last-Modified`. So a round trip keeps the original time. With
+  the setting off the file gets the time of the download. `DownloadOutcome`
+  reports it as `file_time`; the sync engine keeps using `Last-Modified`.
+* Rewrites of an object in place (properties, encryption) keep its own
+  metadata and never turn the temporary file's time into `mtime`.
+
+## Copy and move between accounts
+
+`copy_to(dest_engine, src, dst, hooks, resume, checkpoint)` and `move_to(...)`
+copy an object of the account of `self` to a bucket of the account of
+`dest_engine`.
+
+1. Same endpoint (`S3::same_endpoint`: both AWS, or the same custom endpoint
+   URL): the destination account first asks the service to copy
+   (`CopyObject`, or `UploadPartCopy` parts for large objects, as in
+   `copy_object_with`). That works when the destination account may read the
+   source. `AccessDenied` (error kind `auth`) falls back to streaming; any
+   other error fails the copy.
+2. Different endpoints, or after `AccessDenied`: the object is streamed through
+   this machine. `RemoteSource` reads the source by ranges (`GET` with
+   `Range` and `If-Match` on the ETag) and implements `UploadSource`, so the
+   normal upload engine writes it: single `PutObject` or multipart, the part
+   checksums of the settings, the resume state (`UploadState`, stored in the
+   queue like an upload's), progress, the bandwidth limit and the
+   cleanup guarantees of uploads. Memory is bounded: one block per part,
+   at most `2 x parts in flight` blocks (at least 4) of `part_size` each; a
+   block that was evicted is read again. The new object gets the source's
+   content type, cache control, content disposition and encoding, user
+   metadata and storage class. Tags and ACLs are not copied by the streaming
+   route (a server-side copy keeps the tags).
+3. Requester pays is honoured on both sides: each request carries
+   `x-amz-request-payer` as the account that sends it is configured.
+4. `move_to` deletes the source only after `verify_copy` compared a fresh
+   `HeadObject` of the source with one of the copy: the sizes must match,
+   plain ETags (not multipart, not KMS or SSE-C) must match, and checksums of
+   the same algorithm must match (a composite value only against a composite
+   value with the same part count). Values that cannot be compared are left
+   out; the transfer itself already verified every byte it moved. Any
+   failure before the delete keeps the source. If only the delete fails, the
+   error says that the copy exists and the source is still there.
+5. Cancel: the upload engine aborts a streamed multipart upload; the queue's
+   cleanup aborts it in the destination account (the task's group names that
+   account). Nothing is left in either bucket.
+6. The overwrite policy applies to the destination account's objects. Folder
+   markers are created in the destination account.
+
+The queue runs these tasks as `copy` and `move` tasks of the source account
+whose group carries `da=<destination account>` (`enqueue_copy_with` and
+`enqueue_move_with` with `JobOptions::dst_account`); the CLI uses
+`--from-account` and `--to-account`.
+
 ## Expansion
 
 The folder semantics of the enqueue commands (`docs/desktop-api.md`): a key
@@ -516,6 +640,17 @@ BB_TEST_BACKEND=minio BB_TEST_LARGE=1 cargo test --release -p bucketbridge-tests
 It generates and verifies the data as streams (nothing is stored locally),
 pauses the upload after 1010 of 1024 parts so that resuming reads the part
 list across two pages, and pauses the download half-way.
+
+`tests/tests/overwrite_policy.rs` runs every policy in every engine against
+s3s-fs (upload, download, copy, move; `ask` with a resolver; folder batches
+through the queue with `skip` and `rename`; the broker that pauses tasks until
+an answer, with "apply to all"; the `mtime` metadata and its round trip).
+`tests/tests/cross_account.rs` covers copies between accounts: the
+server-side route, the streaming route between two servers (single and
+multipart, metadata, progress), the `AccessDenied` fallback and requester pays
+on a scripted store, move safety (a failing or unverifiable copy keeps the
+source), cancel, the overwrite policy in the destination account and folder
+copies and moves through the queue.
 
 `tests/tests/queue_s3.rs` runs the queue with `S3Runner` against s3s-fs:
 every task kind and the enqueue helpers, folders with their relative paths,

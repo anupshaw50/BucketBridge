@@ -10,6 +10,7 @@ import type { Platform } from "../api/platform";
 import type { WindowLocation } from "../api/types";
 import { ModalLayersProvider } from "../components/AppModal";
 import { DialogHost } from "../features/DialogHost";
+import { ConflictHost } from "../features/transfers/ConflictDialog";
 import { SessionPrompts } from "../features/accounts/SessionPrompts";
 import { AppModel } from "../state/model";
 import type { FrameScheduler } from "../state/scheduler";
@@ -59,6 +60,7 @@ function Themed({ env, platformUi }: { env: "default" | "test"; platformUi: Reac
       <ModalLayersProvider>
         <MainWindow />
         <DialogHost />
+        <ConflictHost />
         <SessionPrompts />
         {platformUi}
       </ModalLayersProvider>

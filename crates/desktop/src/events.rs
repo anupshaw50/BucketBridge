@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use bucketbridge_core::EventLog;
 use bucketbridge_core::model::SyncRow;
-use bucketbridge_core::sync::{SyncEvents, SyncProgress};
+use bucketbridge_core::sync::{SyncEvents, SyncProgress, SyncReport};
 use bucketbridge_core::transfer::QueueEvent;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime};
@@ -21,11 +21,22 @@ pub const LOG_ENTRY: &str = "log://entry";
 pub const SYNC_PROGRESS: &str = "sync://progress";
 /// `{ plan_id, index, row }` when a row finished or failed.
 pub const SYNC_ROW: &str = "sync://row";
+/// `SyncReport` once a plan's run has ended (after `sync://progress` with `finished: true`).
+pub const SYNC_REPORT: &str = "sync://report";
+/// The full `SyncJob[]` list after a sync job was saved or deleted.
+pub const SYNC_JOBS_CHANGED: &str = "sync_jobs://changed";
 /// `TransferTask` when a task is added, changes state, or reports progress
 /// (at most every 250 ms per running task).
 pub const TRANSFER_UPDATE: &str = "transfer://update";
 /// `{ ids }` when `clear_finished` removed tasks.
 pub const TRANSFER_REMOVED: &str = "transfer://removed";
+/// `{ type: "asked", task_id, group_id, conflict }` when a task waits for an
+/// overwrite decision, `{ type: "resolved", task_id }` when it no longer does.
+pub const TRANSFER_CONFLICT: &str = "transfer://conflict";
+
+/// `EditSession` whenever an edit-in-place session changes state (watching,
+/// uploading, uploaded, conflict, error) and once with `stopped` when it ends.
+pub const EDIT_CHANGED: &str = "edit://changed";
 
 /// The full `Bookmark[]` list after a bookmark was added, renamed or removed.
 pub const BOOKMARKS_CHANGED: &str = "bookmarks://changed";
@@ -43,7 +54,22 @@ const TRANSFER_LOG_SOURCE: &str = "bucketbridge::transfer";
 pub fn forward_events<R: Runtime>(app: &AppHandle<R>, core: &Core) {
     forward(app.clone(), core.session.subscribe(), SECURITY_CHANGED);
     forward(app.clone(), core.log.subscribe(), LOG_ENTRY);
+    forward(app.clone(), core.edits.subscribe(), EDIT_CHANGED);
     forward_queue(app.clone(), core.queue.subscribe(), core.log.clone());
+    forward_conflicts(app.clone(), core.runner.conflicts().subscribe());
+}
+
+/// Forwards the overwrite questions of waiting tasks as
+/// `transfer://conflict`.
+fn forward_conflicts<R: Runtime>(
+    app: AppHandle<R>,
+    mut events: UnboundedReceiver<bucketbridge_core::engine::ConflictEvent>,
+) {
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = events.recv().await {
+            let _ = app.emit(TRANSFER_CONFLICT, event);
+        }
+    });
 }
 
 fn forward<R, T>(app: AppHandle<R>, mut receiver: broadcast::Receiver<T>, event: &'static str)
@@ -121,6 +147,11 @@ impl<R: Runtime> SyncEmitter<R> {
             app,
             finished: AtomicBool::new(false),
         }
+    }
+
+    /// Sends the summary report of the finished run.
+    pub(crate) fn report(&self, report: &SyncReport) {
+        let _ = self.app.emit(SYNC_REPORT, report);
     }
 
     /// Whether the run already reported `finished: true`.

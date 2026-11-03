@@ -18,7 +18,7 @@ import {
 import { IconAlertCircle, IconFolderOpen } from "@tabler/icons-react";
 import { type ReactNode, useState } from "react";
 import { errorText } from "../../api/errors";
-import type { ChecksumAlgorithm, LogLevel, ProxyKind, Settings, ThemeSetting } from "../../api/types";
+import type { ChecksumAlgorithm, IfExists, LogLevel, ProxyKind, Settings, ThemeSetting } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
 import {
@@ -54,6 +54,18 @@ const CHECKSUMS: { value: ChecksumAlgorithm; label: string }[] = [
   { value: "sha256", label: "SHA-256" },
   { value: "none", label: "None (only when the service requires one)" },
 ];
+
+const IF_EXISTS_OPTIONS: { value: IfExists; label: string }[] = [
+  { value: "overwrite", label: "Overwrite" },
+  { value: "ask", label: "Ask me" },
+  { value: "skip", label: "Skip" },
+  { value: "overwrite_if_newer", label: "Overwrite if newer" },
+  { value: "rename", label: "Rename (name (1).ext)" },
+];
+
+function isIfExists(value: string | null): value is IfExists {
+  return IF_EXISTS_OPTIONS.some((item) => item.value === value);
+}
 
 const LOG_LEVEL_OPTIONS: { value: LogLevel; label: string }[] = [
   { value: "error", label: "Errors only" },
@@ -438,6 +450,22 @@ function SettingsForm({ saved, onClose, initialPage }: { saved: Settings; onClos
               }, ["transfer.retry_attempts"])
             }
           />
+          <Select
+            label="When the destination exists"
+            description="What uploads, downloads, copies and moves do with an item that is already there. Each transfer can choose another policy."
+            data={IF_EXISTS_OPTIONS}
+            value={draft.transfer.if_exists}
+            allowDeselect={false}
+            w={360}
+            onChange={(value) => {
+              if (isIfExists(value)) {
+                change((next) => {
+                  next.transfer.if_exists = value;
+                });
+              }
+            }}
+            comboboxProps={{ withinPortal: false }}
+          />
         </Section>
       );
       break;
@@ -511,6 +539,17 @@ function SettingsForm({ saved, onClose, initialPage }: { saved: Settings; onClos
               }
             }}
             comboboxProps={{ withinPortal: false }}
+          />
+          <Switch
+            label="Keep modification times"
+            description="Downloaded files get the time of the object, and uploads store the file's time with the object."
+            checked={draft.data_integrity.preserve_mtime}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              change((next) => {
+                next.data_integrity.preserve_mtime = checked;
+              });
+            }}
           />
           <Switch
             label="Validate downloads"

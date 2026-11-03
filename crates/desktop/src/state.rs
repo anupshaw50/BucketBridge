@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use bucketbridge_core::edit::{EditManager, EditOptions, KEEP_LEFTOVER_COPIES};
 use bucketbridge_core::engine::{S3Provider, S3Runner};
 use bucketbridge_core::transfer::{BandwidthLimiter, QueueOptions, TransferQueue};
 use bucketbridge_core::{
@@ -25,6 +26,9 @@ const INSTANCE_LOCK_FILE: &str = "instance.lock";
 
 /// File in the data folder that holds the persisted transfer queue.
 const QUEUE_FILE: &str = "transfers.json";
+
+/// Folder in the data folder that holds the copies of edit sessions.
+const EDIT_DIR_NAME: &str = "edit";
 
 /// How long a transfer gets to stop after a pause or cancel request, and
 /// when the app exits; what is still running after that is dropped (the queue
@@ -79,6 +83,8 @@ pub struct Core {
     pub(crate) mounts: crate::commands::mount::MountRegistry,
     pub(crate) open_with: OpenWith,
     pub(crate) url_opener: UrlOpener,
+    /// Edit-in-place sessions (`start_edit`).
+    pub(crate) edits: EditManager,
     runs: Mutex<Runs>,
     runs_changed: Condvar,
     _instance: Option<InstanceLock>,
@@ -113,8 +119,15 @@ impl Core {
             runner.runners(),
             options,
         ))?;
+        let edits = EditManager::new(
+            parts.dirs.data_dir.join(EDIT_DIR_NAME),
+            s3_provider(&session),
+            EditOptions::default(),
+        )
+        .with_throttle(Arc::new(open::LimiterThrottle(queue.limiter())));
         Ok(Arc::new(Core {
             limiter: queue.limiter(),
+            edits,
             queue: Arc::new(queue),
             runner,
             sync: SyncExecutor::new(Arc::new(store)),
@@ -254,6 +267,7 @@ impl Core {
     /// Calling it again is harmless.
     pub fn shutdown(&self, grace: Duration) {
         self.mounts.clear();
+        self.shutdown_edits(grace);
         let queue = Arc::clone(&self.queue);
         let stopping = tauri::async_runtime::spawn(async move { queue.shutdown().await });
         let plans: Vec<String> = lock(&self.runs).plans.values().cloned().collect();
@@ -298,6 +312,29 @@ impl Core {
         }
         tracing::info!(target: "bucketbridge::app", "BucketBridge stopped");
         self.log.flush(Duration::from_secs(2));
+    }
+
+    /// Uploads the pending saves of the edit sessions and ends them. A
+    /// session that cannot upload (a conflict or an error) keeps its copy on
+    /// disk and is logged. Blocking.
+    fn shutdown_edits(&self, grace: Duration) {
+        let edits = self.edits.clone();
+        let left = tauri::async_runtime::block_on(async move { edits.shutdown(grace).await });
+        for session in left {
+            tracing::warn!(
+                target: "bucketbridge::app",
+                "s3://{}/{} was not uploaded at exit; the edited copy stays in {}",
+                session.bucket,
+                session.key,
+                session.local_path
+            );
+        }
+    }
+
+    /// Removes the copies of edit sessions that never ended and are a week
+    /// old (best effort, blocking).
+    pub(crate) fn purge_edit_copies(&self) {
+        self.edits.purge_stale(KEEP_LEFTOVER_COPIES);
     }
 
     /// Removes `open_object` copies older than a day (best effort, blocking).

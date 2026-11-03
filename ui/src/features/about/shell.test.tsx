@@ -34,10 +34,15 @@ describe("about dialog", () => {
     const { user, platform } = await renderApp();
     await user.click(await screen.findByRole("button", { name: "About" }));
     const dialog = await screen.findByRole("dialog", { name: "About BucketBridge" });
-    expect(await within(dialog).findByText(/Version 0\.1\.0/)).toBeInTheDocument();
+    expect(await within(dialog).findByText(/Version 0\.2\.0/)).toBeInTheDocument();
     expect(within(dialog).getByText(/no activation, registration or license key is required/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/GNU General Public License as published/)).toBeInTheDocument();
-    for (const name of ["Source code", "Online help", "Contact and issues", "Check for updates"]) {
+    // Both the copyright notice and the full GPL text mention it.
+    expect(within(dialog).getAllByText(/GNU General Public License as published/).length).toBeGreaterThanOrEqual(2);
+    expect(within(dialog).getByText(/Created and maintained by Anup Shaw/)).toBeInTheDocument();
+    // The full licence text, not only the notice.
+    expect(within(dialog).getByLabelText("GNU General Public License version 3")).toHaveTextContent(/TERMS AND CONDITIONS/);
+    expect(within(dialog).getByLabelText("GNU General Public License version 3")).toHaveTextContent(/END OF TERMS AND CONDITIONS/);
+    for (const name of ["Source code", "Online help", "Contact and issues", "Check for updates", "Anup Shaw on GitHub", "LinkedIn", "Website", "Sponsor"]) {
       await user.click(within(dialog).getByRole("button", { name }));
     }
     expect(platform.opened).toEqual([
@@ -45,6 +50,10 @@ describe("about dialog", () => {
       "https://github.com/anupshaw50/BucketBridge/tree/main/docs",
       "https://github.com/anupshaw50/BucketBridge/issues",
       "https://github.com/anupshaw50/BucketBridge/releases",
+      "https://github.com/anupshaw50",
+      "https://www.linkedin.com/in/anup-kumar-shaw/",
+      "https://anupshaw50.github.io/BucketBridge/",
+      "https://github.com/sponsors/anupshaw50",
     ]);
   });
 });

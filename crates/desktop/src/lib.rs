@@ -34,9 +34,10 @@ use tauri::{AppHandle, Manager, RunEvent, Runtime};
 pub use commands::handler;
 pub use error::{CommandError, Secret};
 pub use events::{
-    BOOKMARKS_CHANGED, LOG_ENTRY, SECURITY_CHANGED, SYNC_PROGRESS, SYNC_ROW, TRANSFER_REMOVED,
-    TRANSFER_UPDATE, forward_events,
+    BOOKMARKS_CHANGED, EDIT_CHANGED, LOG_ENTRY, SECURITY_CHANGED, SYNC_PROGRESS, SYNC_ROW,
+    TRANSFER_CONFLICT, TRANSFER_REMOVED, TRANSFER_UPDATE, forward_events,
 };
+pub use events::{SYNC_JOBS_CHANGED, SYNC_REPORT};
 pub use open::OPEN_DIR_NAME;
 pub use state::{AppState, Core, CoreParts, OpenWith, Opener, UrlOpener};
 
@@ -93,7 +94,10 @@ fn state_plugin<R: Runtime>() -> TauriPlugin<R> {
                 Ok(core) => {
                     forward_events(app, &core);
                     let purging = Arc::clone(&core);
-                    tauri::async_runtime::spawn_blocking(move || purging.purge_opened_files());
+                    tauri::async_runtime::spawn_blocking(move || {
+                        purging.purge_opened_files();
+                        purging.purge_edit_copies();
+                    });
                     AppState::ready(core)
                 }
                 Err(error) => {

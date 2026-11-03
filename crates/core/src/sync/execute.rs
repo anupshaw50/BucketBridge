@@ -61,7 +61,7 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::model::{
     FileMeta, ObjectEntry, ObjectHead, Side, SyncAction, SyncDirection, SyncPlan, SyncRow,
 };
-use crate::path::join_key;
+use crate::path::{join_key, safe_local_path};
 use crate::s3uri::S3Uri;
 use crate::settings::Settings;
 use crate::transfer::BandwidthLimiter;
@@ -184,6 +184,8 @@ pub struct RunSummary {
     pub errors: usize,
     /// True when the run was cancelled; rows it did not finish stay pending.
     pub cancelled: bool,
+    /// How long the run took.
+    pub duration: Duration,
 }
 
 /// Runs stored plans, at most one execution per plan at a time. Cheap to clone; the
@@ -233,7 +235,9 @@ impl SyncExecutor {
             key,
             store: Arc::clone(&self.store),
             running: Arc::clone(&self.running),
-            engine,
+            // The sync planner already decided what to write; the overwrite
+            // policy of plain transfers does not apply to it.
+            engine: engine.with_if_exists(crate::settings::IfExists::Overwrite),
             options,
             events,
             stop,
@@ -308,6 +312,7 @@ impl SyncRun {
             let plan_id = self.plan_id.clone();
             blocking(move || store.get(&plan_id)).await?
         };
+        let started = Instant::now();
         let context = Arc::new(RowContext::new(&plan, &self));
         let mut state = RunState::new(self.plan_id.clone(), plan.rows);
         self.events.progress(&state.progress(false));
@@ -324,6 +329,7 @@ impl SyncRun {
             attempted: state.attempted,
             errors: state.errors,
             cancelled: self.stop.is_stopped(),
+            duration: started.elapsed(),
         };
         self.events.progress(&summary.progress);
         executed?;
@@ -590,6 +596,8 @@ struct RowContext {
     local_root: PathBuf,
     bucket: String,
     key_prefix: String,
+    /// Source prefix of an `s3_to_s3` plan.
+    source: Option<S3Uri>,
     direction: SyncDirection,
     hooks: Hooks,
 }
@@ -602,6 +610,7 @@ impl RowContext {
             local_root: plan.local_root.clone(),
             bucket: plan.s3_prefix.bucket().to_owned(),
             key_prefix: plan.s3_prefix.key().to_owned(),
+            source: plan.source_prefix.clone(),
             direction: plan.direction,
             hooks: Hooks::new()
                 .with_throttle(throttle)
@@ -634,7 +643,13 @@ impl Throttle for LimiterThrottle {
 }
 
 async fn execute_row(context: &RowContext, row: &SyncRow) -> RowResult {
+    if super::folders::is_folder_row(row) {
+        return folder_row(context, row).await;
+    }
     match (row.action, row.target) {
+        (SyncAction::Copy, Some(Side::Remote)) if context.direction == SyncDirection::S3ToS3 => {
+            copy_row(context, row).await
+        }
         (SyncAction::Copy, Some(Side::Remote)) => upload_row(context, row).await,
         (SyncAction::Copy, Some(Side::Local)) => download_row(context, row).await,
         (SyncAction::Delete, Some(Side::Remote)) => delete_remote_row(context, row).await,
@@ -642,6 +657,161 @@ async fn execute_row(context: &RowContext, row: &SyncRow) -> RowResult {
             "row '{}' cannot be executed by this phase",
             row.rel_path
         )),
+    }
+}
+
+/// A folder row (empty folders are synced, `rel_path` ends in `/`): creates the folder
+/// marker in S3, or the empty local folder. A local folder is never created through a
+/// link, and whatever exists at its path is left alone (a folder counts as done).
+async fn folder_row(context: &RowContext, row: &SyncRow) -> RowResult {
+    let folder = row.rel_path.trim_end_matches('/');
+    match (row.action, row.target) {
+        (SyncAction::Copy, Some(Side::Remote)) => {
+            if context.direction != SyncDirection::S3ToS3 {
+                let path = match local_path_from_segments(&context.local_root, folder) {
+                    Ok(path) => path,
+                    Err(err) => return RowResult::Failed(err.to_string()),
+                };
+                match fs::symlink_metadata(&path) {
+                    Ok(meta) if meta.is_dir() => {}
+                    _ => {
+                        return RowResult::Failed(
+                            "not created: the local folder changed since the analysis; analyze again"
+                                .to_owned(),
+                        );
+                    }
+                }
+            }
+            let target = match context.uri(&row.rel_path) {
+                Ok(target) => target,
+                Err(message) => return RowResult::Failed(message),
+            };
+            match context
+                .engine
+                .s3()
+                .create_folder(target.bucket(), target.key())
+                .await
+            {
+                Ok(()) => RowResult::Done,
+                Err(err) => RowResult::Failed(err.to_string()),
+            }
+        }
+        (SyncAction::Copy, Some(Side::Local)) => {
+            let root = context.local_root.clone();
+            let folder = folder.to_owned();
+            match blocking(move || Ok(create_local_folder(&root, &folder))).await {
+                Ok(result) => result,
+                Err(err) => RowResult::Failed(err.to_string()),
+            }
+        }
+        _ => RowResult::Failed(format!(
+            "row '{}' cannot be executed by this phase",
+            row.rel_path
+        )),
+    }
+}
+
+/// Creates the empty local folder `rel_path` below `root`.
+fn create_local_folder(root: &Path, rel_path: &str) -> RowResult {
+    let path = match safe_local_path(root, rel_path) {
+        Ok(path) => path,
+        Err(err) => return RowResult::Failed(err.to_string()),
+    };
+    if let Err(message) = check_folders(root, rel_path) {
+        return RowResult::Failed(message);
+    }
+    match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_dir() => RowResult::Done,
+        Ok(_) => RowResult::Failed(format!(
+            "'{}' exists and is not a folder; it was left alone",
+            path.display()
+        )),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => match fs::create_dir_all(&path) {
+            Ok(()) => RowResult::Done,
+            Err(err) => RowResult::Failed(format!("cannot create '{}': {err}", path.display())),
+        },
+        Err(err) => RowResult::Failed(format!("cannot read '{}': {err}", path.display())),
+    }
+}
+
+/// One row of an `s3_to_s3` plan: a server-side copy from the source prefix to the
+/// destination prefix. Like an upload it never replaces what the analysis did not see:
+/// a destination object that appeared since fails the row, and so does a source object
+/// that changed or vanished.
+async fn copy_row(context: &RowContext, row: &SyncRow) -> RowResult {
+    let Some(source_prefix) = &context.source else {
+        return RowResult::Failed("the plan has no source prefix".to_owned());
+    };
+    let source = match S3Uri::new(
+        source_prefix.bucket(),
+        join_key(source_prefix.key(), &row.rel_path),
+    ) {
+        Ok(source) => source,
+        Err(err) => return RowResult::Failed(err.to_string()),
+    };
+    let target = match context.uri(&row.rel_path) {
+        Ok(target) => target,
+        Err(message) => return RowResult::Failed(message),
+    };
+    match context
+        .engine
+        .s3()
+        .head_object(source.bucket(), source.key(), None)
+        .await
+    {
+        Ok(head) => {
+            let planned = row.local_meta.as_ref();
+            let unchanged = planned.is_some_and(|planned| {
+                planned.size == head.size
+                    && match (planned.modified, head.last_modified) {
+                        (Some(planned), Some(current)) => {
+                            planned.timestamp() == current.timestamp()
+                        }
+                        _ => true,
+                    }
+            });
+            if !unchanged {
+                return RowResult::Failed(
+                    "not copied: the source object changed since the analysis; analyze again"
+                        .to_owned(),
+                );
+            }
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            return RowResult::Failed(
+                "not copied: the source object no longer exists; analyze again".to_owned(),
+            );
+        }
+        Err(err) => return RowResult::Failed(err.to_string()),
+    }
+    match context
+        .engine
+        .s3()
+        .head_object(target.bucket(), target.key(), None)
+        .await
+    {
+        Ok(head) => {
+            let unchanged = row
+                .s3_meta
+                .as_ref()
+                .is_some_and(|planned| same_object(planned, &head));
+            if !unchanged {
+                return RowResult::Failed(
+                    "not copied: the destination object changed or appeared since the analysis; analyze again"
+                        .to_owned(),
+                );
+            }
+        }
+        // Absent, as planned (or gone since: copying recreates it).
+        Err(err) if err.kind() == ErrorKind::NotFound => {}
+        Err(err) => return RowResult::Failed(err.to_string()),
+    }
+    match context.engine.copy(&source, &target, &context.hooks).await {
+        Ok(Outcome::Completed(_)) => RowResult::Done,
+        // The executor's engine always overwrites, so Skipped does not happen;
+        // like the other row kinds it would leave the row to run again.
+        Ok(Outcome::Paused | Outcome::Cancelled | Outcome::Skipped(_)) => RowResult::Stopped,
+        Err(err) => RowResult::Failed(err.to_string()),
     }
 }
 
@@ -684,7 +854,7 @@ async fn upload_row(context: &RowContext, row: &SyncRow) -> RowResult {
     }
     match result {
         Ok(Outcome::Completed(_)) => {}
-        Ok(Outcome::Paused | Outcome::Cancelled) => {
+        Ok(Outcome::Paused | Outcome::Cancelled | Outcome::Skipped(_)) => {
             let _ = discard_upload(context, &saved).await;
             return RowResult::Stopped;
         }
@@ -831,7 +1001,7 @@ async fn download_row(context: &RowContext, row: &SyncRow) -> RowResult {
                 }
             }
         }
-        Ok((Outcome::Paused | Outcome::Cancelled, sink)) => {
+        Ok((Outcome::Paused | Outcome::Cancelled | Outcome::Skipped(_), sink)) => {
             drop(sink);
             discard_staging(context, &staging).await;
             RowResult::Stopped
@@ -901,7 +1071,7 @@ async fn delete_remote_row(context: &RowContext, row: &SyncRow) -> RowResult {
     }
     match context.engine.delete(&target, &context.hooks).await {
         Ok(Outcome::Completed(_)) => RowResult::Done,
-        Ok(Outcome::Paused | Outcome::Cancelled) => RowResult::Stopped,
+        Ok(Outcome::Paused | Outcome::Cancelled | Outcome::Skipped(_)) => RowResult::Stopped,
         Err(err) if err.kind() == ErrorKind::NotFound => RowResult::Done,
         Err(err) => RowResult::Failed(err.to_string()),
     }

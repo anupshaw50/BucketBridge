@@ -54,6 +54,7 @@ export const ACTION_ICONS: Readonly<Partial<Record<ActionId, ReactNode>>> = {
   "upload.files": <IconUpload size={size} />,
   "upload.folder": <IconUpload size={size} />,
   "sync.open": <IconRepeat size={size} />,
+  "sync.jobs": <IconRepeat size={size} />,
   "path.copy": <IconCopy size={size} />,
   "list.refresh": <IconRefresh size={size} />,
   "list.select-all": <IconSelectAll size={size} />,

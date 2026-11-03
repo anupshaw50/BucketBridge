@@ -10,6 +10,7 @@ use bucketbridge_core::model::LockMode;
 use bucketbridge_core::model::{DEFAULT_REGION, SyncDirection};
 use bucketbridge_core::objectlock::{self, RestoreTier};
 use bucketbridge_core::objectmeta::{CannedAcl, StorageClass, validate_tag};
+use bucketbridge_core::settings::IfExists;
 use bucketbridge_core::{Error, S3Uri};
 use chrono::{DateTime, NaiveDate, Utc};
 use clap::{ArgGroup, ArgMatches, Args, Parser, Subcommand, ValueEnum};
@@ -48,11 +49,16 @@ pub struct Cli {
 }
 
 /// Options accepted before or after any command.
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 pub struct GlobalArgs {
     /// Account to use, by label or ID (`environment` is the account built from the BB_* variables).
     #[arg(long, global = true, value_name = "LABEL|ID")]
     pub account: Option<String>,
+    /// Use a profile of the AWS config and credentials files (honours
+    /// AWS_CONFIG_FILE and AWS_SHARED_CREDENTIALS_FILE) without storing it. For
+    /// `bb account import-aws`, the profiles to import (repeatable).
+    #[arg(long, global = true, value_name = "NAME")]
+    pub profile: Vec<String>,
     /// Current code of the account's MFA device; logs in before the command runs.
     #[arg(long, global = true, value_name = "CODE")]
     pub mfa_code: Option<String>,
@@ -126,6 +132,8 @@ pub enum Command {
     Encrypt(EncryptArgs),
     /// Decrypt client-side encrypted objects in place.
     Decrypt(DecryptArgs),
+    /// Edit an object in place: open a local copy and upload every save until Ctrl-C.
+    Edit(EditArgs),
 }
 
 impl Command {
@@ -532,6 +540,20 @@ pub struct CopyArgs {
     /// Print what would be copied without changing anything.
     #[arg(long)]
     pub dry_run: bool,
+    /// What to do when the destination exists: overwrite, skip, newer (replace only when the
+    /// source is newer) or rename (`name (1).ext`). Without it the transfer setting applies;
+    /// `ask` asks for each conflict on a terminal and is refused elsewhere.
+    #[arg(long, value_name = "POLICY", value_parser = parse_if_exists)]
+    pub if_exists: Option<IfExists>,
+    /// Do not store the local modification time of uploads, nor give downloaded files the time of the object.
+    #[arg(long)]
+    pub no_preserve_mtime: bool,
+    /// Account that owns the source (a label or ID; default: --account).
+    #[arg(long, value_name = "ACCOUNT")]
+    pub from_account: Option<String>,
+    /// Account that owns the destination bucket, for a copy or move between S3 locations.
+    #[arg(long, value_name = "ACCOUNT")]
+    pub to_account: Option<String>,
     /// Client-side encryption of uploads and decryption of downloads.
     #[command(flatten)]
     pub cse: CseArgs,
@@ -586,6 +608,10 @@ pub struct DecryptArgs {
     pub password_file: Option<PathBuf>,
 }
 
+fn parse_if_exists(text: &str) -> Result<IfExists, String> {
+    text.parse::<IfExists>().map_err(|err| err.to_string())
+}
+
 fn parse_compression(text: &str) -> Result<Compression, String> {
     match text {
         "none" => Ok(Compression::None),
@@ -608,6 +634,61 @@ pub enum SyncDirectionArg {
     Bidirectional,
 }
 
+/// The first location of `bb sync`: a local folder, or an S3 location for a
+/// bucket-to-bucket sync.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncSource {
+    /// A local folder.
+    Local(PathBuf),
+    /// An S3 prefix (the source of an S3 to S3 sync).
+    S3(S3Uri),
+}
+
+fn parse_sync_source(text: &str) -> Result<SyncSource, String> {
+    match parse_location(text)? {
+        Location::Local(path) => Ok(SyncSource::Local(path)),
+        Location::S3(uri) => Ok(SyncSource::S3(uri)),
+    }
+}
+
+/// `bb sync jobs ...`
+#[derive(Debug, Subcommand)]
+pub enum SyncCommand {
+    /// List, show and delete saved sync jobs (jobs are created in the desktop app or with --save-job).
+    #[command(subcommand)]
+    Jobs(SyncJobsCommand),
+}
+
+/// `bb sync jobs`
+#[derive(Debug, Subcommand)]
+pub enum SyncJobsCommand {
+    /// List the saved sync jobs.
+    List,
+    /// Show one saved sync job.
+    Show(SyncJobName),
+    /// Delete a saved sync job (needs --yes).
+    Delete(SyncJobDelete),
+}
+
+/// A job named by its name or ID.
+#[derive(Debug, Args)]
+pub struct SyncJobName {
+    /// Name (any letter case) or ID of the job.
+    #[arg(value_name = "NAME")]
+    pub name: String,
+}
+
+/// `bb sync jobs delete`
+#[derive(Debug, Args)]
+pub struct SyncJobDelete {
+    /// Name (any letter case) or ID of the job.
+    #[arg(value_name = "NAME")]
+    pub name: String,
+    /// Confirm the deletion.
+    #[arg(long)]
+    pub yes: bool,
+}
+
 impl From<SyncDirectionArg> for SyncDirection {
     fn from(direction: SyncDirectionArg) -> Self {
         match direction {
@@ -621,30 +702,35 @@ impl From<SyncDirectionArg> for SyncDirection {
 /// `bb sync`
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "bb sync [OPTIONS] <LOCAL> <S3_URI>\n       bb sync [OPTIONS] --resume <PLAN_ID>"
+    override_usage = "bb sync [OPTIONS] <LOCAL> <S3_URI>\n       bb sync [OPTIONS] <S3_SOURCE> <S3_URI>\n       bb sync [OPTIONS] --job <NAME>\n       bb sync [OPTIONS] --resume <PLAN_ID>\n       bb sync jobs <list|show|delete>",
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true
 )]
 pub struct SyncArgs {
-    /// Local folder. Always the first argument.
+    /// Saved sync jobs.
+    #[command(subcommand)]
+    pub command: Option<SyncCommand>,
+    /// Local folder, or an `s3://` location to sync from one S3 prefix to another. Always the first argument.
     #[arg(
         value_name = "LOCAL",
-        value_parser = parse_local_folder,
-        required_unless_present = "resume",
-        conflicts_with = "resume"
+        value_parser = parse_sync_source,
+        required_unless_present_any = ["resume", "job"],
+        conflicts_with_all = ["resume", "job"]
     )]
-    pub local: Option<PathBuf>,
+    pub source: Option<SyncSource>,
     /// `s3://bucket` or `s3://bucket/prefix`, which names a folder. Always the second argument.
     #[arg(
         value_name = "S3_URI",
         value_parser = parse_sync_prefix,
-        required_unless_present = "resume",
-        conflicts_with = "resume"
+        required_unless_present_any = ["resume", "job"],
+        conflicts_with_all = ["resume", "job"]
     )]
     pub s3: Option<S3Uri>,
-    /// Which way files are copied (default: upload).
-    #[arg(long, value_enum, value_name = "DIRECTION", conflicts_with = "resume")]
+    /// Which way files are copied (default: upload; an S3 to S3 sync always copies from the first location to the second).
+    #[arg(long, value_enum, value_name = "DIRECTION", conflicts_with_all = ["resume", "job"])]
     pub direction: Option<SyncDirectionArg>,
     /// Also delete what exists only on the target side (not with --direction bidirectional).
-    #[arg(long, conflicts_with = "resume")]
+    #[arg(long, conflicts_with_all = ["resume", "job"])]
     pub delete: bool,
     /// Print the plan without changing anything: no file, object or stored plan is written.
     #[arg(long, conflicts_with = "resume")]
@@ -652,6 +738,36 @@ pub struct SyncArgs {
     /// Finish the interrupted plan with this ID; the folders, direction and --delete come from the plan.
     #[arg(long, value_name = "PLAN_ID", value_parser = parse_plan_id)]
     pub resume: Option<String>,
+    /// Run the saved sync job with this name (or ID); it uses the job's account.
+    #[arg(long, value_name = "NAME", conflicts_with = "resume")]
+    pub job: Option<String>,
+    /// Save this sync as a job with this name (replacing a job of that name), then run it.
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["resume", "job"])]
+    pub save_job: Option<String>,
+    /// Gitignore-style rule that excludes paths (repeatable; `!` negates, a trailing `/` matches folders).
+    #[arg(long, value_name = "RULE", conflicts_with = "resume")]
+    pub exclude: Vec<String>,
+    /// Sync only paths that match this glob (repeatable).
+    #[arg(long, value_name = "GLOB", conflicts_with = "resume")]
+    pub include: Vec<String>,
+    /// Read exclusion rules from a file, one gitignore-style rule per line.
+    #[arg(long, value_name = "FILE", conflicts_with = "resume")]
+    pub exclude_from: Option<PathBuf>,
+    /// Also sync empty folders (empty local folders get a folder marker in S3, and the other way round).
+    #[arg(long, conflicts_with = "resume")]
+    pub keep_empty_folders: bool,
+    /// Treat files as equal when their size and checksum match, even if the modification times differ.
+    #[arg(long, conflicts_with = "resume")]
+    pub skip_duplicates: bool,
+    /// Do not use the local cache of remote listings.
+    #[arg(long, conflicts_with = "resume")]
+    pub no_cache: bool,
+    /// How many remote folders are listed at the same time (1 to 32).
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=32), conflicts_with = "resume")]
+    pub parallel: Option<u32>,
+    /// Print a report at the end: counts and bytes per action, the duration and the failures (with --json, a final `report` record).
+    #[arg(long)]
+    pub summary: bool,
 }
 
 /// HTTP method of a presigned URL.
@@ -671,6 +787,17 @@ impl PresignMethod {
             PresignMethod::Put => "put",
         }
     }
+}
+
+/// `bb edit`
+#[derive(Debug, Args)]
+pub struct EditArgs {
+    /// `s3://bucket/key` of the object.
+    #[arg(value_name = "S3_URI", value_parser = parse_s3_uri)]
+    pub uri: S3Uri,
+    /// Open the copy with this application (an .app bundle on macOS, a program elsewhere) instead of the default one.
+    #[arg(long, value_name = "APP")]
+    pub app: Option<String>,
 }
 
 /// `bb presign`
@@ -802,13 +929,40 @@ pub enum AccountCommand {
     /// Store a new account. The secret access key is never a command-line
     /// argument: it is read from standard input (--secret-stdin), from
     /// BB_SECRET_ACCESS_KEY, or asked on the terminal.
-    Add(AccountAddArgs),
+    Add(Box<AccountAddArgs>),
     /// List the stored accounts (`*` marks the default).
     List,
     /// Remove a stored account and its secrets.
     Remove(AccountSelector),
     /// Make a stored account the default.
     Default(AccountSelector),
+    /// Import profiles of the AWS config and credentials files as accounts
+    /// that stay linked to the files (no key is copied). Name profiles with
+    /// --profile; without it every usable profile is imported.
+    ImportAws,
+    /// Sign in to AWS IAM Identity Center (SSO) with the device
+    /// authorization flow; the token goes to the AWS CLI cache.
+    SsoLogin(AccountSsoLoginArgs),
+}
+
+/// `bb account sso-login`
+#[derive(Debug, Args)]
+pub struct AccountSsoLoginArgs {
+    /// Label or ID of a stored SSO account whose portal to sign in to.
+    #[arg(value_name = "LABEL|ID")]
+    pub account_label: Option<String>,
+    /// Start URL of the portal (https://<directory>.awsapps.com/start).
+    #[arg(long, value_name = "URL")]
+    pub start_url: Option<String>,
+    /// Region IAM Identity Center runs in.
+    #[arg(long, value_name = "REGION")]
+    pub sso_region: Option<String>,
+    /// Name of the sso-session the token is cached under (as in the AWS config).
+    #[arg(long, value_name = "NAME")]
+    pub sso_session: Option<String>,
+    /// Only print the URL and code; do not open the browser.
+    #[arg(long)]
+    pub no_browser: bool,
 }
 
 /// `bb account add`
@@ -817,9 +971,66 @@ pub struct AccountAddArgs {
     /// Display label, unique across accounts (case-insensitive).
     #[arg(long, value_name = "LABEL")]
     pub label: String,
-    /// Access key ID (not a secret).
-    #[arg(long, value_name = "ID")]
-    pub access_key_id: String,
+    /// Access key ID (not a secret). Not used with --assume-role, --sso or --instance-role.
+    #[arg(
+        long,
+        value_name = "ID",
+        required_unless_present_any = ["assume_role", "sso", "instance_role"]
+    )]
+    pub access_key_id: Option<String>,
+    /// Use the role of this EC2 instance or ECS/EKS container instead of keys.
+    #[arg(long, conflicts_with_all = ["access_key_id", "assume_role", "sso", "secret_stdin"])]
+    pub instance_role: bool,
+    /// With --instance-role: add the account without checking that the role exists.
+    #[arg(long, requires = "instance_role")]
+    pub no_probe: bool,
+    /// ARN of a role to assume through --source-account.
+    #[arg(
+        long,
+        value_name = "ARN",
+        requires = "source_account",
+        conflicts_with_all = ["access_key_id", "sso", "instance_role", "secret_stdin"]
+    )]
+    pub assume_role: Option<String>,
+    /// Label or ID of the stored account that signs the AssumeRole call.
+    #[arg(long, value_name = "LABEL|ID", requires = "assume_role")]
+    pub source_account: Option<String>,
+    /// Role session name.
+    #[arg(long, value_name = "NAME", requires = "assume_role")]
+    pub session_name: Option<String>,
+    /// Role session length (15m to 12h; seconds or 30m, 1h, ...).
+    #[arg(
+        long,
+        value_name = "DURATION",
+        requires = "assume_role",
+        value_parser = crate::duration::parse_duration
+    )]
+    pub duration: Option<std::time::Duration>,
+    /// External id the role's trust policy asks for.
+    #[arg(long, value_name = "ID", requires = "assume_role")]
+    pub external_id: Option<String>,
+    /// Use an AWS IAM Identity Center (SSO) role (needs the --sso-* options).
+    #[arg(
+        long,
+        requires_all = ["sso_start_url", "sso_region", "sso_account_id", "sso_role_name"],
+        conflicts_with_all = ["access_key_id", "assume_role", "instance_role", "secret_stdin"]
+    )]
+    pub sso: bool,
+    /// SSO portal start URL.
+    #[arg(long, value_name = "URL", requires = "sso")]
+    pub sso_start_url: Option<String>,
+    /// SSO region.
+    #[arg(long, value_name = "REGION", requires = "sso")]
+    pub sso_region: Option<String>,
+    /// AWS account id of the SSO role.
+    #[arg(long, value_name = "ID", requires = "sso")]
+    pub sso_account_id: Option<String>,
+    /// Permission set (role) name of the SSO role.
+    #[arg(long, value_name = "NAME", requires = "sso")]
+    pub sso_role_name: Option<String>,
+    /// Name of the sso-session the token is cached under.
+    #[arg(long, value_name = "NAME", requires = "sso")]
+    pub sso_session: Option<String>,
     /// Signing region.
     #[arg(long, value_name = "REGION", default_value = DEFAULT_REGION)]
     pub region: String,
@@ -832,7 +1043,8 @@ pub struct AccountAddArgs {
     /// Pay for requests to requester-pays buckets.
     #[arg(long)]
     pub request_payer: bool,
-    /// Serial number or ARN of the account's MFA device.
+    /// Serial number or ARN of the account's MFA device (for --assume-role:
+    /// the device the role's trust policy asks for).
     #[arg(long, value_name = "SERIAL")]
     pub mfa_serial: Option<String>,
     /// Read the secret access key from the first line of standard input (a
@@ -1257,21 +1469,12 @@ fn parse_glob(text: &str) -> Result<String, String> {
         .map_err(|err| err.to_string())
 }
 
-/// The local folder of `bb sync`: a path, never an S3 URI (the local folder
-/// always comes first).
-fn parse_local_folder(text: &str) -> Result<PathBuf, String> {
-    match parse_location(text)? {
-        Location::Local(path) => Ok(path),
-        Location::S3(uri) => Err(format!(
-            "{uri} is an S3 location; bb sync takes the local folder first and the S3 location second"
-        )),
-    }
-}
-
 /// The S3 side of `bb sync`: an S3 URI (a prefix names a folder).
 fn parse_sync_prefix(text: &str) -> Result<S3Uri, String> {
     parse_s3_uri(text).map_err(|err| {
-        format!("{err} (bb sync takes the local folder first and the S3 location second)")
+        format!(
+            "{err} (bb sync takes the local folder first and the S3 location second; two S3 locations sync from the first to the second)"
+        )
     })
 }
 
@@ -1689,7 +1892,10 @@ mod tests {
         let Command::Sync(args) = cli.command else {
             panic!("sync expected")
         };
-        assert_eq!(args.local, Some(PathBuf::from("photos")));
+        assert_eq!(
+            args.source,
+            Some(SyncSource::Local(PathBuf::from("photos")))
+        );
         assert_eq!(
             args.s3.map(|uri| uri.to_string()).as_deref(),
             Some("s3://b/backup")
@@ -1722,7 +1928,77 @@ mod tests {
             panic!("sync expected")
         };
         assert_eq!(args.resume.as_deref(), Some(PLAN_ID));
-        assert!(args.local.is_none() && args.s3.is_none());
+        assert!(args.source.is_none() && args.s3.is_none());
+    }
+
+    #[test]
+    fn sync_options_jobs_and_s3_to_s3_parse() {
+        let sync = |args: &[&str]| {
+            let (cli, _) = parse(&[&["sync"], args].concat()).unwrap();
+            match cli.command {
+                Command::Sync(args) => args,
+                other => panic!("sync expected, got {other:?}"),
+            }
+        };
+        let args = sync(&[
+            "dir",
+            "s3://b/p",
+            "--exclude",
+            "*.tmp",
+            "--exclude",
+            "build/",
+            "--include",
+            "**/*.rs",
+            "--exclude-from",
+            "rules.txt",
+            "--keep-empty-folders",
+            "--skip-duplicates",
+            "--no-cache",
+            "--parallel",
+            "8",
+            "--summary",
+            "--save-job",
+            "nightly",
+        ]);
+        assert_eq!(args.exclude, ["*.tmp", "build/"]);
+        assert_eq!(args.include, ["**/*.rs"]);
+        assert_eq!(args.exclude_from, Some(PathBuf::from("rules.txt")));
+        assert!(args.keep_empty_folders && args.skip_duplicates && args.no_cache && args.summary);
+        assert_eq!(args.parallel, Some(8));
+        assert_eq!(args.save_job.as_deref(), Some("nightly"));
+
+        // Two S3 locations are a sync between prefixes.
+        let args = sync(&["s3://a/x", "s3://b/y"]);
+        assert!(matches!(args.source, Some(SyncSource::S3(_))));
+
+        // A job names everything; locations, direction and delete would contradict it.
+        let args = sync(&["--job", "nightly", "--dry-run", "--summary"]);
+        assert_eq!(args.job.as_deref(), Some("nightly"));
+        assert!(args.source.is_none() && args.dry_run);
+        for bad in [
+            vec!["--job", "j", "dir", "s3://b"],
+            vec!["--job", "j", "--delete"],
+            vec!["--job", "j", "--direction", "upload"],
+            vec!["--job", "j", "--resume", PLAN_ID],
+            vec!["dir", "s3://b", "--parallel", "0"],
+            vec!["dir", "s3://b", "--parallel", "33"],
+        ] {
+            assert!(parse(&[&["sync"], &bad[..]].concat()).is_err(), "{bad:?}");
+        }
+
+        // The jobs subcommands.
+        let args = sync(&["jobs", "list"]);
+        assert!(matches!(
+            args.command,
+            Some(SyncCommand::Jobs(SyncJobsCommand::List))
+        ));
+        let args = sync(&["jobs", "delete", "nightly", "--yes"]);
+        let Some(SyncCommand::Jobs(SyncJobsCommand::Delete(delete))) = args.command else {
+            panic!("jobs delete expected")
+        };
+        assert!(delete.yes && delete.name == "nightly");
+        // Positional arguments and a subcommand do not mix.
+        assert!(parse(&["sync", "dir", "s3://b", "jobs", "list"]).is_err());
     }
 
     #[test]

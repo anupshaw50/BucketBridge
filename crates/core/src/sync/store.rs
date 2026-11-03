@@ -912,6 +912,7 @@ mod tests {
             account_id: "account-1".to_owned(),
             local_root: PathBuf::from("/sync/root"),
             s3_prefix: S3Uri::parse("s3://bucket/prefix/").unwrap(),
+            source_prefix: None,
             direction: SyncDirection::Upload,
             delete: true,
             created_at: Utc.with_ymd_and_hms(2026, 10, 29, 8, 15, 0).unwrap(),

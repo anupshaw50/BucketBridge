@@ -15,6 +15,107 @@ fn default_region() -> String {
     DEFAULT_REGION.to_owned()
 }
 
+/// Session name used for role sessions when none is given.
+pub const DEFAULT_ROLE_SESSION_NAME: &str = "bucketbridge";
+
+/// Shortest role session STS accepts, in seconds.
+pub const MIN_ROLE_DURATION_SECS: u32 = 900;
+
+/// Longest role session STS accepts, in seconds (12 hours).
+pub const MAX_ROLE_DURATION_SECS: u32 = 43_200;
+
+/// Role session length used when none is given, in seconds.
+pub const DEFAULT_ROLE_DURATION_SECS: u32 = 3_600;
+
+fn default_session_name() -> String {
+    DEFAULT_ROLE_SESSION_NAME.to_owned()
+}
+
+fn default_role_duration() -> u32 {
+    DEFAULT_ROLE_DURATION_SECS
+}
+
+/// Where an account's credentials come from.
+///
+/// Only [`CredentialSource::StaticKeys`] stores secrets of its own (in the
+/// secret store). Every other source obtains temporary credentials when
+/// they are needed and refreshes them before they expire; none of them
+/// puts a secret into the configuration file. The JSON form is a tagged
+/// union with a `type` field (`static_keys`, `aws_profile`, `assume_role`,
+/// `sso`, `instance_role`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CredentialSource {
+    /// Access key and secret key held by BucketBridge (the default; the
+    /// only kind before version 0.2.0).
+    #[default]
+    StaticKeys,
+    /// A profile of the AWS shared config and credentials files, read when
+    /// credentials are needed (the files stay the single source of truth).
+    AwsProfile {
+        /// Profile name (`default` or the name after `profile ` in the
+        /// config file).
+        profile: String,
+    },
+    /// Temporary credentials from STS `AssumeRole`, signed with another
+    /// account of BucketBridge.
+    AssumeRole {
+        /// Id of the account whose credentials call STS.
+        source_account_id: String,
+        /// ARN of the role to assume.
+        role_arn: String,
+        /// Role session name.
+        #[serde(default = "default_session_name")]
+        session_name: String,
+        /// Session length in seconds, 900 to 43200.
+        #[serde(default = "default_role_duration")]
+        duration_secs: u32,
+        /// External id the role's trust policy asks for.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        external_id: Option<String>,
+        /// MFA device the role's trust policy asks for; a code is asked
+        /// for each time the session ends.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mfa_serial: Option<String>,
+    },
+    /// A role of an AWS account reached through IAM Identity Center. The
+    /// sign-in token lives in the AWS CLI cache (`~/.aws/sso/cache`).
+    Sso {
+        /// Start URL of the IAM Identity Center portal.
+        start_url: String,
+        /// Region of IAM Identity Center (also decides the partition).
+        sso_region: String,
+        /// AWS account id the role belongs to.
+        account_id: String,
+        /// Permission set (role) name.
+        role_name: String,
+        /// Name of the `sso-session` the token is cached under; without it
+        /// the cache file is named after the start URL.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sso_session: Option<String>,
+    },
+    /// The role of the EC2 instance (IMDSv2) or ECS/EKS container
+    /// BucketBridge runs on.
+    InstanceRole,
+}
+
+impl CredentialSource {
+    /// `true` for [`CredentialSource::StaticKeys`].
+    pub fn is_static(&self) -> bool {
+        matches!(self, CredentialSource::StaticKeys)
+    }
+
+    /// The MFA device an assumed role asks for, if any.
+    pub fn role_mfa_serial(&self) -> Option<&str> {
+        match self {
+            CredentialSource::AssumeRole { mfa_serial, .. } => {
+                mfa_serial.as_deref().filter(|serial| !serial.is_empty())
+            }
+            _ => None,
+        }
+    }
+}
+
 /// An S3 account as stored in the configuration file.
 ///
 /// The secret access key and any static session token live in the secret
@@ -45,9 +146,14 @@ pub struct Account {
     /// Send `x-amz-request-payer: requester` on every request that supports it.
     #[serde(default)]
     pub request_payer: bool,
-    /// MFA device serial number or ARN, for MFA-protected operations.
+    /// MFA device serial number or ARN, for MFA-protected operations. For an
+    /// assumed role it is the device the role asks for.
     #[serde(default)]
     pub mfa_serial: Option<String>,
+    /// Where the credentials come from; accounts saved before version 0.2.0
+    /// have static keys.
+    #[serde(default)]
+    pub source: CredentialSource,
 }
 
 impl Default for Account {
@@ -63,11 +169,28 @@ impl Default for Account {
             path_style: false,
             request_payer: false,
             mfa_serial: None,
+            source: CredentialSource::StaticKeys,
         }
     }
 }
 
 impl Account {
+    /// `true` when the account's credentials are access keys held by
+    /// BucketBridge.
+    pub fn has_static_keys(&self) -> bool {
+        self.source.is_static()
+    }
+
+    /// `true` when requests need an MFA session (a code entered with
+    /// `mfa_login`): static keys with an MFA device, or an assumed role
+    /// whose trust policy asks for one.
+    pub fn needs_mfa_session(&self) -> bool {
+        match &self.source {
+            CredentialSource::StaticKeys => self.mfa_serial.is_some(),
+            source => source.role_mfa_serial().is_some(),
+        }
+    }
+
     /// The badge reported for this account's buckets: `External` when a
     /// custom endpoint is configured, `Aws` otherwise.
     pub fn bucket_kind(&self) -> BucketKind {
@@ -89,10 +212,12 @@ impl Account {
 pub struct AccountInput {
     /// Display label, unique across accounts (case-insensitive).
     pub label: String,
-    /// Access key ID.
+    /// Access key ID (static keys only).
+    #[serde(default)]
     pub access_key_id: String,
-    /// Secret access key; it goes to the secret store, never to the
-    /// configuration file.
+    /// Secret access key (static keys only); it goes to the secret store,
+    /// never to the configuration file.
+    #[serde(default)]
     pub secret_access_key: String,
     /// Static session token for temporary credentials.
     #[serde(default)]
@@ -112,6 +237,28 @@ pub struct AccountInput {
     /// MFA device serial number or ARN.
     #[serde(default)]
     pub mfa_serial: Option<String>,
+    /// Where the credentials come from; `static_keys` when omitted. Any
+    /// other source needs no access key or secret.
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub source: CredentialSource,
+}
+
+impl Default for AccountInput {
+    fn default() -> Self {
+        AccountInput {
+            label: String::new(),
+            access_key_id: String::new(),
+            secret_access_key: String::new(),
+            session_token: None,
+            region: default_region(),
+            endpoint: None,
+            path_style: false,
+            request_payer: false,
+            mfa_serial: None,
+            source: CredentialSource::StaticKeys,
+        }
+    }
 }
 
 impl fmt::Debug for AccountInput {
@@ -129,6 +276,7 @@ impl fmt::Debug for AccountInput {
             .field("path_style", &self.path_style)
             .field("request_payer", &self.request_payer)
             .field("mfa_serial", &self.mfa_serial)
+            .field("source", &self.source)
             .finish()
     }
 }
@@ -177,6 +325,12 @@ pub struct AccountUpdate {
     /// Remove the MFA device.
     #[serde(default)]
     pub clear_mfa_serial: bool,
+    /// New credential source of an account that already has a source other
+    /// than static keys (for example another role duration); the kind of
+    /// source cannot change.
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub source: Option<CredentialSource>,
 }
 
 impl fmt::Debug for AccountUpdate {
@@ -195,6 +349,7 @@ impl fmt::Debug for AccountUpdate {
             .field("request_payer", &self.request_payer)
             .field("mfa_serial", &self.mfa_serial)
             .field("clear_mfa_serial", &self.clear_mfa_serial)
+            .field("source", &self.source)
             .finish()
     }
 }
@@ -234,6 +389,7 @@ mod tests {
             path_style: true,
             request_payer: false,
             mfa_serial: None,
+            source: CredentialSource::StaticKeys,
         }
     }
 
@@ -252,7 +408,8 @@ mod tests {
                 "endpoint": "https://s3.example.com",
                 "path_style": true,
                 "request_payer": false,
-                "mfa_serial": null
+                "mfa_serial": null,
+                "source": { "type": "static_keys" }
             })
         );
         let back: Account = serde_json::from_value(value).unwrap();
@@ -273,6 +430,66 @@ mod tests {
         assert!(!account.path_style);
         assert!(!account.request_payer);
         assert_eq!(account.bucket_kind(), BucketKind::Aws);
+    }
+
+    #[test]
+    fn credential_sources_round_trip_as_tagged_unions() {
+        let sources = [
+            CredentialSource::StaticKeys,
+            CredentialSource::AwsProfile {
+                profile: "dev".into(),
+            },
+            CredentialSource::AssumeRole {
+                source_account_id: "a".into(),
+                role_arn: "arn:aws:iam::123456789012:role/R".into(),
+                session_name: "s".into(),
+                duration_secs: 900,
+                external_id: Some("x".into()),
+                mfa_serial: None,
+            },
+            CredentialSource::Sso {
+                start_url: "https://example.awsapps.com/start".into(),
+                sso_region: "eu-west-1".into(),
+                account_id: "123456789012".into(),
+                role_name: "Admin".into(),
+                sso_session: Some("work".into()),
+            },
+            CredentialSource::InstanceRole,
+        ];
+        for source in sources {
+            let json = serde_json::to_value(&source).unwrap();
+            assert!(json["type"].is_string());
+            assert_eq!(
+                serde_json::from_value::<CredentialSource>(json).unwrap(),
+                source
+            );
+        }
+        let role: CredentialSource = serde_json::from_value(json!({
+            "type": "assume_role", "source_account_id": "a", "role_arn": "arn:aws:iam::1:role/r"
+        }))
+        .unwrap();
+        assert_eq!(
+            role,
+            CredentialSource::AssumeRole {
+                source_account_id: "a".into(),
+                role_arn: "arn:aws:iam::1:role/r".into(),
+                session_name: DEFAULT_ROLE_SESSION_NAME.into(),
+                duration_secs: DEFAULT_ROLE_DURATION_SECS,
+                external_id: None,
+                mfa_serial: None,
+            }
+        );
+    }
+
+    #[test]
+    fn accounts_without_a_source_have_static_keys() {
+        let account: Account = serde_json::from_value(json!({
+            "id": "a", "label": "b", "access_key_id": "c", "secret_ref": "d"
+        }))
+        .unwrap();
+        assert_eq!(account.source, CredentialSource::StaticKeys);
+        assert!(account.has_static_keys());
+        assert!(!account.needs_mfa_session());
     }
 
     #[test]

@@ -154,6 +154,7 @@ const BUILT: ReadonlySet<string> = new Set([
   "account.test",
   "bucket.open-browser",
   "file.open-with",
+  "file.edit",
   "file.website-redirect",
 ]);
 
@@ -250,6 +251,7 @@ describe("resolved menus", () => {
       "Properties > Versioning…, Server access logging…, Bucket policy…, Public access block…, CORS…, Lifecycle rules…, Intelligent-Tiering…, Replication…, Static website…, Website routing rules…, Transfer acceleration…, Object ownership…, Object lock…",
       "Sharing wizard…",
       "Folder sync…",
+      "Sync jobs…",
       "-",
       "CloudFront > Attach distribution…, Edit distribution…, Enable or disable, Create invalidation…, Invalidation history…, Detach distribution",
       "Copy bucket name",
@@ -318,6 +320,7 @@ describe("resolved menus", () => {
       "-",
       "Rename… (F2)",
       "Folder sync…",
+      "Sync jobs…",
       "-",
       "Properties",
       "Versions…",
@@ -331,6 +334,7 @@ describe("resolved menus", () => {
     expect(shape(resolveMenu("file", itemsContext(model, "demo-photos", [file])))).toEqual([
       "Open (Enter)",
       "Open with…",
+      "Edit",
       "Preview (F3)",
       "Versions…",
       "-",
@@ -427,6 +431,7 @@ describe("resolved menus", () => {
       "-",
       "Rename…",
       "Folder sync…",
+      "Sync jobs…",
       "-",
       "Properties",
       "Versions…",
@@ -528,6 +533,7 @@ describe("capabilities and availability", () => {
     path_style: false,
     request_payer: false,
     mfa_serial: null,
+    source: { type: "static_keys" },
   };
   const external: Account = { ...aws, id: "e", endpoint: "https://storage.example.com", path_style: true };
 

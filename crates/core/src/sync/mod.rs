@@ -25,8 +25,14 @@
 //! [`RowCounts`] holds the progress numbers of `SyncProgress`, defined once for the
 //! executor and the desktop host.
 
+pub mod analysis;
+pub mod duplicate;
 pub mod execute;
+pub mod folders;
+pub mod listing;
+pub mod options;
 pub mod plan;
+pub mod report;
 pub mod scan;
 pub mod store;
 
@@ -41,10 +47,15 @@ use crate::model::{ObjectEntry, Side, SyncAction, SyncDirection, SyncPlan, SyncR
 use crate::path::safe_local_path;
 use crate::s3uri::S3Uri;
 
+pub use analysis::{AnalysisRequest, analyze_async, analyze_s3};
 pub use execute::{
     ExecuteOptions, NoSyncEvents, RunSummary, SyncEvents, SyncExecutor, SyncProgress, SyncRun,
 };
+pub use folders::folder_markers;
+pub use listing::{ListOptions, Listing, ListingCache, ListingSource, list_folder};
+pub use options::SyncOptions;
 pub use plan::{DEFAULT_TOLERANCE, PlanOptions, plan_rows};
+pub use report::{KindTotals, ReportFailure, SyncReport};
 pub use scan::{
     LocalScanOptions, LocalTree, PART_SUFFIX, RemoteTree, is_case_insensitive, scan_local,
     scan_remote, validate_key_prefix,
@@ -73,6 +84,9 @@ pub struct AnalyzeRequest<'a> {
     pub filter: Option<&'a Filter>,
     /// Modification times closer than this count as equal.
     pub tolerance: TimeDelta,
+    /// Also sync empty folders (see `SyncOptions::skip_empty_folders`): rows whose
+    /// `rel_path` ends in `/` create a folder marker in S3 or an empty local folder.
+    pub empty_folders: bool,
 }
 
 impl<'a> AnalyzeRequest<'a> {
@@ -91,6 +105,7 @@ impl<'a> AnalyzeRequest<'a> {
             delete: false,
             filter: None,
             tolerance: DEFAULT_TOLERANCE,
+            empty_folders: false,
         }
     }
 }
@@ -108,13 +123,23 @@ pub fn analyze<I>(request: &AnalyzeRequest<'_>, remote_entries: I) -> Result<Syn
 where
     I: IntoIterator<Item = ObjectEntry>,
 {
+    let local_root = prepare_local_root(request)?;
+    let local = scan_local_side(request, &local_root)?;
+    analyze_scanned(request, local_root, local, remote_entries)
+}
+
+/// Validates the request and returns the absolute local folder. Nothing is read.
+pub(crate) fn prepare_local_root(request: &AnalyzeRequest<'_>) -> Result<PathBuf> {
+    if request.direction == SyncDirection::S3ToS3 {
+        return Err(usage(
+            "an S3 to S3 sync is analysed with analyze_s3, not with a local folder",
+        ));
+    }
     if request.delete && request.direction == SyncDirection::Bidirectional {
         return Err(usage(
             "delete cannot be combined with bidirectional sync: without a record of earlier runs a deletion on one side looks exactly like a new file on the other",
         ));
     }
-    let s3_prefix = as_folder(request.s3_prefix)?;
-    let key_prefix = s3_prefix.key();
     let local_root = std::path::absolute(request.local_root).map_err(|err| {
         usage(format!(
             "invalid local folder '{}': {err}",
@@ -128,19 +153,54 @@ where
             local_root.display()
         )));
     }
+    Ok(local_root)
+}
 
+/// Scans the local folder of `request` (blocking). A missing folder is an empty tree
+/// except for `upload`.
+pub(crate) fn scan_local_side(
+    request: &AnalyzeRequest<'_>,
+    local_root: &Path,
+) -> Result<LocalTree> {
     let scan_options = LocalScanOptions {
         filter: request.filter,
         check_readable: request.direction != SyncDirection::Download,
+        collect_empty_dirs: request.empty_folders && request.direction != SyncDirection::Download,
     };
-    let local = match scan_local(&local_root, &scan_options) {
-        Ok(tree) => tree,
+    match scan_local(local_root, &scan_options) {
+        Ok(tree) => Ok(tree),
         Err(err)
             if err.kind() == ErrorKind::NotFound && request.direction != SyncDirection::Upload =>
         {
-            LocalTree::default()
+            Ok(LocalTree::default())
         }
-        Err(err) => return Err(err),
+        Err(err) => Err(err),
+    }
+}
+
+/// The second half of [`analyze`]: plans the rows of an already scanned local folder
+/// against the remote listing. Blocking (it may look at the local file system).
+pub(crate) fn analyze_scanned<I>(
+    request: &AnalyzeRequest<'_>,
+    local_root: PathBuf,
+    local: LocalTree,
+    remote_entries: I,
+) -> Result<SyncPlan>
+where
+    I: IntoIterator<Item = ObjectEntry>,
+{
+    let s3_prefix = as_folder(request.s3_prefix)?;
+    let key_prefix = s3_prefix.key();
+    let remote_entries: Vec<ObjectEntry> = remote_entries.into_iter().collect();
+    let remote_markers = if request.empty_folders {
+        folder_markers(&remote_entries, key_prefix, request.filter)
+    } else {
+        Vec::new()
+    };
+    let empty_dirs = if request.direction == SyncDirection::Download {
+        Vec::new()
+    } else {
+        local.empty_dirs.clone()
     };
     let remote = scan_remote(remote_entries, key_prefix, &local_root, request.filter)?;
     let case_insensitive =
@@ -158,11 +218,21 @@ where
         let hidden_names_possible = request.filter.is_some_and(Filter::has_path_criteria);
         fail_unseen_targets(&mut rows, &local_root, hidden_names_possible);
     }
+    if request.empty_folders {
+        folders::add_folder_rows(
+            &mut rows,
+            request.direction,
+            &local_root,
+            &empty_dirs,
+            &remote_markers,
+        );
+    }
     Ok(SyncPlan {
         id: new_plan_id(),
         account_id: request.account_id.to_owned(),
         local_root,
         s3_prefix,
+        source_prefix: None,
         direction: request.direction,
         delete: request.delete,
         created_at: Utc::now(),

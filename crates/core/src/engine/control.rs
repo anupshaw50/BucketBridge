@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use tokio_util::sync::CancellationToken;
 
+use super::policy::SkipReason;
+
 /// The future returned by [`Throttle::acquire`].
 pub type ThrottleFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
@@ -284,6 +286,10 @@ pub enum Outcome<T> {
     Paused,
     /// Stopped by [`StopSignal::cancel`] and cleaned up.
     Cancelled,
+    /// Nothing was transferred: the destination exists and the overwrite
+    /// policy says to keep it. Never silent: callers report the item as
+    /// skipped, and a move keeps its source.
+    Skipped(SkipReason),
 }
 
 impl<T> Outcome<T> {
@@ -291,7 +297,7 @@ impl<T> Outcome<T> {
     pub fn into_completed(self) -> Option<T> {
         match self {
             Outcome::Completed(value) => Some(value),
-            Outcome::Paused | Outcome::Cancelled => None,
+            Outcome::Paused | Outcome::Cancelled | Outcome::Skipped(_) => None,
         }
     }
 
@@ -306,6 +312,7 @@ impl<T> Outcome<T> {
             Outcome::Completed(value) => Outcome::Completed(f(value)),
             Outcome::Paused => Outcome::Paused,
             Outcome::Cancelled => Outcome::Cancelled,
+            Outcome::Skipped(reason) => Outcome::Skipped(reason),
         }
     }
 

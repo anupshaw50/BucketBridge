@@ -59,6 +59,8 @@ export const AVAILABLE: Readonly<Record<PlannedActionId, boolean>> = {
   // Object features: open with and website redirect have dialogs; metadata (T06), T07, preview (T08), client-side
   // encryption and export (T12) are built.
   "file.open-with": true,
+  // Edit in place (v0.2.0): the copy opens in an application and every save is uploaded.
+  "file.edit": true,
   "file.preview": true,
   "file.move-to": true,
   "file.copy-to": true,

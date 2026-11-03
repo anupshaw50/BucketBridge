@@ -130,6 +130,7 @@ function AccountSwitcher() {
           ))}
           <Menu.Divider />
           <Menu.Item onClick={() => model.dialogs.open({ kind: "add-account" })}>Add account...</Menu.Item>
+          <Menu.Item onClick={() => model.dialogs.open({ kind: "import-aws" })}>Import from AWS config...</Menu.Item>
           <Menu.Item onClick={() => model.dialogs.open({ kind: "accounts" })}>Manage accounts...</Menu.Item>
         </Menu.Dropdown>
       </Menu>

@@ -20,6 +20,29 @@ export interface BbError {
 }
 
 // ---- accounts and security ----
+/** Where an account's credentials come from (docs/desktop-api.md, "Credential sources (v0.2.0)"). */
+export type CredentialSource =
+  | { type: "static_keys" }
+  | { type: "aws_profile"; profile: string }
+  | {
+      type: "assume_role";
+      source_account_id: string;
+      role_arn: string;
+      session_name: string;
+      duration_secs: number; // 900 to 43200
+      external_id?: string | null;
+      mfa_serial?: string | null;
+    }
+  | {
+      type: "sso";
+      start_url: string;
+      sso_region: string;
+      account_id: string;
+      role_name: string;
+      sso_session?: string | null;
+    }
+  | { type: "instance_role" };
+
 export interface Account {
   id: string;
   label: string; // unique, case-insensitive
@@ -31,10 +54,13 @@ export interface Account {
   path_style: boolean;
   request_payer: boolean;
   mfa_serial: string | null;
+  /** Credential source; every account of version 0.1.0 has static keys. */
+  source: CredentialSource;
 }
 
 export interface AccountInput {
   label: string;
+  /** Static keys only; empty for the other sources. */
   access_key_id: string;
   secret_access_key: string;
   session_token: string | null;
@@ -43,6 +69,8 @@ export interface AccountInput {
   path_style: boolean;
   request_payer: boolean;
   mfa_serial: string | null;
+  /** Default `{ type: "static_keys" }`. */
+  source?: CredentialSource;
 }
 
 /** update_account payload: null = keep current value. */
@@ -59,6 +87,81 @@ export interface AccountUpdate {
   request_payer: boolean | null;
   mfa_serial: string | null;
   clear_mfa_serial: boolean;
+  /** New settings of an account that is not static keys (same kind of source). */
+  source?: CredentialSource | null;
+}
+
+// ---- credential sources: AWS profiles, instance role, SSO ----
+export type AwsProfileKind =
+  | "static_keys"
+  | "assume_role"
+  | "sso"
+  | "credential_process"
+  | "web_identity"
+  | "incomplete";
+
+export interface AwsProfile {
+  name: string;
+  kind: AwsProfileKind;
+  region: string | null;
+  role_arn: string | null;
+  source_profile: string | null;
+  sso_start_url: string | null;
+  sso_account_id: string | null;
+  sso_role_name: string | null;
+  importable: boolean;
+  note: string | null;
+}
+
+/** A profile of the AWS files and the account that links it already. */
+export interface AwsProfileEntry extends AwsProfile {
+  account_id: string | null;
+}
+
+export interface SkippedProfile {
+  profile: string;
+  reason: string;
+}
+
+export interface ImportOutcome {
+  imported: Account[];
+  skipped: SkippedProfile[];
+}
+
+export interface InstanceRoleProbe {
+  kind: "container" | "instance";
+  access_key_id: string;
+  expires_at: string | null;
+}
+
+export interface SsoPortal {
+  start_url: string;
+  sso_region: string;
+  sso_session?: string | null;
+}
+
+export interface SsoLoginStarted {
+  login_id: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string | null;
+  expires_in_secs: number;
+  interval_secs: number;
+  browser_opened: boolean;
+}
+
+export type SsoLoginPoll = { state: "pending"; interval_secs: number } | { state: "complete"; expires_at: string };
+
+export interface SsoSignInStatus {
+  signed_in: boolean;
+  expires_at: string | null;
+  can_refresh: boolean;
+}
+
+export interface SsoAccount {
+  account_id: string;
+  account_name: string;
+  email_address: string | null;
 }
 
 export interface AccountList {
@@ -147,7 +250,38 @@ export interface ObjectMeta {
 // ---- transfers ----
 export type TransferKind = "upload" | "download" | "copy" | "move" | "delete";
 
-export type TransferState = "queued" | "running" | "stopped" | "completed" | "failed" | "cancelled";
+export type TransferState = "queued" | "running" | "stopped" | "completed" | "failed" | "cancelled" | "skipped";
+
+/** What a transfer does when its destination exists. */
+export type IfExists = "ask" | "overwrite" | "skip" | "overwrite_if_newer" | "rename";
+
+/** An answer to an overwrite question: `IfExists` without "ask". */
+export type OverwriteChoice = "overwrite" | "skip" | "overwrite_if_newer" | "rename";
+
+/** One side of an overwrite question. */
+export interface ConflictItem {
+  size: number | null;
+  modified: string | null; // RFC 3339
+}
+
+/** What exists where, for a task that waits for an overwrite decision. */
+export interface Conflict {
+  kind: TransferKind;
+  source: string; // a local path or s3:// URI
+  destination: string;
+  source_info: ConflictItem;
+  destination_info: ConflictItem;
+}
+
+/** A task that waits for the user to decide what happens to an existing destination. */
+export interface PendingConflict {
+  task_id: string;
+  group_id: string | null; // an "apply to all" answer covers the tasks of this group
+  conflict: Conflict;
+}
+
+/** `transfer://conflict`: a task started or stopped waiting. */
+export type ConflictEvent = ({ type: "asked" } & PendingConflict) | { type: "resolved"; task_id: string };
 
 export type Location = { type: "local"; path: string } | { type: "s3"; bucket: string; key: string };
 
@@ -170,7 +304,7 @@ export interface TransferTask {
 }
 
 // ---- sync ----
-export type SyncDirection = "upload" | "download" | "bidirectional";
+export type SyncDirection = "upload" | "download" | "bidirectional" | "s3_to_s3";
 export type SyncAction = "copy" | "delete" | "equal" | "failed";
 export type Side = "local" | "remote";
 
@@ -193,11 +327,70 @@ export interface SyncPlan {
   id: string;
   account_id: string;
   local_root: string;
-  s3_prefix: string; // "s3://bucket/prefix/"
+  s3_prefix: string; // "s3://bucket/prefix/"; the destination of an s3_to_s3 plan
+  /** Source prefix of an s3_to_s3 plan; absent for every other direction. */
+  source_prefix?: string;
   direction: SyncDirection;
   delete: boolean;
   created_at: string;
   rows: SyncRow[];
+}
+
+/** Filters and analysis options of a sync (docs/desktop-api.md, "Sync jobs and sync options (v0.2.0)"). */
+export interface SyncOptions {
+  filter: FilterSpec;
+  /** Include globs: when not empty, only matching paths are synced. */
+  include: string[];
+  /** Gitignore-style exclusion rules. */
+  exclude: string[];
+  /** A file of exclusion rules, read at every run. */
+  exclude_file: string | null;
+  skip_empty_folders: boolean;
+  skip_duplicate_content: boolean;
+  use_cache: boolean;
+  /** Remote prefixes listed at the same time, 1 to 32. */
+  parallelism: number;
+}
+
+/** A named sync setup kept in the configuration. */
+export interface SyncJob {
+  /** "" in a job that is about to be created. */
+  id: string;
+  name: string;
+  account_id: string;
+  direction: SyncDirection;
+  /** Absolute local folder; "" for s3_to_s3. */
+  local_root: string;
+  /** "s3://bucket/prefix/"; the destination of an s3_to_s3 job. */
+  s3_prefix: string;
+  /** Source of an s3_to_s3 job. */
+  s3_source?: string;
+  delete: boolean;
+  options: SyncOptions;
+}
+
+export interface SyncKindTotals {
+  files: number;
+  bytes: number;
+  failed: number;
+  pending: number;
+}
+
+/** Summary report of a finished run, sent as `sync://report`. */
+export interface SyncReport {
+  plan_id: string;
+  direction: SyncDirection;
+  duration_ms: number;
+  cancelled: boolean;
+  upload: SyncKindTotals;
+  download: SyncKindTotals;
+  copy: SyncKindTotals;
+  delete_local: SyncKindTotals;
+  delete_remote: SyncKindTotals;
+  equal: SyncKindTotals;
+  unsyncable: number;
+  failed: number;
+  failures: { rel_path: string; error: string }[];
 }
 
 export interface SyncProgress {
@@ -252,6 +445,7 @@ export interface Settings {
   data_integrity: {
     checksum_algorithm: ChecksumAlgorithm; // "crc32"; "none" = only when the API requires one
     validate_downloads: boolean; // true
+    preserve_mtime: boolean; // true: downloads keep the object's time, uploads store the local time
   };
   logging: {
     level: LogLevel; // "information" (minimum level recorded)
@@ -274,6 +468,7 @@ export interface Settings {
     part_size_mib: number; // 8 (grown automatically to stay <= 10,000 parts)
     bandwidth_limit_kibps: number | null; // null = unlimited; shared by all tasks
     retry_attempts: number; // 3 per part or per object
+    if_exists: IfExists; // "overwrite": what to do when a destination exists
   };
   shortener: {
     provider: ShortenerProvider; // "none": share links are never sent to a third party
@@ -980,4 +1175,40 @@ export interface MountStatus {
 /** Payload of mount://changed. */
 export interface MountChangedEvent {
   mounts: MountInfo[];
+}
+
+// ---- Edit in place (v0.2.0) ----
+
+export type EditState = "watching" | "uploading" | "uploaded" | "conflict" | "error" | "stopped";
+
+/** What a conflict is about: the object changed or was deleted on the server since it was opened. */
+export interface EditConflict {
+  remote_deleted: boolean;
+  remote_etag: string | null; // the ETag the object has now, without quotes
+  remote_modified: string | null; // RFC 3339
+}
+
+/** One edit session; also the payload of edit://changed. */
+export interface EditSession {
+  id: string;
+  account_id: string;
+  bucket: string;
+  key: string;
+  local_path: string; // absolute path of the local copy
+  state: EditState;
+  etag: string | null; // the ETag the next upload expects to find
+  version_id: string | null; // version at open time, on versioned buckets
+  started_at: string; // RFC 3339
+  last_upload_at: string | null; // RFC 3339
+  uploads: number;
+  error: string | null; // why the last upload failed (state "error")
+  conflict: EditConflict | null; // set while state is "conflict"
+}
+
+/** overwrite: upload the local copy over the object; save_copy: upload it as `name (edited).ext` and end the session; discard: drop the local changes and end the session; retry: try a failed upload again. */
+export type EditResolution = "overwrite" | "save_copy" | "discard" | "retry";
+
+export interface EditResolved {
+  session: EditSession | null; // null when the resolution ended the session
+  copy_key: string | null; // key of the copy, for save_copy
 }

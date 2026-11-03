@@ -10,6 +10,7 @@ import { Wizard } from "../../components/Wizard";
 import {
   type AccountDraft,
   type DraftErrors,
+  credentialsLabel,
   draftFromAccount,
   emptyDraft,
   isEmptyUpdate,
@@ -25,6 +26,7 @@ import { isContextClick, useContextMenu } from "../menus/useContextMenu";
 import { DiagnosticsPanel } from "../tools/DiagnosticsPanel";
 import { makeDefault, removeAccount } from "./accountActions";
 import { ConnectionFields, CredentialFields } from "./AccountFields";
+import { InstanceFields, ProfileFields, RoleFields, SourcePicker, SsoFields } from "./SourceFields";
 
 function useDraft(initial: () => AccountDraft) {
   const [draft, setDraft] = useState(initial);
@@ -55,6 +57,75 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
 
 const CONNECTION_FIELDS: ReadonlySet<string> = new Set(["label", "endpoint", "region"]);
 
+/** The credential fields of the kind of source the form describes. */
+function SourceFields({
+  draft,
+  errors,
+  onChange,
+  accounts,
+  original,
+  focusMfa = false,
+}: {
+  draft: AccountDraft;
+  errors: DraftErrors;
+  onChange: (patch: Partial<AccountDraft>) => void;
+  accounts: readonly Account[];
+  original: Account | null;
+  focusMfa?: boolean;
+}) {
+  switch (draft.source_kind) {
+    case "keys":
+      return <CredentialFields draft={draft} errors={errors} onChange={onChange} original={original} focusMfa={focusMfa} />;
+    case "role":
+      return <RoleFields draft={draft} errors={errors} onChange={onChange} accounts={accounts} editing={original !== null} />;
+    case "sso":
+      return <SsoFields draft={draft} errors={errors} onChange={onChange} editing={original !== null} />;
+    case "instance":
+      return <InstanceFields draft={draft} errors={errors} onChange={onChange} editing={original !== null} />;
+    case "profile":
+      return <ProfileFields draft={draft} />;
+  }
+}
+
+/** The review rows of the add-account wizard for the chosen kind of source. */
+function SourceReview({ draft, accounts }: { draft: AccountDraft; accounts: readonly Account[] }) {
+  switch (draft.source_kind) {
+    case "keys":
+      return (
+        <>
+          <ReviewRow label="Access key ID" value={draft.access_key_id.trim()} />
+          <ReviewRow label="Secret access key" value="Entered (hidden)" />
+          <ReviewRow label="Session token" value={draft.session_token.trim() === "" ? "None" : "Entered (hidden)"} />
+          <ReviewRow label="MFA device" value={draft.mfa_serial.trim() === "" ? "None" : draft.mfa_serial.trim()} />
+        </>
+      );
+    case "role":
+      return (
+        <>
+          <ReviewRow label="Credentials" value="Assumed role" />
+          <ReviewRow label="Signed with" value={accounts.find((a) => a.id === draft.role_source_account_id)?.label ?? "-"} />
+          <ReviewRow label="Role ARN" value={draft.role_arn.trim()} />
+          <ReviewRow label="Session" value={`${draft.role_session_name.trim()}, ${draft.role_duration_minutes} minutes`} />
+          <ReviewRow label="External ID" value={draft.role_external_id.trim() === "" ? "None" : draft.role_external_id.trim()} />
+          <ReviewRow label="MFA device" value={draft.mfa_serial.trim() === "" ? "None" : draft.mfa_serial.trim()} />
+        </>
+      );
+    case "sso":
+      return (
+        <>
+          <ReviewRow label="Credentials" value="AWS SSO (IAM Identity Center)" />
+          <ReviewRow label="Start URL" value={draft.sso_start_url.trim()} />
+          <ReviewRow label="AWS account" value={draft.sso_account_id} />
+          <ReviewRow label="Role" value={draft.sso_role_name} />
+        </>
+      );
+    case "instance":
+      return <ReviewRow label="Credentials" value="Role of this EC2 instance or container" />;
+    case "profile":
+      return <ReviewRow label="Credentials" value={`AWS profile ${draft.profile}`} />;
+  }
+}
+
 /** Add-account wizard: connection, credentials, review. */
 export function AddAccountDialog({ onClose }: { onClose: () => void }) {
   const model = useModel();
@@ -65,7 +136,7 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const next = () => {
-    const found = step === 0 ? validateConnection(draft, accounts, null) : validateCredentials(draft, null);
+    const found = step === 0 ? validateConnection(draft, accounts, null) : validateCredentials(draft, null, accounts);
     setErrors(found);
     if (Object.keys(found).length > 0) {
       return false;
@@ -74,7 +145,7 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
     return true;
   };
   const finish = async () => {
-    const found = { ...validateConnection(draft, accounts, null), ...validateCredentials(draft, null) };
+    const found = { ...validateConnection(draft, accounts, null), ...validateCredentials(draft, null, accounts) };
     if (Object.keys(found).length > 0) {
       setErrors(found);
       setStep(Object.keys(found).some((key) => CONNECTION_FIELDS.has(key)) ? 0 : 1);
@@ -117,13 +188,22 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
           { label: "Connection", content: <ConnectionFields draft={draft} errors={errors} onChange={update} /> },
           {
             label: "Credentials",
-            content: <CredentialFields draft={draft} errors={errors} onChange={update} original={null} />,
+            content: (
+              <Stack gap="sm">
+                <SourcePicker draft={draft} onChange={update} />
+                <SourceFields draft={draft} errors={errors} onChange={update} accounts={accounts} original={null} />
+              </Stack>
+            ),
           },
           {
             label: "Review",
             content: (
               <Stack gap="xs">
-                <Text size="sm">Check the details and add the account. The secret is stored in the credential store.</Text>
+                <Text size="sm">
+                  {draft.source_kind === "keys"
+                    ? "Check the details and add the account. The secret is stored in the credential store."
+                    : "Check the details and add the account. No secret is stored: credentials are requested when needed."}
+                </Text>
                 <Table withTableBorder withRowBorders verticalSpacing={4} fz="sm">
                   <Table.Tbody>
                     <ReviewRow label="Label" value={input.label} />
@@ -131,13 +211,12 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
                     <ReviewRow label="Region" value={input.region} />
                     <ReviewRow label="Path-style addressing" value={input.path_style ? "Yes" : "No"} />
                     <ReviewRow label="Requester pays" value={input.request_payer ? "Yes" : "No"} />
-                    <ReviewRow label="Access key ID" value={input.access_key_id} />
-                    <ReviewRow label="Secret access key" value="Entered (hidden)" />
-                    <ReviewRow label="Session token" value={input.session_token === null ? "None" : "Entered (hidden)"} />
-                    <ReviewRow label="MFA device" value={input.mfa_serial ?? "None"} />
+                    <SourceReview draft={draft} accounts={accounts} />
                   </Table.Tbody>
                 </Table>
-                <DiagnosticsPanel target={{ kind: "input", input }} bucket={null} runLabel="Test connection" />
+                {draft.source_kind === "keys" ? (
+                  <DiagnosticsPanel target={{ kind: "input", input }} bucket={null} runLabel="Test connection" />
+                ) : null}
               </Stack>
             ),
           },
@@ -186,7 +265,7 @@ function EditAccountForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const save = async () => {
-    const found = { ...validateConnection(draft, accounts, account.id), ...validateCredentials(draft, account) };
+    const found = { ...validateConnection(draft, accounts, account.id), ...validateCredentials(draft, account, accounts) };
     setErrors(found);
     if (Object.keys(found).length > 0) {
       return;
@@ -235,7 +314,14 @@ function EditAccountForm({
       <Text size="sm" fw={600} mt="sm">
         Credentials
       </Text>
-      <CredentialFields draft={draft} errors={errors} onChange={update} original={account} focusMfa={focusMfa} />
+      <SourceFields
+        draft={draft}
+        errors={errors}
+        onChange={update}
+        accounts={accounts}
+        original={account}
+        focusMfa={focusMfa}
+      />
     </OkCancelDialog>
   );
 }
@@ -303,7 +389,7 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                   <Table.Th>Label</Table.Th>
                   <Table.Th>Service</Table.Th>
                   <Table.Th>Region</Table.Th>
-                  <Table.Th>Access key ID</Table.Th>
+                  <Table.Th>Credentials</Table.Th>
                   <Table.Th>
                     <span className="bb-visually-hidden">Actions</span>
                   </Table.Th>
@@ -346,8 +432,8 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                     </Table.Td>
                     <Table.Td style={{ whiteSpace: "nowrap" }}>{providerLabel(account)}</Table.Td>
                     <Table.Td style={{ whiteSpace: "nowrap" }}>{account.region}</Table.Td>
-                    <Table.Td ff="monospace" fz="xs">
-                      {account.access_key_id}
+                    <Table.Td ff={account.source.type === "static_keys" ? "monospace" : undefined} fz="xs">
+                      {credentialsLabel(account, accounts)}
                     </Table.Td>
                     <Table.Td>
                       <Group gap={4} justify="flex-end" wrap="nowrap">
@@ -395,9 +481,14 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
           </Table.ScrollContainer>
         )}
         <Group justify="space-between">
-          <Button leftSection={<IconPlus size={14} />} onClick={() => model.dialogs.open({ kind: "add-account" })}>
-            Add account...
-          </Button>
+          <Group gap="xs">
+            <Button leftSection={<IconPlus size={14} />} onClick={() => model.dialogs.open({ kind: "add-account" })}>
+              Add account...
+            </Button>
+            <Button variant="default" onClick={() => model.dialogs.open({ kind: "import-aws" })}>
+              Import from AWS config...
+            </Button>
+          </Group>
           <Button variant="default" onClick={onClose}>
             Close
           </Button>

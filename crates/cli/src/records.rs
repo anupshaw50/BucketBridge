@@ -124,6 +124,10 @@ pub struct CopyRecord {
     pub copied: bool,
     /// Whether the source was deleted (`bb mv` only).
     pub source_deleted: bool,
+    /// Why nothing was transferred: the destination exists and the overwrite
+    /// policy keeps it. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
     /// Why the copy or the source deletion failed.
     pub error: Option<BbError>,
 }
@@ -211,6 +215,9 @@ pub enum SyncRecord {
     Row(SyncRowRecord),
     /// How the whole run ended.
     Summary(SyncSummaryRecord),
+    /// The report of `--summary`: counts and bytes per action, the duration and the
+    /// failures. The last record.
+    Report(bucketbridge_core::sync::SyncReport),
 }
 
 /// `bb sync`: one row of the plan, printed when it finished (or, with
@@ -229,8 +236,12 @@ pub struct SyncRowRecord {
     pub target: Option<Side>,
     /// The local file; `null` for `failed`.
     pub local: Option<String>,
-    /// The `s3://` URI of the object; `null` for `failed`.
+    /// The `s3://` URI of the object (the destination of an S3 to S3 copy); `null` for
+    /// `failed`.
     pub remote: Option<String>,
+    /// The source object of an S3 to S3 copy; left out for every other row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// Size in bytes of the file that is copied or deleted, when known.
     pub size: Option<u64>,
     /// Whether this was a `--dry-run`.
@@ -252,7 +263,7 @@ pub struct SyncSummaryRecord {
     pub direction: SyncDirection,
     /// Whether `--delete` was given.
     pub delete: bool,
-    /// The local folder (absolute).
+    /// The local folder (absolute), or the source prefix of an S3 to S3 sync.
     pub local: String,
     /// The S3 folder, `s3://bucket/prefix/`.
     pub remote: String,
@@ -311,6 +322,7 @@ mod tests {
             dry_run: true,
             copied: false,
             source_deleted: false,
+            skipped: None,
             error: None,
         };
         assert_eq!(
@@ -341,4 +353,39 @@ mod tests {
             })
         );
     }
+}
+
+/// `bb account import-aws`: a profile that was not imported.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportSkippedRecord {
+    /// Profile name.
+    pub profile: String,
+    /// Why nothing was created.
+    pub reason: String,
+    /// Always `true`; tells these records from the imported accounts.
+    pub skipped: bool,
+}
+
+/// `bb account sso-login`: what the user must do (printed first).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SsoPromptRecord {
+    /// The code to enter at the verification page.
+    pub user_code: String,
+    /// The page to open.
+    pub verification_uri: String,
+    /// The page with the code filled in, when offered.
+    pub verification_uri_complete: Option<String>,
+    /// Seconds until the code expires.
+    pub expires_in_secs: u64,
+}
+
+/// `bb account sso-login`: the sign-in is complete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SsoSignedInRecord {
+    /// Start URL of the portal.
+    pub start_url: String,
+    /// Region of IAM Identity Center.
+    pub sso_region: String,
+    /// When the access token expires (RFC 3339).
+    pub expires_at: String,
 }

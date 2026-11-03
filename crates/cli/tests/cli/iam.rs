@@ -54,6 +54,7 @@ fn hook(rules: Vec<Rule>) -> IamConfigHook {
 fn bb_with(rules: Vec<Rule>) -> InProcess {
     InProcess {
         iam_hook: Some(hook(rules)),
+        options_hook: None,
         ..InProcess::default()
     }
 }

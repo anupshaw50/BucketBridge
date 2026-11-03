@@ -109,7 +109,8 @@ async fn transform(
 ) -> bucketbridge_core::Result<TransformOutcome> {
     let settings = core.session.settings().await?;
     let s3 = core.session.s3_for(account_id).await?;
-    let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?;
+    let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?
+        .with_if_exists(bucketbridge_core::settings::IfExists::Overwrite);
     let request = TransformRequest {
         bucket,
         key,

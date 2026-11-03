@@ -61,8 +61,14 @@ pub enum Secrets {
         /// Customizes the CloudFront client (a test injects a scripted
         /// CloudFront this way).
         cloudfront_config_hook: Option<CloudFrontConfigHook>,
+        /// Adjusts the session options (a test points the credential
+        /// sources at local files and mock services this way).
+        options_hook: Option<SessionOptionsHook>,
     },
 }
+
+/// Adjusts the [`SessionOptions`] of an in-process session.
+pub type SessionOptionsHook = Arc<dyn Fn(SessionOptions) -> SessionOptions + Send + Sync>;
 
 impl Secrets {
     fn cloudfront_hook(&self) -> Option<CloudFrontConfigHook> {
@@ -89,6 +95,12 @@ enum CloudFrontSource {
     Stored {
         session: Box<Session>,
         account_id: String,
+    },
+    /// A profile of the AWS files used without being stored.
+    Profile {
+        session: Box<Session>,
+        profile: String,
+        options: bucketbridge_core::session::ProfileOptions,
     },
 }
 
@@ -132,9 +144,34 @@ pub struct Context {
     /// Whether transfers draw a progress line: only on a terminal, and
     /// neither with `--quiet` nor with `--json`.
     pub show_progress: bool,
+    /// Whether questions can be asked on the terminal.
+    pub can_ask: bool,
     cloudfront: CloudFrontSource,
     /// Environment and secret store for the URL shortener.
     pub shortener: ShortenerAccess,
+}
+
+/// The transport of the account named by `selector` (a label, an ID or
+/// `environment`), for commands that touch two accounts (`bb cp --from-account`).
+/// Stored secrets are unlocked like for the main account.
+pub async fn account_s3(selector: &str, global: &GlobalArgs, inputs: &Inputs) -> Result<S3> {
+    let dirs = dirs(global, &inputs.env)?;
+    let config = load_config(dirs.as_ref())?;
+    match resolve_account(Some(selector), &config)? {
+        Selection::Environment => {
+            let (account, credentials) = environment_account(&inputs.env)?;
+            S3::new(
+                &account,
+                &credentials,
+                &ClientOptions::from_settings(&config.settings),
+            )
+        }
+        Selection::Stored(account) => {
+            let session = open_session(dirs.as_ref(), &inputs.secrets)?;
+            unlock(&session, inputs).await?;
+            session.s3_for(&account.id).await
+        }
+    }
 }
 
 /// The directories of this invocation: `--config-dir`, else `BB_CONFIG_DIR`,
@@ -176,16 +213,20 @@ pub fn open_session(dirs: Option<&Dirs>, secrets: &Secrets) -> Result<Session> {
             kdf_cost,
             iam_config_hook,
             cloudfront_config_hook,
-        } => Session::open_with(
-            dirs,
-            Arc::clone(store),
-            SessionOptions {
+            options_hook,
+        } => {
+            let options = SessionOptions {
                 kdf_cost: *kdf_cost,
                 cloudfront_config_hook: cloudfront_config_hook.clone(),
                 iam_config_hook: iam_config_hook.clone(),
                 ..SessionOptions::default()
-            },
-        ),
+            };
+            let options = match options_hook {
+                Some(hook) => hook(options),
+                None => options,
+            };
+            Session::open_with(dirs, Arc::clone(store), options)
+        }
     }
 }
 
@@ -203,6 +244,7 @@ pub fn find_account<'a>(accounts: &'a [Account], selector: &str) -> Option<&'a A
 
 /// Which account a command runs as.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)] // one value per invocation
 pub enum Selection {
     /// A stored account.
     Stored(Account),
@@ -235,6 +277,41 @@ pub fn resolve_account(selector: Option<&str>, config: &AppConfig) -> Result<Sel
     })
 }
 
+/// The profile named by `--profile` for a command that runs as an account:
+/// at most one, and not together with `--account` or `--mfa-code`.
+fn profile_selector(global: &GlobalArgs) -> Result<Option<String>> {
+    match global.profile.as_slice() {
+        [] => Ok(None),
+        [profile] => {
+            if global.account.is_some() || global.mfa_code.is_some() {
+                return Err(Error::Usage(
+                    "--profile cannot be combined with --account or --mfa-code".into(),
+                ));
+            }
+            Ok(Some(profile.clone()))
+        }
+        _ => Err(Error::Usage(
+            "--profile can be given once for a command (several only to `bb account import-aws`)"
+                .into(),
+        )),
+    }
+}
+
+/// What `--profile` takes from the environment besides the profile:
+/// `BB_REGION`, `BB_ENDPOINT` and `BB_PATH_STYLE`, as for the environment
+/// account.
+fn profile_options(env: &Env) -> Result<bucketbridge_core::session::ProfileOptions> {
+    let path_style = match env.get(env::PATH_STYLE)? {
+        Some(value) => parse_bool(env::PATH_STYLE, &value)?,
+        None => false,
+    };
+    Ok(bucketbridge_core::session::ProfileOptions {
+        region: env.get(env::REGION)?,
+        endpoint: env.get(env::ENDPOINT)?,
+        path_style,
+    })
+}
+
 /// Unlocks stored secrets when a master password is set: the password comes
 /// from `BB_MASTER_PASSWORD` or the terminal; without either the secrets
 /// stay `locked`. A wrong password is an `auth` error.
@@ -261,7 +338,20 @@ impl Context {
         let dirs = dirs(global, &inputs.env)?;
         let config = load_config(dirs.as_ref())?;
         let settings = config.settings.clone();
-        let (s3, account_id, cloudfront) =
+        let profile = profile_selector(global)?;
+        let (s3, account_id, cloudfront) = if let Some(profile) = profile {
+            let session = open_session(dirs.as_ref(), &inputs.secrets)?;
+            let s3 = session
+                .s3_for_profile(&profile, &profile_options(&inputs.env)?)
+                .await?;
+            let account_id = format!("profile:{profile}");
+            let source = CloudFrontSource::Profile {
+                session: Box::new(session),
+                profile,
+                options: profile_options(&inputs.env)?,
+            };
+            (s3, account_id, source)
+        } else {
             match resolve_account(global.account.as_deref(), &config)? {
                 Selection::Environment => {
                     if global.mfa_code.is_some() {
@@ -295,7 +385,8 @@ impl Context {
                     };
                     (s3, account_id, source)
                 }
-            };
+            }
+        };
         let shortener = ShortenerAccess {
             token: inputs.env.get(env::SHORTENER_TOKEN)?.map(SecretString::new),
             endpoint: inputs.env.get(env::SHORTENER_ENDPOINT)?,
@@ -308,6 +399,7 @@ impl Context {
             settings,
             stop: StopSignal::new(),
             show_progress: inputs.console.stderr_is_terminal() && !global.quiet && !global.json,
+            can_ask: inputs.console.can_ask(),
             cloudfront,
             shortener,
         })
@@ -321,6 +413,11 @@ impl Context {
                 session,
                 account_id,
             } => session.cloudfront_for(account_id).await,
+            CloudFrontSource::Profile {
+                session,
+                profile,
+                options,
+            } => session.cloudfront_for_profile(profile, options).await,
             CloudFrontSource::Environment {
                 account,
                 credentials,
@@ -345,6 +442,12 @@ impl Context {
 pub async fn iam_client(global: &GlobalArgs, inputs: &Inputs) -> Result<Iam> {
     let dirs = dirs(global, &inputs.env)?;
     let config = load_config(dirs.as_ref())?;
+    if let Some(profile) = profile_selector(global)? {
+        let session = open_session(dirs.as_ref(), &inputs.secrets)?;
+        return session
+            .iam_for_profile(&profile, &profile_options(&inputs.env)?)
+            .await;
+    }
     match resolve_account(global.account.as_deref(), &config)? {
         Selection::Environment => {
             if global.mfa_code.is_some() {
@@ -402,6 +505,7 @@ fn environment_account(env: &Env) -> Result<(Account, Credentials)> {
         None => false,
     };
     let account = Account {
+        source: bucketbridge_core::model::CredentialSource::StaticKeys,
         id: ENVIRONMENT_ACCOUNT.to_owned(),
         label: ENVIRONMENT_ACCOUNT.to_owned(),
         access_key_id: access_key.clone(),
@@ -531,6 +635,7 @@ mod tests {
         .unwrap();
         let global = GlobalArgs {
             account: None,
+            profile: Vec::new(),
             mfa_code: None,
             json: false,
             quiet: false,

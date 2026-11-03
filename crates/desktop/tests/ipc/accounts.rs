@@ -35,8 +35,10 @@ fn accounts_lifecycle() {
             "request_payer",
             "secret_ref",
             "session_token_ref",
+            "source",
         ]
     );
+    assert_eq!(account["source"], json!({ "type": "static_keys" }));
     assert_eq!(account["label"], "Work");
     assert_eq!(account["endpoint"], server.endpoint());
     assert_eq!(account["path_style"], true);

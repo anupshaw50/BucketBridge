@@ -44,6 +44,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
     ),
     a("bucket.sharing-wizard"),
     a("sync.open"),
+    a("sync.jobs"),
     sep,
     sub(
       "bucket.cloudfront",
@@ -81,6 +82,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
     sep,
     a("item.rename"),
     a("sync.open"),
+    a("sync.jobs"),
     sep,
     a("item.properties"),
     a("item.versions"),
@@ -94,6 +96,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
   file: [
     a("open"),
     a("file.open-with"),
+    a("file.edit"),
     a("file.preview"),
     a("item.versions"),
     sep,

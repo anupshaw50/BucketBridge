@@ -24,9 +24,10 @@ use serde_json::Value;
 use tokio::sync::Notify;
 
 use super::control::{
-    Hooks, Progress, StopSignal, StreamFuture, StreamPermit, Throttle, ThrottleFuture,
+    Hooks, Outcome, Progress, StopSignal, StreamFuture, StreamPermit, Throttle, ThrottleFuture,
 };
 use super::download::{DownloadState, discard_partial};
+use super::job::{ConflictBroker, JobOptions};
 use super::upload::UploadState;
 use super::{TransferEngine, TransferOptions};
 use crate::client::STALL_GRACE_PERIOD;
@@ -120,6 +121,8 @@ pub struct S3Runner {
     streams: Arc<StreamGate>,
     /// The passwords of encrypting and decrypting task groups.
     passwords: CsePasswords,
+    /// The overwrite questions of tasks that run with the policy `ask`.
+    conflicts: ConflictBroker,
 }
 
 impl std::fmt::Debug for S3Runner {
@@ -139,7 +142,21 @@ impl S3Runner {
             waiting: Arc::default(),
             streams: Arc::default(),
             passwords: CsePasswords::new(),
+            conflicts: ConflictBroker::new(),
         }
+    }
+
+    /// These runners, asking `broker` the overwrite questions of tasks that
+    /// run with the policy `ask`.
+    #[must_use]
+    pub fn with_conflict_broker(mut self, broker: ConflictBroker) -> Self {
+        self.conflicts = broker;
+        self
+    }
+
+    /// The broker of the overwrite questions (shared with its clones).
+    pub fn conflicts(&self) -> ConflictBroker {
+        self.conflicts.clone()
     }
 
     /// These runners, reading the passwords of client-side encryption groups
@@ -210,6 +227,18 @@ impl S3Runner {
             _ = ctx.stop().wait() => return Err(stopped(ctx.stop())),
             engine = self.engine(&task.account_id, ctx.settings()) => engine?,
         };
+        let options = JobOptions::of_group(task.group_id.as_deref());
+        let engine = engine
+            .with_if_exists(options.if_exists.unwrap_or(ctx.settings().if_exists))
+            .with_preserve_mtime(
+                options
+                    .preserve_mtime
+                    .unwrap_or_else(|| self.data_integrity().preserve_mtime),
+            )
+            .with_conflict_resolver(
+                self.conflicts
+                    .resolver_for(&task.id, task.group_id.as_deref()),
+            );
         let stop = StopSignal::new();
         let hooks = Hooks::new()
             .with_throttle(Arc::new(LimiterThrottle {
@@ -254,11 +283,11 @@ impl S3Runner {
                             state,
                             &checkpoint,
                         );
-                        forward_stop(ctx.stop(), &stop, work).await?.is_completed()
+                        finished(&ctx, forward_stop(ctx.stop(), &stop, work).await?)
                     }
                     _ => {
                         let work = engine.upload_file(&path, &dst, &hooks, state, &checkpoint);
-                        forward_stop(ctx.stop(), &stop, work).await?.is_completed()
+                        finished(&ctx, forward_stop(ctx.stop(), &stop, work).await?)
                     }
                 }
             }
@@ -293,29 +322,70 @@ impl S3Runner {
                         state,
                         &checkpoint,
                     );
-                    forward_stop(ctx.stop(), &stop, work).await?.is_completed()
+                    finished(&ctx, forward_stop(ctx.stop(), &stop, work).await?)
                 } else {
                     let work = engine.download_file(&src, &dest, &hooks, state, &checkpoint);
-                    forward_stop(ctx.stop(), &stop, work).await?.is_completed()
+                    finished(&ctx, forward_stop(ctx.stop(), &stop, work).await?)
                 }
             }
-            TransferKind::Copy => {
+            TransferKind::Copy | TransferKind::Move => {
                 let (src, dst) = s3_to_s3(&task)?;
-                forward_stop(ctx.stop(), &stop, engine.copy(&src, &dst, &hooks))
-                    .await?
-                    .is_completed()
-            }
-            TransferKind::Move => {
-                let (src, dst) = s3_to_s3(&task)?;
-                forward_stop(ctx.stop(), &stop, engine.move_object(&src, &dst, &hooks))
-                    .await?
-                    .is_completed()
+                let other = options
+                    .dst_account
+                    .as_deref()
+                    .filter(|account| *account != task.account_id);
+                match other {
+                    Some(account) => {
+                        let dest = self.engine(account, ctx.settings()).await?;
+                        let dest = dest
+                            .with_if_exists(engine.options().if_exists)
+                            .with_preserve_mtime(engine.options().preserve_mtime);
+                        let state = match saved {
+                            Some(RunnerState::Upload(state)) => Some(state),
+                            _ => None,
+                        };
+                        let known = Mutex::new(state.as_ref().map(|state| state.upload_id.clone()));
+                        let checkpoint = |state: &UploadState| {
+                            save(resume, &RunnerStateRef::Upload(state));
+                            if is_new_upload(&known, &state.upload_id) {
+                                resume.persist_now();
+                            }
+                        };
+                        let work = async {
+                            if task.kind == TransferKind::Move {
+                                engine
+                                    .move_to(&dest, &src, &dst, &hooks, state, &checkpoint)
+                                    .await
+                            } else {
+                                engine
+                                    .copy_to(&dest, &src, &dst, &hooks, state, &checkpoint)
+                                    .await
+                            }
+                        };
+                        finished(
+                            &ctx,
+                            forward_stop(ctx.stop(), &stop, work)
+                                .await?
+                                .map(|(copied, _route)| copied),
+                        )
+                    }
+                    None if task.kind == TransferKind::Move => finished(
+                        &ctx,
+                        forward_stop(ctx.stop(), &stop, engine.move_object(&src, &dst, &hooks))
+                            .await?,
+                    ),
+                    None => finished(
+                        &ctx,
+                        forward_stop(ctx.stop(), &stop, engine.copy(&src, &dst, &hooks)).await?,
+                    ),
+                }
             }
             TransferKind::Delete => {
                 let target = s3_location(&task.src, "delete source")?;
-                forward_stop(ctx.stop(), &stop, engine.delete(&target, &hooks))
-                    .await?
-                    .is_completed()
+                finished(
+                    &ctx,
+                    forward_stop(ctx.stop(), &stop, engine.delete(&target, &hooks)).await?,
+                )
             }
         };
         if completed {
@@ -339,6 +409,16 @@ impl S3Runner {
                 Some(Location::Local { path }) => discard_partial(path).await,
                 _ => Ok(()),
             },
+            // A streamed copy to another account keeps a multipart upload in
+            // the destination account.
+            (TransferKind::Copy | TransferKind::Move, Some(RunnerState::Upload(state))) => {
+                let options = JobOptions::of_group(task.group_id.as_deref());
+                let account = options.dst_account.unwrap_or(task.account_id);
+                let s3 = (self.provider)(account).await?;
+                TransferEngine::new(s3, TransferOptions::default())?
+                    .discard_upload(&state)
+                    .await
+            }
             // Nothing is left behind: a single-request upload, a copy, a
             // move or a delete has no partial state.
             _ => Ok(()),
@@ -353,6 +433,19 @@ impl TaskRunner for S3Runner {
 
     fn cleanup(&self, task: TransferTask, resume: Option<Value>) -> BoxFuture<'_, Result<()>> {
         Box::pin(self.cleanup_task(task, resume))
+    }
+}
+
+/// Whether a finished engine run completed; a skipped one is told to the
+/// queue (the task ends `skipped`) and counts as finished too.
+fn finished<T>(ctx: &TaskContext, outcome: Outcome<T>) -> bool {
+    match outcome {
+        Outcome::Completed(_) => true,
+        Outcome::Skipped(reason) => {
+            ctx.mark_skipped(reason.describe());
+            true
+        }
+        Outcome::Paused | Outcome::Cancelled => false,
     }
 }
 
@@ -809,6 +902,7 @@ mod tests {
             etag: "\"e\"".into(),
             size: 10,
             last_modified: None,
+            mtime: None,
             checksum: None,
             offset: 4,
         };

@@ -581,7 +581,8 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
         out.error_record()["message"],
         "1 of 1 files could not be synced"
     );
-    assert!(!env.config.path().join("data").exists());
+    // No plan is stored (the listing cache may be written).
+    assert!(!env.config.path().join("data").join("sync").exists());
 
     // A new local file is uploaded all the same; the conflict stays.
     write_files(&dir, &[("fresh.txt", "fresh")]);

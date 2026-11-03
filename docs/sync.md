@@ -421,10 +421,141 @@ Cancel and concurrency:
   (whatever the spelling of its id). The claim ends when the run ends or the
   `SyncRun` is dropped.
 
+## Saved jobs, exclusion rules and options (v0.2.0)
+
+`sync::SyncOptions` (`crates/core/src/sync/options.rs`) is everything a sync takes besides
+the two locations, the direction and `delete`. A saved sync job (below) stores one, and
+`bb sync` builds one from its flags. Every field has a default that keeps the behaviour
+described in the rest of this document.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `filter` | none | the `FilterSpec` of "Filters" above |
+| `include` | none | globs; when given, only matching paths are synced |
+| `exclude` | none | gitignore-style rules, one per entry |
+| `exclude_file` | none | a file of rules, read at every run; its rules come after `exclude` |
+| `skip_empty_folders` | `true` | see "Empty folders" below |
+| `skip_duplicate_content` | `false` | see "Duplicate content" below |
+| `use_cache` | `true` | see "The listing cache" below |
+| `parallelism` | `4` | remote folders listed at the same time, 1 to 32 |
+
+`SyncOptions::compile_filter` turns the include globs and the rules into the path
+criteria of the `Filter`, so they apply to both sides before the comparison, exactly like
+`prefix` and `glob`: a path that is excluded is neither copied nor deleted on either
+side. A missing or unreadable exclusion file is an error (`not_found` or `usage`), never
+"no rules": a typo must not make a sync touch more than intended.
+
+### Exclusion rules
+
+The rules follow `.gitignore` (`crates/core/src/ignore.rs`):
+
+- blank lines and lines that start with `#` are skipped (`\#` is a literal `#`),
+- a leading `!` includes again what an earlier rule excluded (`\!` is a literal `!`); the
+  last matching rule decides,
+- a trailing `/` makes the rule match folders only,
+- a pattern with a `/` at the start or in the middle is anchored to the synced root; one
+  without matches at any depth,
+- `*`, `?`, `[...]` and `**` have the meaning described in `filter.rs`,
+- trailing spaces are dropped unless escaped with `\`.
+
+Excluding a folder excludes everything below it, and a rule cannot include a file again
+below an excluded folder (as in git). Folders that are excluded are not scanned.
+
+```
+# build output
+build/
+*.tmp
+!keep.tmp
+/notes.txt
+logs/**/debug.log
+```
+
+### Saved jobs
+
+`syncjobs` (`crates/core/src/syncjobs.rs`) keeps named jobs in `config.toml` under
+`[[sync_jobs]]` (left out of the file while there are none). A job holds the account,
+the direction, the local folder (or, for `s3_to_s3`, the source prefix), the destination
+prefix, `delete` and the `SyncOptions`. Names are 1 to 100 characters without control
+characters and unique without regard to letter case; at most 200 jobs can be stored;
+deleting an account deletes its jobs. Jobs are created, replaced and deleted only through
+`ConfigStore::update`, and saving validates everything that does not need the network
+(the direction against the locations, `delete` with `bidirectional`, the options).
+
+A job is run by analysing it into a stored plan: the desktop `run_sync_job` command does
+that and the plan is reviewed before `sync_execute`; `bb sync --job NAME` analyses and
+executes it like `bb sync` does. Nothing in a job executes by itself.
+
+### Bucket to bucket sync
+
+The direction `s3_to_s3` makes one prefix match another one, in the same bucket or in
+another bucket of the account, with server-side copies (`TransferEngine::copy`, which
+uses `UploadPartCopy` for large objects). The plan has the `source_prefix`, `s3_prefix`
+is the destination and `local_root` is empty. The planner is the one of `upload` with the
+source listing in the place of the local folder, so the rules are those of "upload (local
+to S3)": a missing or different object (different size, or a source modified more than
+the tolerance after the destination) is copied, and with `delete` objects that exist only
+in the destination are deleted. In a row, `local_meta` is the source object's size and
+`Last-Modified` and `s3_meta` is the destination object; `target` is always `remote`. The
+two prefixes must not be the same or contain each other (usage error). Storage-class
+criteria of a filter see the source as `STANDARD`. Before a copy the executor looks at
+both objects: a source that changed or vanished, and a destination object that appeared
+or changed since the analysis, fail the row ("analyze again"); nothing is overwritten that
+the analysis did not see.
+
+### Empty folders
+
+By default empty folders are ignored and folder markers are not synced. With
+`skip_empty_folders` off the plan also carries folder rows, whose `rel_path` ends in `/`:
+a copy to the remote side creates the folder marker for an empty local folder (and, for
+`s3_to_s3`, for a marker of the source) that has none, and a copy to the local side
+creates the empty local folder for a marker whose folder does not exist. A folder that
+holds files needs no row, an existing path (a file, a link) is left alone, folders are
+never created through a link, and markers are never deleted by a sync.
+
+### Duplicate content
+
+With `skip_duplicate_content` a copy row whose two sides have the same size and the same
+content becomes an `equal` row. The size must match first, so a file is only read when a
+match is possible. The content is compared with what S3 stores, cheapest first: checksums
+in the listing, then the ETag when it is the MD5 of a single-request upload, then one
+`HEAD` request for the stored whole-object checksum (SHA-256, SHA-1, CRC-32C, CRC-32 or
+CRC-64/NVME), which is computed over the local file. Whatever cannot be decided (a
+multipart ETag without stored checksums, an ETag of an encrypted object, an unreadable
+file) stays a copy row. For `s3_to_s3` the two objects' ETags and checksums are compared.
+At most `parallelism` comparisons run at the same time.
+
+### Parallel analysis and the listing cache
+
+The local scan and the remote listing run at the same time. The remote prefix is listed
+with the delimiter `/` first and every sub-folder is then listed flat, at most
+`parallelism` at a time (`sync::listing::list_folder`); the result is the same set of
+objects as one flat listing.
+
+The metadata of a full listing is kept per (account, bucket, prefix) in
+`data_dir/sync-cache/` (0600, replaced atomically, at most 200 files and 7 days). A later
+listing is answered from it when the snapshot is younger than 5 minutes and the first
+page of the prefix, fetched with one request, equals the start of the snapshot (key,
+size, ETag, `Last-Modified`, storage class) and the snapshot ends where the page ends.
+The cache is **never used when the sync deletes** (`delete`): a stale entry must not
+decide a deletion, so such a sync always lists afresh, and it is not used when
+`use_cache` is off (`bb sync --no-cache`). A change deep inside a long listing that leaves
+its first page unchanged is not noticed for up to 5 minutes; execution still never
+overwrites or deletes anything that changed since the analysis (see "Executing a plan").
+
+### Run report
+
+`sync::SyncReport` (`crates/core/src/sync/report.rs`) summarises the final state of a
+plan's rows: per kind of action (`upload`, `download`, `copy`, `delete_local`,
+`delete_remote`, `equal`) the files and bytes done, the rows that failed and the rows not
+done, the rows that could not be planned, all failures (the first 100 are listed with
+their reasons), the duration of the run and whether it was cancelled. The desktop host
+sends it as `sync://report` when a run ends, and `bb sync --summary` prints it.
+
 ## Limitations
 
-- Changes are detected by size and modification time only; content is not hashed. A
-  change that keeps size and time is not seen.
+- Changes are detected by size and modification time only; content is not hashed, except
+  for files that differ only in time when `skip_duplicate_content` is on. A change that
+  keeps size and time is not seen.
 - Unicode normalization is folded only to detect collisions of names that would be
   written locally (see "Case and normalization collisions"). Local and remote names are
   still matched exactly: on macOS a local `café` written decomposed and an S3 key
@@ -434,11 +565,18 @@ Cancel and concurrency:
   file system does (for example `ß` and `SS` are not considered equal).
 - Windows folders with the per-folder case-sensitive flag are still treated as
   case-insensitive (only extra failed rows can result).
-- Empty folders and S3 folder markers are not synced.
+- Empty folders and S3 folder markers are not synced unless `skip_empty_folders` is off
+  (see "Empty folders"); markers are never deleted.
 - File name and path length limits of the local file system are not checked during
   analysis; such rows fail at execution.
 - The whole scan is held in memory, roughly 150 to 300 bytes per file.
+- The listing cache is not used for a sync that deletes, and it can hide a change deep
+  inside a long listing for up to 5 minutes (see "Parallel analysis and the listing
+  cache").
 - Hard links are synced as independent files.
+- An `s3_to_s3` sync copies on the server within one account; it does not copy between
+  accounts, and the copy keeps no per-object conditions (a destination object that appears
+  between the check and the copy is replaced).
 - Execution resumes row by row, not inside a file: a cancelled, failed or interrupted
   transfer of a large file starts over on the next run (engine resume states are not
   kept in the plan, and partial files and multipart uploads are discarded).

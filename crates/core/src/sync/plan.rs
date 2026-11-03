@@ -173,7 +173,9 @@ pub fn plan_rows(
     if options.tolerance < TimeDelta::zero() {
         return Err(usage("the time tolerance must not be negative"));
     }
-    let LocalTree { entries, unmapped } = local;
+    let LocalTree {
+        entries, unmapped, ..
+    } = local;
     let blocked: HashMap<String, String> = entries
         .iter()
         .filter_map(|(rel_path, entry)| match entry {
@@ -270,14 +272,18 @@ fn decide(
     let outcome = match (local_meta, entry) {
         (Some(local_meta), Some(entry)) => compare(local_meta, entry, options),
         (Some(_), None) => match options.direction {
-            SyncDirection::Upload | SyncDirection::Bidirectional => Outcome::Copy(Side::Remote),
+            SyncDirection::Upload | SyncDirection::S3ToS3 | SyncDirection::Bidirectional => {
+                Outcome::Copy(Side::Remote)
+            }
             SyncDirection::Download if options.delete => Outcome::Delete(Side::Local),
             SyncDirection::Download => Outcome::Skip,
         },
         (None, Some(_)) => match options.direction {
             SyncDirection::Download | SyncDirection::Bidirectional => Outcome::Copy(Side::Local),
-            SyncDirection::Upload if options.delete => Outcome::Delete(Side::Remote),
-            SyncDirection::Upload => Outcome::Skip,
+            SyncDirection::Upload | SyncDirection::S3ToS3 if options.delete => {
+                Outcome::Delete(Side::Remote)
+            }
+            SyncDirection::Upload | SyncDirection::S3ToS3 => Outcome::Skip,
         },
         (None, None) => Outcome::Skip,
     };
@@ -324,7 +330,7 @@ fn compare(local: &FileMeta, remote: &ObjectEntry, options: &PlanOptions<'_>) ->
     let sizes_differ = local.size != remote.size;
     let tolerance = options.tolerance;
     match options.direction {
-        SyncDirection::Upload => {
+        SyncDirection::Upload | SyncDirection::S3ToS3 => {
             if sizes_differ || newer(local.modified, remote.last_modified, tolerance) {
                 Outcome::Copy(Side::Remote)
             } else {
@@ -393,7 +399,7 @@ fn source_matches(
         Outcome::Copy(Side::Remote) | Outcome::Delete(Side::Local) => local_matches(),
         Outcome::Copy(Side::Local) | Outcome::Delete(Side::Remote) => remote_matches(),
         Outcome::Equal | Outcome::Failed(_) => match direction {
-            SyncDirection::Upload => local_matches(),
+            SyncDirection::Upload | SyncDirection::S3ToS3 => local_matches(),
             SyncDirection::Download => remote_matches(),
             SyncDirection::Bidirectional => local_matches() || remote_matches(),
         },

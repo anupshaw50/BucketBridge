@@ -2249,6 +2249,7 @@ mod tests {
             Some(PASSWORD),
         );
         let account = crate::model::Account {
+            source: crate::model::CredentialSource::StaticKeys,
             id: "account-e2e".to_owned(),
             label: "e2e".to_owned(),
             access_key_id: "AKIAIOSFODNN7EXAMPLE".to_owned(),

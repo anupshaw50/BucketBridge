@@ -5,6 +5,7 @@ pub mod bucket;
 pub mod cloudfront;
 pub mod copy;
 pub mod cse;
+pub mod edit;
 pub mod export;
 pub mod iam;
 pub mod ls;
@@ -18,6 +19,7 @@ pub mod restore;
 pub mod rm;
 pub mod scan;
 pub mod sync;
+pub mod syncjobs;
 mod versions;
 
 use bucketbridge_core::aws_sdk_s3::primitives::DateTime as SdkDateTime;

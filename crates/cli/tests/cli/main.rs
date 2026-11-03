@@ -11,7 +11,9 @@ mod account;
 mod buckets;
 mod cloudfront;
 mod copy;
+mod credentials;
 mod cse;
+mod edit;
 mod export;
 mod global;
 mod iam;
@@ -25,6 +27,8 @@ mod presign;
 mod rm;
 mod scan;
 mod sync;
+mod syncjobs;
+mod transfers;
 mod versions;
 
 use std::collections::VecDeque;
@@ -282,6 +286,8 @@ pub struct InProcess {
     pub store: Arc<MemoryStore>,
     /// Customizes the IAM client (a mock, see `iam.rs`).
     pub iam_hook: Option<bucketbridge_core::session::IamConfigHook>,
+    /// Adjusts the session options (credential sources, see `credentials.rs`).
+    pub options_hook: Option<bucketbridge_cli::SessionOptionsHook>,
 }
 
 impl Default for InProcess {
@@ -290,6 +296,7 @@ impl Default for InProcess {
             config: tempfile::tempdir().unwrap(),
             store: Arc::new(MemoryStore::new()),
             iam_hook: None,
+            options_hook: None,
         }
     }
 }
@@ -338,6 +345,7 @@ impl InProcess {
             kdf_cost: Self::KDF,
             iam_config_hook: self.iam_hook.clone(),
             cloudfront_config_hook: None,
+            options_hook: self.options_hook.clone(),
         };
         let args = std::iter::once("bb").chain(args.iter().copied());
         let exit = bucketbridge_cli::run(args, io, secrets, std::future::pending::<()>).await;

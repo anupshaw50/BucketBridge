@@ -1,4 +1,8 @@
 import type {
+  ConflictEvent,
+  IfExists,
+  OverwriteChoice,
+  PendingConflict,
   CloudFrontDistribution,
   CloudFrontInvalidation,
   CloudFrontPage,
@@ -21,16 +25,26 @@ import type {
   AccountList,
   AccountUpdate,
   AppInfo,
+  AwsProfileEntry,
   Bucket,
   BucketConfig,
   BucketRules,
   BucketVersioning,
   CorsConfig,
   CrashReport,
+  ImportOutcome,
+  InstanceRoleProbe,
   LifecycleConfig,
+  SsoAccount,
+  SsoLoginPoll,
+  SsoLoginStarted,
+  SsoSignInStatus,
   ReplicationConfig,
   RuleIssue,
   Bookmark,
+  SyncJob,
+  SyncOptions,
+  SyncReport,
   WindowLocation,
   TieringConfig,
   IamAccessKey,
@@ -79,6 +93,9 @@ import type {
   VersioningStatus,
   WebsiteConfig,
   UploadListing,
+  EditResolution,
+  EditResolved,
+  EditSession,
   MountChangedEvent,
   MountInfo,
   MountStatus,
@@ -170,14 +187,30 @@ export interface CommandArgs {
   delete_bucket_tiering: { account_id: string; bucket: string; id: string };
   validate_bucket_tiering: { document: string };
 
-  enqueue_upload: { account_id: string; local_paths: string[]; bucket: string; prefix: string };
-  enqueue_download: { account_id: string; bucket: string; keys: string[]; dest_dir: string };
+  enqueue_upload: {
+    account_id: string;
+    local_paths: string[];
+    bucket: string;
+    prefix: string;
+    if_exists?: IfExists | null; // overrides the setting for this call
+    preserve_mtime?: boolean | null;
+  };
+  enqueue_download: {
+    account_id: string;
+    bucket: string;
+    keys: string[];
+    dest_dir: string;
+    if_exists?: IfExists | null;
+    preserve_mtime?: boolean | null;
+  };
   enqueue_copy: {
     account_id: string;
     src_bucket: string;
     keys: string[];
     dst_bucket: string;
     dst_prefix: string;
+    dst_account_id?: string | null; // the account that owns the destination bucket; default: account_id
+    if_exists?: IfExists | null;
   };
   enqueue_move: {
     account_id: string;
@@ -185,7 +218,10 @@ export interface CommandArgs {
     keys: string[];
     dst_bucket: string;
     dst_prefix: string;
+    dst_account_id?: string | null;
+    if_exists?: IfExists | null;
   };
+  answer_conflict: { task_id: string; choice: OverwriteChoice; apply_to_batch: boolean };
   enqueue_delete: { account_id: string; bucket: string; keys: string[] };
   rename: { account_id: string; bucket: string; from_key: string; to_key: string };
   pause_task: { id: string };
@@ -199,7 +235,14 @@ export interface CommandArgs {
     s3_prefix: string;
     direction: SyncDirection;
     delete: boolean;
+    /** Optional: filters, exclusion rules and analysis options. */
+    options?: SyncOptions;
+    /** Optional: the source of an s3_to_s3 sync (local_root is then ignored). */
+    source_prefix?: string;
   };
+  save_sync_job: { job: SyncJob };
+  delete_sync_job: { id: string };
+  run_sync_job: { id: string };
   sync_execute: { plan_id: string };
   sync_cancel: { plan_id: string };
   sync_get: { plan_id: string };
@@ -283,7 +326,20 @@ export interface CommandArgs {
   delete_filter: { name: string };
   // Mount as drive (T04); read-only, prefix null mounts the whole bucket.
   mount_bucket: { account_id: string; bucket: string; prefix: string | null; mount_point: string };
+  // Credential sources (v0.2.0).
+  import_aws_profiles: { names: string[] };
+  sso_start_login: { start_url: string; sso_region: string; sso_session?: string | null; open_browser?: boolean };
+  sso_poll_login: { login_id: string };
+  sso_cancel_login: { login_id: string };
+  sso_status: { start_url: string; sso_region: string; sso_session?: string | null };
+  sso_sign_out: { start_url: string; sso_region: string; sso_session?: string | null };
+  sso_list_accounts: { start_url: string; sso_region: string; sso_session?: string | null };
+  sso_list_roles: { start_url: string; sso_region: string; sso_session?: string | null; account_id: string };
   unmount_bucket: { mount_point: string };
+  // Edit in place (v0.2.0). app null opens the copy with the default application.
+  start_edit: { account_id: string; bucket: string; key: string; app: string | null };
+  stop_edit: { id: string; discard: boolean | null };
+  resolve_edit_conflict: { id: string; resolution: EditResolution };
   // Security scan (T13). buckets: null scans every bucket of the account.
   run_security_scan: { account_id: string; buckets: string[] | null };
   export_scan_report: { report: ScanReport; format: ScanReportFormat; path: string };
@@ -381,12 +437,16 @@ export interface CommandArgs {
 export interface BackendEvents {
   "transfer://update": TransferTask;
   "transfer://removed": TransferRemovedEvent;
+  "transfer://conflict": ConflictEvent;
   "sync://progress": SyncProgress;
   "sync://row": SyncRowEvent;
+  "sync://report": SyncReport;
+  "sync_jobs://changed": SyncJob[];
   "log://entry": LogEntry;
   "security://changed": SecurityStatus;
   "bookmarks://changed": Bookmark[];
   "mount://changed": MountChangedEvent;
+  "edit://changed": EditSession;
 }
 
 export type BackendEventName = keyof BackendEvents;
@@ -395,12 +455,16 @@ export type Unsubscribe = () => void;
 export const BACKEND_EVENT_NAMES: readonly BackendEventName[] = [
   "transfer://update",
   "transfer://removed",
+  "transfer://conflict",
   "sync://progress",
   "sync://row",
+  "sync://report",
+  "sync_jobs://changed",
   "log://entry",
   "security://changed",
   "bookmarks://changed",
   "mount://changed",
+  "edit://changed",
 ];
 
 /**
@@ -486,6 +550,8 @@ export interface Backend {
   enqueue_delete: (args: CommandArgs["enqueue_delete"]) => Promise<TransferTask[]>;
   rename: (args: CommandArgs["rename"]) => Promise<TransferTask[]>;
   list_tasks: () => Promise<TransferTask[]>;
+  list_conflicts: () => Promise<PendingConflict[]>;
+  answer_conflict: (args: CommandArgs["answer_conflict"]) => Promise<void>;
   start_all: () => Promise<void>;
   stop_all: () => Promise<void>;
   cancel_all: () => Promise<void>;
@@ -500,6 +566,11 @@ export interface Backend {
   sync_execute: (args: CommandArgs["sync_execute"]) => Promise<void>;
   sync_cancel: (args: CommandArgs["sync_cancel"]) => Promise<void>;
   sync_get: (args: CommandArgs["sync_get"]) => Promise<SyncPlan>;
+  list_sync_jobs: () => Promise<SyncJob[]>;
+  save_sync_job: (args: CommandArgs["save_sync_job"]) => Promise<SyncJob>;
+  delete_sync_job: (args: CommandArgs["delete_sync_job"]) => Promise<SyncJob[]>;
+  /** Analyses the job and returns the stored plan; nothing is copied until sync_execute. */
+  run_sync_job: (args: CommandArgs["run_sync_job"]) => Promise<SyncPlan>;
 
   // CloudFront (T09)
   list_cloudfront_distributions: (args: CommandArgs["list_cloudfront_distributions"]) => Promise<CloudFrontPage>;
@@ -564,9 +635,23 @@ export interface Backend {
   iam_delete_login_profile: (args: CommandArgs["iam_delete_login_profile"]) => Promise<void>;
   list_multipart_uploads: (args: CommandArgs["list_multipart_uploads"]) => Promise<UploadListing>;
   abort_multipart_uploads: (args: CommandArgs["abort_multipart_uploads"]) => Promise<AbortResult[]>;
+  list_aws_profiles: () => Promise<AwsProfileEntry[]>;
+  import_aws_profiles: (args: CommandArgs["import_aws_profiles"]) => Promise<ImportOutcome>;
+  probe_instance_role: () => Promise<InstanceRoleProbe>;
+  sso_start_login: (args: CommandArgs["sso_start_login"]) => Promise<SsoLoginStarted>;
+  sso_poll_login: (args: CommandArgs["sso_poll_login"]) => Promise<SsoLoginPoll>;
+  sso_cancel_login: (args: CommandArgs["sso_cancel_login"]) => Promise<void>;
+  sso_status: (args: CommandArgs["sso_status"]) => Promise<SsoSignInStatus>;
+  sso_sign_out: (args: CommandArgs["sso_sign_out"]) => Promise<void>;
+  sso_list_accounts: (args: CommandArgs["sso_list_accounts"]) => Promise<SsoAccount[]>;
+  sso_list_roles: (args: CommandArgs["sso_list_roles"]) => Promise<string[]>;
   mount_status: () => Promise<MountStatus>;
   mount_bucket: (args: CommandArgs["mount_bucket"]) => Promise<MountInfo>;
   unmount_bucket: (args: CommandArgs["unmount_bucket"]) => Promise<void>;
+  start_edit: (args: CommandArgs["start_edit"]) => Promise<EditSession>;
+  list_edits: () => Promise<EditSession[]>;
+  stop_edit: (args: CommandArgs["stop_edit"]) => Promise<void>;
+  resolve_edit_conflict: (args: CommandArgs["resolve_edit_conflict"]) => Promise<EditResolved>;
   run_security_scan: (args: CommandArgs["run_security_scan"]) => Promise<ScanReport>;
   export_scan_report: (args: CommandArgs["export_scan_report"]) => Promise<void>;
   list_filters: () => Promise<SavedFilter[]>;
@@ -675,6 +760,8 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   enqueue_delete: true,
   rename: true,
   list_tasks: true,
+  list_conflicts: true,
+  answer_conflict: true,
   start_all: true,
   stop_all: true,
   cancel_all: true,
@@ -687,6 +774,10 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   sync_execute: true,
   sync_cancel: true,
   sync_get: true,
+  list_sync_jobs: true,
+  save_sync_job: true,
+  delete_sync_job: true,
+  run_sync_job: true,
   list_cloudfront_distributions: true,
   get_cloudfront_distribution: true,
   find_cloudfront_distributions: true,
@@ -744,9 +835,23 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   list_filters: true,
   save_filter: true,
   delete_filter: true,
+  list_aws_profiles: true,
+  import_aws_profiles: true,
+  probe_instance_role: true,
+  sso_start_login: true,
+  sso_poll_login: true,
+  sso_cancel_login: true,
+  sso_status: true,
+  sso_sign_out: true,
+  sso_list_accounts: true,
+  sso_list_roles: true,
   mount_status: true,
   mount_bucket: true,
   unmount_bucket: true,
+  start_edit: true,
+  list_edits: true,
+  stop_edit: true,
+  resolve_edit_conflict: true,
   run_security_scan: true,
   export_scan_report: true,
   export_listing: true,

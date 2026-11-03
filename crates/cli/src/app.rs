@@ -13,7 +13,9 @@ use bucketbridge_core::secrets::SecretString;
 use bucketbridge_core::{Error, ErrorKind};
 use clap::{CommandFactory, FromArgMatches};
 
-use crate::cli::{self, AclCommand, Cli, Command, LockCommand, MpuCommand, TagCommand};
+use crate::cli::{
+    self, AclCommand, Cli, Command, LockCommand, MpuCommand, SyncCommand, TagCommand,
+};
 use crate::commands;
 use crate::commands::copy::Mode;
 use crate::context::{Context, Inputs, Secrets};
@@ -157,6 +159,16 @@ where
                 () = interrupt() => (Err(Error::Cancelled.into()), false),
             };
         }
+        // Saved sync jobs live in the configuration: no account is needed.
+        Command::Sync(args) if args.command.is_some() => {
+            let Some(SyncCommand::Jobs(command)) = &args.command else {
+                return (Ok(()), false);
+            };
+            return (
+                commands::syncjobs::run(&cli.global, command, inputs, out),
+                false,
+            );
+        }
         Command::Cp(args) => commands::copy::check(args, Mode::Copy),
         Command::Mv(args) => commands::copy::check(args, Mode::Move),
         Command::Sync(args) => commands::sync::check(args),
@@ -166,18 +178,50 @@ where
     };
     // The encryption password is asked for before credentials are needed.
     let checked = checked.and_then(|()| commands::cse::resolve(&cli.command, inputs));
+    // A saved sync job runs with its own account.
+    let job = match (&cli.command, &checked) {
+        (Command::Sync(args), Ok(_)) => commands::sync::resolve_job(&cli.global, args, inputs),
+        _ => Ok(None),
+    };
+    let job = match job {
+        Ok(job) => job,
+        Err(err) => return (Err(err.into()), false),
+    };
+    let global = job.as_ref().map_or(&cli.global, |(_, global)| global);
     let (ctx, cse) = match checked {
-        Ok(cse) => (Context::new(&cli.global, inputs).await, cse),
+        Ok(cse) => (Context::new(global, inputs).await, cse),
         Err(err) => (Err(err), None),
     };
     let ctx = match ctx {
         Ok(ctx) => ctx,
         Err(err) => return (Err(err.into()), false),
     };
-    let mut command = pin!(dispatch(&ctx, &cli.command, rules, cse, out));
+    let accounts = match commands::copy::accounts(&cli.command, &cli.global, inputs).await {
+        Ok(accounts) => accounts,
+        Err(err) => return (Err(err.into()), false),
+    };
+    let job = job.map(|(job, _)| job);
+    let mut command = pin!(dispatch(
+        &ctx,
+        &cli.command,
+        rules,
+        cse,
+        &accounts,
+        job,
+        out
+    ));
     tokio::select! {
         result = &mut command => (result, false),
         () = interrupt() => {
+            if matches!(cli.command, Command::Edit(_)) {
+                // Ctrl-C is how an edit session ends: it uploads the last
+                // save and reports how that went; a second Ctrl-C gives up.
+                ctx.stop.cancel();
+                return tokio::select! {
+                    result = &mut command => (result, false),
+                    () = interrupt() => (Err(Error::Cancelled.into()), false),
+                };
+            }
             if !cli.command.is_transfer() {
                 // Nothing to clean up: drop the request in flight.
                 return (Err(Error::Cancelled.into()), false);
@@ -200,6 +244,8 @@ async fn dispatch(
     command: &Command,
     rules: &IncludeExclude,
     cse: Option<SecretString>,
+    accounts: &commands::copy::CopyAccounts,
+    job: Option<bucketbridge_core::syncjobs::SyncJob>,
     out: &mut Output,
 ) -> Result<(), Failure> {
     match command {
@@ -208,12 +254,17 @@ async fn dispatch(
         Command::Rb(args) => commands::bucket::remove(ctx, args, out).await,
         Command::Rm(args) => commands::rm::run(ctx, args, out).await,
         Command::RestoreVersion(args) => commands::restore::run(ctx, args, out).await,
-        Command::Cp(args) => commands::copy::run(ctx, args, rules, Mode::Copy, cse, out).await,
-        Command::Mv(args) => commands::copy::run(ctx, args, rules, Mode::Move, cse, out).await,
-        Command::Sync(args) => commands::sync::run(ctx, args, out).await,
+        Command::Cp(args) => {
+            commands::copy::run(ctx, args, rules, Mode::Copy, cse, accounts, out).await
+        }
+        Command::Mv(args) => {
+            commands::copy::run(ctx, args, rules, Mode::Move, cse, accounts, out).await
+        }
+        Command::Sync(args) => commands::sync::run(ctx, args, job, out).await,
         Command::Encrypt(args) => commands::cse::encrypt(ctx, args, cse, out).await,
         Command::Decrypt(args) => commands::cse::decrypt(ctx, args, cse, out).await,
         Command::Presign(args) => commands::presign::run(ctx, args, out).await,
+        Command::Edit(args) => commands::edit::run(ctx, args, out).await,
         #[cfg(feature = "mount")]
         Command::Mount(args) => commands::mount::run(ctx, args, out).await,
         Command::Scan(args) => commands::scan::run(ctx, args, out).await,

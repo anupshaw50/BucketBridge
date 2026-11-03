@@ -216,6 +216,12 @@ const LIVE: Record<LiveActionId, ActionDef> = {
       ctx.model.dialogs.open({ kind: "sync", at: ctx.place ?? undefined });
     },
   },
+  "sync.jobs": {
+    disabled: needsAccount,
+    run: (ctx) => {
+      ctx.model.dialogs.open({ kind: "sync-jobs" });
+    },
+  },
   "path.copy": {
     visible: isSingleFolder,
     run: (ctx) => {
@@ -566,6 +572,15 @@ const PLANNED_DEFS: Partial<Record<PlannedActionId, ActionDef>> = {
 
   // ---- T14: opening ----
   "file.open-with": singleFileDialog("open-with"),
+  "file.edit": {
+    visible: isSingleFile,
+    run: async (ctx) => {
+      const [entry] = ctx.items;
+      if (ctx.bucket !== null && ctx.accountId !== null && entry !== undefined) {
+        await ctx.model.edits.start(ctx.accountId, ctx.bucket, entry.key);
+      }
+    },
+  },
   "file.website-redirect": singleFileDialog("website-redirect"),
   "bucket.open-browser": {
     visible: (ctx) => ctx.account !== null && isSingleBucket(ctx),

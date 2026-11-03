@@ -94,10 +94,6 @@ pub fn iam_config(
     credentials: &Credentials,
     options: &ClientOptions,
 ) -> Result<aws_sdk_iam::config::Builder> {
-    if !iam_supported(account) {
-        return Err(Error::Usage(NOT_AVAILABLE.to_owned()));
-    }
-    validate_region(&account.region)?;
     let static_credentials = aws_sdk_iam::config::Credentials::new(
         credentials.access_key_id.as_str(),
         credentials.secret_access_key.as_str(),
@@ -105,10 +101,28 @@ pub fn iam_config(
         None,
         CREDENTIALS_PROVIDER_NAME,
     );
+    iam_config_with_provider(
+        account,
+        aws_credential_types::provider::SharedCredentialsProvider::new(static_credentials),
+        options,
+    )
+}
+
+/// [`iam_config`] signed by a refreshing credentials provider (see
+/// [`crate::creds`]).
+pub fn iam_config_with_provider(
+    account: &Account,
+    provider: aws_credential_types::provider::SharedCredentialsProvider,
+    options: &ClientOptions,
+) -> Result<aws_sdk_iam::config::Builder> {
+    if !iam_supported(account) {
+        return Err(Error::Usage(NOT_AVAILABLE.to_owned()));
+    }
+    validate_region(&account.region)?;
     Ok(aws_sdk_iam::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new(account.region.clone()))
-        .credentials_provider(static_credentials)
+        .credentials_provider(provider)
         .retry_config(RetryConfig::standard().with_max_attempts(options.max_attempts.max(1)))
         .timeout_config(
             TimeoutConfig::builder()
@@ -1321,6 +1335,7 @@ mod tests {
 
     fn account(endpoint: Option<&str>) -> Account {
         Account {
+            source: crate::model::CredentialSource::StaticKeys,
             id: "account-a".to_owned(),
             label: "label".to_owned(),
             access_key_id: "AKIAADMINEXAMPLE0000".to_owned(),

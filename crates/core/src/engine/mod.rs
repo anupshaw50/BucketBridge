@@ -37,9 +37,12 @@ mod body;
 pub mod checksum;
 mod content_type;
 mod control;
+pub mod cross;
 pub mod download;
 mod enqueue;
 pub mod expand;
+pub mod job;
+pub(crate) mod policy;
 mod remote;
 mod runner;
 pub mod source;
@@ -52,7 +55,9 @@ use chrono::{DateTime, Utc};
 use crate::error::{Error, Result};
 use crate::ops::{CopyOptions, MAX_PART_SIZE, MIN_PART_SIZE, S3};
 use crate::s3uri::{S3Uri, validate_key};
-use crate::settings::{ChecksumAlgorithm, DataIntegritySettings, MIB, Settings, TransferSettings};
+use crate::settings::{
+    ChecksumAlgorithm, DataIntegritySettings, IfExists, MIB, Settings, TransferSettings,
+};
 
 pub use checksum::{Checksummer, ObjectChecksum, checksum_of};
 pub use content_type::{DEFAULT_CONTENT_TYPE, guess_content_type};
@@ -60,17 +65,24 @@ pub use control::{
     DEFAULT_MAX_GRANT, Hooks, NoProgress, Outcome, Progress, ProgressCounter, StopReason,
     StopSignal, StreamFuture, StreamPermit, Throttle, ThrottleFuture, Unthrottled,
 };
+pub use cross::{CopyRoute, RemoteSource, verify_copy};
 pub use download::{
     DownloadOutcome, DownloadSink, DownloadState, FileSink, PARTIAL_SUFFIX, is_partial_name,
     partial_path,
 };
 pub use enqueue::{
-    enqueue_copy, enqueue_delete, enqueue_download, enqueue_download_decrypted, enqueue_move,
-    enqueue_rename, enqueue_upload, enqueue_upload_encrypted,
+    enqueue_copy, enqueue_copy_with, enqueue_delete, enqueue_download, enqueue_download_decrypted,
+    enqueue_download_with, enqueue_move, enqueue_move_with, enqueue_rename, enqueue_upload,
+    enqueue_upload_encrypted, enqueue_upload_with,
 };
 pub use expand::{
     CopyItem, DeleteItem, DownloadItem, ExpandFailure, Expansion, UploadItem, expand_delete,
     expand_upload, expand_upload_blocking,
+};
+pub use job::{ConflictBroker, ConflictEvent, JobOptions, PendingConflict};
+pub use policy::{
+    Choice, Conflict, ConflictResolver, ItemInfo, MTIME_META_KEY, SkipReason, format_mtime,
+    is_newer, numbered_name, object_time, parse_mtime,
 };
 pub use runner::{RunnerState, S3Provider, S3Runner};
 pub use source::{FileSource, SourceFingerprint, UploadSource};
@@ -103,6 +115,12 @@ pub struct TransferOptions {
     pub validate_downloads: bool,
     /// How server-side copies are split (validated by the copy itself).
     pub copy: CopyOptions,
+    /// What to do when a destination exists (see [`IfExists`]); a copy of
+    /// the engines can override it ([`TransferEngine::with_if_exists`]).
+    pub if_exists: IfExists,
+    /// Keep modification times (see
+    /// [`DataIntegritySettings::preserve_mtime`]).
+    pub preserve_mtime: bool,
 }
 
 impl Default for TransferOptions {
@@ -133,6 +151,8 @@ impl TransferOptions {
                 concurrency: in_flight,
                 ..CopyOptions::default()
             },
+            if_exists: transfer.if_exists,
+            preserve_mtime: data_integrity.preserve_mtime,
         }
     }
 
@@ -194,6 +214,17 @@ pub struct TransferEngine {
     write_condition: Option<WriteCondition>,
     download_version: Option<String>,
     upload_headers: Option<UploadHeaders>,
+    resolver: Option<ResolverSlot>,
+}
+
+/// A [`ConflictResolver`] the engines hold (with a `Debug` impl).
+#[derive(Clone)]
+struct ResolverSlot(std::sync::Arc<dyn ConflictResolver>);
+
+impl std::fmt::Debug for ResolverSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConflictResolver")
+    }
 }
 
 /// Object properties an upload sets besides the content type: user metadata
@@ -227,6 +258,7 @@ impl TransferEngine {
             write_condition: None,
             download_version: None,
             upload_headers: None,
+            resolver: None,
         })
     }
 

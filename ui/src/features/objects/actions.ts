@@ -1,4 +1,4 @@
-import type { ObjectEntry, TransferTask } from "../../api/types";
+import type { IfExists, ObjectEntry, TransferTask } from "../../api/types";
 import { formatBytes, plural } from "../../lib/format";
 import { isFolderEntry } from "../../lib/objects";
 import { downloadProblem, pasteProblem } from "../../lib/s3keys";
@@ -284,7 +284,17 @@ export function pasteBlocker(model: AppModel, at?: Place): string | null {
 export async function transferKeys(
   model: AppModel,
   mode: "copy" | "move",
-  args: { account_id: string; src_bucket: string; keys: string[]; dst_bucket: string; dst_prefix: string },
+  args: {
+    account_id: string;
+    src_bucket: string;
+    keys: string[];
+    dst_bucket: string;
+    dst_prefix: string;
+    /** The account that owns the destination bucket; default: `account_id`. */
+    dst_account_id?: string | null;
+    /** Overrides the overwrite policy of the settings for this transfer. */
+    if_exists?: IfExists | null;
+  },
 ): Promise<boolean> {
   return mode === "copy"
     ? enqueue(model, "Copy", () => model.api.enqueue_copy(args))

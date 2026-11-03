@@ -256,6 +256,7 @@ reuse the action functions of the features, never a copy of their logic.
 | Object metadata (T06) | Properties (also for several selected rows, from the toolbar), Metadata submenu: Tags, Storage class, Server-side encryption, HTTP headers; ACL | The properties editor on the General, Tags, Storage class, Encryption, HTTP headers or Permissions tab. With several objects selected, Metadata offers Storage class and Tags and edits all of them together |
 | Versions and preview (T08) | Preview (F3), Versions (file, folder and empty-area menus) | The preview, the version list of the object, the folder or the open folder |
 | Windows and bookmarks (T14) | Open in new window (bucket and folder menus), Bookmark (bucket, folder and file menus) | Another main window at that location (`open_new_window`); the bookmark dialog. Saved bookmarks list in the Bookmarks section above the bucket tree: click opens, the pencil renames, the bin deletes after a confirmation |
+| Edit in place (v0.2.0) | Edit (file menu, one object) | Downloads the object, opens the copy and uploads every save; the status bar shows Editing N, which opens the Editing panel; a conflict opens the conflict dialog. See "Edit in place" |
 | Tools and export (T12) | Export (file and selection menus, and the Export listing button of the toolbar), Filter (folder and empty-area menus), Diagnostics and Uncompleted multipart uploads (empty area of the buckets pane), Test connection (account menu) | The export dialog for the open folder, the saved filters dialog (the folder of the menu is opened first), diagnostics (the account that was clicked is preselected), the unfinished uploads |
 
 Entries that depend on the endpoint are hidden through `BucketCaps`: on an
@@ -300,6 +301,35 @@ and a "Choose application..." button for the native picker
 `update_object_headers`; an empty field removes it, and anything but a `/path`
 or `http(s)://` URL is refused before saving. Open in browser (one bucket)
 calls `open_bucket_in_browser`, so the opener capability needs no URL scope.
+
+## Edit in place (`features/edit`)
+
+- **Edit** in the file menu (one object; several selected objects do not offer
+  it) calls `model.edits.start`, which runs `start_edit` with the default
+  application and shows "Editing <key>" in the status bar. There is no
+  "Edit with" entry; "Open with" stays a one-off copy.
+- `state/edits.ts` (`EditController`) keeps the active sessions in step through
+  `edit://changed` (a `stopped` payload removes a session) and loads
+  `list_edits` at startup. A session that turns `conflict` opens the conflict
+  dialog once.
+- **Status bar.** While a session exists, "Editing N" shows next to the
+  transfer counts, in red with "M need attention" when a session is in
+  conflict or has failed. Clicking it opens the **Editing** panel: a table of
+  the sessions with their state (Waiting for a save, Uploading, Uploaded,
+  Conflict, Upload failed), Resolve... for a conflict, Retry for a failed
+  upload and Stop for each. Stop uploads a pending save; with a conflict it
+  fails and the status bar says to resolve it first.
+- **Conflict dialog.** Names the object and says whether it changed or was
+  deleted. Three choices: Save as a copy (shows the key it will use, nothing
+  to confirm), Overwrite and Discard my changes (each asks for confirmation,
+  Overwrite warns that the change on the server is lost). Decide later closes
+  the dialog and keeps the session; further saves stay held. The dialog closes
+  itself when the session ends or the conflict is settled elsewhere.
+- **Mock backend** (`mock/editMock.ts`): sessions over the mock world with the
+  same rules (ETag compare, deleted object, `name (edited).ext` that does not
+  overwrite). There is no file watcher; `mock.saveEdit(id)` plays the editor
+  saving the copy, `mock.changeObject` and `mock.deleteObject` play somebody
+  else changing the object.
 
 ## Versions and preview
 
@@ -367,6 +397,18 @@ names, `*.suffix` patterns, IP addresses or CIDR ranges.
   applied, failed = failed rows plus not-done rows with an error. "Failed only"
   shows rows whose action is failed or whose error is set. Deleting is
   disabled for bidirectional sync (the backend rejects it with `usage`).
+- Sync jobs (v0.2.0): the Folder sync dialog asks for the direction (now also "S3 to S3
+  (between prefixes)", which asks for a source bucket and folder and a destination bucket
+  and folder instead of a local folder), the folders, and, under "Filters and options",
+  exclude rules (gitignore style, one per line), include globs, an optional exclusion
+  file, "Skip empty folders", "Skip duplicate content", "Use the local metadata cache" and
+  the parallel listing. "Save as job" (on the folders step and under the results) names the
+  setup and stores it. The "Sync jobs" entry of the bucket and folder menus lists the saved
+  jobs: Run analyses the job and opens the plan for review in the sync dialog (nothing is
+  copied until Execute; a job of another account is run after switching to that account),
+  Edit opens the form filled from the job and "Save job" replaces it, and Delete asks for
+  confirmation and removes only the saved setup. When a run ends the results show a
+  summary: counts and bytes per action, the duration and the failures.
 - Log: `get_log` matches the text case-insensitively in message and source,
   `levels: null` means all levels, and `limit` keeps the newest entries; the
   panel asks for the newest 10,000 (all the backend keeps) and appends live
@@ -504,3 +546,74 @@ page of the settings). The Shorten button only appears when a service is chosen 
 settings; its caption says the whole link leaves the machine. Tests:
 `features/sharing/sharing.test.tsx`. Contract: "Sharing wizard and URL shorteners" in
 `docs/desktop-api.md`.
+
+## Overwrite policy, modification times and accounts in the picker (`features/transfers`, `features/picker`)
+
+* Settings: "When the destination exists" (page Transfers, `transfer.if_exists`)
+  and "Keep modification times" (page Data integrity,
+  `data_integrity.preserve_mtime`).
+* The destination picker has a "Destination account" select (shown when there
+  are several accounts) and "If an item already exists there" (default: as set
+  in Settings). Choosing another account lists its buckets; the dialog notes
+  that the service copies when it can and that otherwise the data goes through
+  this computer, and that a move deletes each source only after its copy was
+  checked. `destinationProblem(..., sameAccount)` allows a bucket of the same
+  name in another account and only refuses name clashes there.
+* `ConflictHost` (`ConflictDialog.tsx`, mounted next to `DialogHost`) shows the
+  first overwrite question of a task that waits (`transfer://conflict`,
+  `list_conflicts`, held in `model.conflicts`): the source and the existing
+  item with size and time, buttons Overwrite, Overwrite if newer, Rename and
+  Skip, "Apply to all remaining in this batch" and "Cancel this transfer". The
+  transfer panel shows such a task as "Waiting".
+* A task that was skipped has the state `skipped` and the badge "Skipped"; its
+  reason is shown as "Skipped: ...". "Clear finished" removes it.
+* The mock implements all of it (`MockBackend.placeTask`): policies, renames,
+  "newer" by `last_modified`, questions and batch answers, and copies between
+  accounts.
+
+## Credential sources (`features/accounts`)
+
+The add-account wizard and the edit dialog handle every kind of source; the
+Accounts manager has an "Import from AWS config..." button, and the account menu
+of the toolbar the same entry.
+
+- **Add account.** Step 1 (Connection) is unchanged. Step 2 (Credentials) starts
+  with a "Credentials from" control: *Access keys* (the fields of version 0.1.0),
+  *Assume a role*, *AWS SSO* and *Instance role*. The review step lists the
+  settings of the chosen kind and says that no secret is stored; "Test
+  connection" is offered for access keys only.
+  - *Assume a role* (`RoleFields`): the account that signs the request, the role
+    ARN, the session name, the session length in minutes (15 to 720), an optional
+    external ID and an optional MFA device. Each field is validated before the
+    next step (`validateCredentials` in `lib/accounts.ts`, the same rules as the
+    backend).
+  - *AWS SSO* (`SsoFields`): start URL, SSO region and an optional session name,
+    then "Sign in with AWS SSO". The sign-in shows the user code and the
+    verification link (the page is opened in the browser through the host; the
+    link stays visible when that failed), polls `sso_poll_login` at the interval
+    the backend asks for, and "Cancel sign-in" stops it. When it completes the
+    "AWS account" and "Role" lists are filled from `sso_list_accounts` and
+    `sso_list_roles`; a single role is chosen automatically. Closing the dialog
+    cancels a sign-in that is waiting. The token goes to the AWS CLI cache, never
+    through the UI state.
+  - *Instance role* (`InstanceFields`): "Check this machine" calls
+    `probe_instance_role`; the account cannot be added before the check succeeds,
+    and a failure (not on EC2 or in a container) is shown with the reason.
+- **Edit account.** An assumed role can change its session name, length,
+  external ID and MFA device (sent as `source`); the source account, an SSO role
+  and a linked AWS profile are shown read-only (add a new account to use another
+  role). Access keys keep the secret-rotation fields. The MFA prompt that follows
+  a change to a role's MFA device is the normal `mfa_required` flow.
+- **Account list.** The "Credentials" column shows the key ID for access keys and
+  otherwise `AWS profile NAME`, `Role NAME through ACCOUNT`, `SSO ROLE in ACCOUNT`
+  or `Instance or container role` (`credentialsLabel`).
+- **Import from AWS config** (`ImportAwsDialog`): lists the profiles with their
+  type and region; usable profiles start selected, profiles that are linked
+  already show "Already imported", and unusable ones are disabled with the
+  reason. "Import" links the chosen ones and reports what was left out.
+- **Mock** (`mock/credentialsMock.ts`): four profiles (`dev`, `prod-admin`,
+  `corp-sso`, `broken`), an instance role that tests can switch off
+  (`mock.credentials.instanceRoleAvailable`), and a portal with two AWS accounts
+  whose sign-in completes after `pendingPolls` pending answers. Accounts of every
+  source browse the demo identity; a role with an MFA device asks for the demo
+  code.

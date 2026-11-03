@@ -260,7 +260,11 @@ pub async fn transform_object(
         .content_type
         .clone()
         .unwrap_or_else(|| guess_content_type(Path::new(key)).to_owned());
-    let mut upload_engine = engine.with_upload_headers(headers);
+    // The rewrite keeps the object's own metadata (including `mtime`); the
+    // temporary file's time must not become one.
+    let mut upload_engine = engine
+        .with_preserve_mtime(false)
+        .with_upload_headers(headers);
     if let Some(etag) = downloaded.etag.clone().or_else(|| head.etag.clone()) {
         upload_engine = upload_engine.with_write_condition(WriteCondition::ETag(etag));
     }
@@ -336,6 +340,7 @@ fn completed<T>(outcome: Outcome<T>, hooks: &Hooks) -> Result<T> {
             let _ = hooks;
             Err(Error::Cancelled)
         }
+        Outcome::Skipped(reason) => Err(Error::Conflict(format!("skipped: {}", reason.describe()))),
     }
 }
 
@@ -364,6 +369,16 @@ pub async fn upload_encrypted(
     if dst.key().ends_with('/') {
         return engine.upload_file(path, dst, hooks, None, checkpoint).await;
     }
+    // The overwrite policy is applied to the original file; the temporary
+    // ciphertext it is encrypted into is not what the user compares.
+    let target = match engine.place_upload_path(path, dst, hooks).await? {
+        crate::engine::policy::Placed::Go(placed) => placed,
+        crate::engine::policy::Placed::Skip(reason) => return Ok(Outcome::Skipped(reason)),
+        crate::engine::policy::Placed::Stop(reason) => return Ok(Outcome::stopped(reason)),
+    };
+    let requested = dst.clone();
+    let dst = &target;
+    let engine = &engine.with_if_exists(crate::settings::IfExists::Overwrite);
     let work = tempfile::Builder::new()
         .prefix("bb-cse-")
         .tempdir()
@@ -405,11 +420,23 @@ pub async fn upload_encrypted(
         let encrypted = encrypted.clone();
         blocking(move || crate::engine::FileSource::open(&encrypted)).await??
     };
-    let headers = UploadHeaders {
+    let mut headers = UploadHeaders {
         metadata: marker_metadata(compression),
         ..UploadHeaders::default()
     };
-    engine
+    // The time of the original file, not of the temporary ciphertext.
+    let original = std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok();
+    if engine.options().preserve_mtime
+        && let Some(modified) = original
+    {
+        headers.metadata.insert(
+            crate::engine::MTIME_META_KEY.to_owned(),
+            crate::engine::format_mtime(modified.into()),
+        );
+    }
+    let mut outcome = engine
         .with_upload_headers(headers)
         .upload(
             Arc::new(source),
@@ -419,7 +446,13 @@ pub async fn upload_encrypted(
             None,
             checkpoint,
         )
-        .await
+        .await?;
+    if target != requested
+        && let Outcome::Completed(done) = &mut outcome
+    {
+        done.renamed_to = Some(target.key().to_owned());
+    }
+    Ok(outcome)
 }
 
 /// Downloads `src` to `dest`; when the object is encrypted, decrypts the

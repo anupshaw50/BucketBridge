@@ -10,21 +10,31 @@
 //! A plan whose rows all finished is removed from the store again; a plan
 //! with failed or unfinished rows stays. Nothing is stored when there is
 //! nothing to execute.
+//!
+//! The first location may also be an `s3://` prefix: an S3 to S3 sync copies on
+//! the server. `--job NAME` runs a saved sync job (see `syncjobs`), and the
+//! filter, exclusion and analysis options of `bb sync` are the job's
+//! `SyncOptions`. `--summary` ends the run with a report.
 
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::Arc;
+use std::time::Instant;
 
+use bucketbridge_core::config::ConfigStore;
 use bucketbridge_core::engine::{Progress, TransferEngine, TransferOptions};
+use bucketbridge_core::ignore::read_rules_text;
 use bucketbridge_core::model::{Side, SyncAction, SyncDirection, SyncPlan, SyncRow};
 use bucketbridge_core::path::join_key;
 use bucketbridge_core::sync::{
-    self, AnalyzeRequest, ExecuteOptions, SyncEvents, SyncExecutor, SyncProgress, SyncStore,
+    self, AnalysisRequest, ExecuteOptions, SyncEvents, SyncExecutor, SyncOptions, SyncProgress,
+    SyncReport, SyncStore,
 };
+use bucketbridge_core::syncjobs::{self, SyncJob};
 use bucketbridge_core::{Dirs, Error, S3Uri};
 use tokio::sync::mpsc;
 
-use crate::cli::SyncArgs;
+use crate::cli::{SyncArgs, SyncSource};
 use crate::context::{Context, env};
 use crate::output::{Failure, Output};
 use crate::records::{SyncRecord, SyncRowRecord, SyncSummaryRecord};
@@ -32,13 +42,15 @@ use crate::transfer::{ItemProgress, ProgressLine, Totals, print_above};
 
 /// What an invocation asks for.
 enum Target<'a> {
-    /// Analyze a folder against a prefix.
+    /// Analyze a folder (or an S3 prefix) against a prefix.
     Plan {
-        local: &'a Path,
-        s3: &'a S3Uri,
+        source: &'a SyncSource,
+        destination: &'a S3Uri,
         direction: SyncDirection,
         delete: bool,
     },
+    /// Run a saved sync job.
+    Job(&'a str),
     /// Continue a stored plan.
     Resume(&'a str),
 }
@@ -46,14 +58,27 @@ enum Target<'a> {
 fn target(args: &SyncArgs) -> Result<Target<'_>, Error> {
     match (
         args.resume.as_deref(),
-        args.local.as_deref(),
+        args.job.as_deref(),
+        args.source.as_ref(),
         args.s3.as_ref(),
     ) {
-        (Some(plan_id), None, None) => Ok(Target::Resume(plan_id)),
-        (None, Some(local), Some(s3)) => {
-            let direction = args
-                .direction
-                .map_or(SyncDirection::Upload, SyncDirection::from);
+        (Some(plan_id), None, None, None) => Ok(Target::Resume(plan_id)),
+        (None, Some(job), None, None) => Ok(Target::Job(job)),
+        (None, None, Some(source), Some(destination)) => {
+            let direction = match source {
+                SyncSource::Local(_) => args
+                    .direction
+                    .map_or(SyncDirection::Upload, SyncDirection::from),
+                SyncSource::S3(_) => {
+                    if args.direction.is_some() {
+                        return Err(Error::Usage(
+                            "--direction does not apply to a sync between two S3 locations: it always copies from the first to the second"
+                                .into(),
+                        ));
+                    }
+                    SyncDirection::S3ToS3
+                }
+            };
             if args.delete && direction == SyncDirection::Bidirectional {
                 return Err(Error::Usage(
                     "--delete cannot be combined with --direction bidirectional: without a record \
@@ -63,14 +88,15 @@ fn target(args: &SyncArgs) -> Result<Target<'_>, Error> {
                 ));
             }
             Ok(Target::Plan {
-                local,
-                s3,
+                source,
+                destination,
                 direction,
                 delete: args.delete,
             })
         }
         _ => Err(Error::Usage(
-            "bb sync needs a local folder and an S3 location, or --resume PLAN_ID".into(),
+            "bb sync needs a local folder and an S3 location, two S3 locations, --job NAME or --resume PLAN_ID"
+                .into(),
         )),
     }
 }
@@ -78,39 +104,222 @@ fn target(args: &SyncArgs) -> Result<Target<'_>, Error> {
 /// Checks what can be checked without the network or the file system, so
 /// that these usage errors come before credentials are needed.
 pub fn check(args: &SyncArgs) -> Result<(), Error> {
-    target(args).map(|_| ())
+    target(args)?;
+    SyncOptions {
+        include: args.include.clone(),
+        exclude: args.exclude.clone(),
+        ..SyncOptions::default()
+    }
+    .validate()
+}
+
+/// What one run syncs: the arguments or a saved job, with the options of the
+/// command line applied.
+struct Spec {
+    direction: SyncDirection,
+    local: PathBuf,
+    destination: S3Uri,
+    source: Option<S3Uri>,
+    delete: bool,
+    options: SyncOptions,
+}
+
+/// Rules from `--exclude-from` and `--exclude`, and the other flags, on top of
+/// `base` (the options of a job, or the defaults). The rules of a job's own file
+/// are read now so that the rules of the command line come after them.
+fn apply_flags(args: &SyncArgs, mut options: SyncOptions) -> Result<SyncOptions, Error> {
+    let adds_rules = !args.exclude.is_empty() || args.exclude_from.is_some();
+    if adds_rules && let Some(file) = options.exclude_file.take() {
+        options.exclude.extend(rule_lines(Path::new(file.trim()))?);
+    }
+    options.exclude.extend(args.exclude.iter().cloned());
+    if let Some(file) = &args.exclude_from {
+        let file = std::path::absolute(file).map_err(|err| {
+            Error::Usage(format!(
+                "invalid exclusion file '{}': {err}",
+                file.display()
+            ))
+        })?;
+        options.exclude.extend(rule_lines(&file)?);
+    }
+    options.include.extend(args.include.iter().cloned());
+    if args.keep_empty_folders {
+        options.skip_empty_folders = false;
+    }
+    if args.skip_duplicates {
+        options.skip_duplicate_content = true;
+    }
+    if args.no_cache {
+        options.use_cache = false;
+    }
+    if let Some(parallel) = args.parallel {
+        options.parallelism = parallel;
+    }
+    options.validate()?;
+    Ok(options)
+}
+
+fn rule_lines(file: &Path) -> Result<Vec<String>, Error> {
+    Ok(read_rules_text(file)?.lines().map(str::to_owned).collect())
+}
+
+fn spec_from_args(args: &SyncArgs) -> Result<Spec, Error> {
+    let Target::Plan {
+        source,
+        destination,
+        direction,
+        delete,
+    } = target(args)?
+    else {
+        return Err(Error::Internal("not a plan target".into()));
+    };
+    let (local, s3_source) = match source {
+        SyncSource::Local(path) => (path.clone(), None),
+        SyncSource::S3(uri) => (PathBuf::new(), Some(sync::as_folder(uri)?)),
+    };
+    Ok(Spec {
+        direction,
+        local,
+        destination: sync::as_folder(destination)?,
+        source: s3_source,
+        delete,
+        options: apply_flags(args, SyncOptions::default())?,
+    })
+}
+
+fn spec_from_job(job: SyncJob, args: &SyncArgs) -> Result<Spec, Error> {
+    let source = job.s3_source.as_deref().map(S3Uri::parse).transpose()?;
+    Ok(Spec {
+        direction: job.direction,
+        local: PathBuf::from(&job.local_root),
+        destination: S3Uri::parse(&job.s3_prefix)?,
+        source,
+        delete: job.delete,
+        options: apply_flags(args, job.options)?,
+    })
+}
+
+/// The job to run for `--job NAME` and the arguments to open the context with:
+/// the job's account is the account of the run.
+pub fn resolve_job(
+    global: &crate::cli::GlobalArgs,
+    args: &SyncArgs,
+    inputs: &crate::context::Inputs,
+) -> Result<Option<(SyncJob, crate::cli::GlobalArgs)>, Error> {
+    let Some(name) = args.job.as_deref() else {
+        return Ok(None);
+    };
+    let dirs = crate::context::dirs(global, &inputs.env)?.ok_or_else(|| {
+        Error::Usage(format!(
+            "no configuration directory for the sync jobs: set {} or pass --config-dir",
+            env::CONFIG_DIR
+        ))
+    })?;
+    let job = syncjobs::find(&ConfigStore::new(&dirs), name)?;
+    if let Some(account) = &global.account
+        && account != &job.account_id
+    {
+        return Err(Error::Usage(format!(
+            "the sync job '{}' runs with the account {}; drop --account or use --account {}",
+            job.name, job.account_id, job.account_id
+        )));
+    }
+    let mut global = global.clone();
+    global.account = Some(job.account_id.clone());
+    Ok(Some((job, global)))
 }
 
 /// Runs `bb sync`.
-pub async fn run(ctx: &Context, args: &SyncArgs, out: &mut Output) -> Result<(), Failure> {
-    match target(args)? {
-        Target::Resume(plan_id) => resume(ctx, plan_id, out).await,
-        Target::Plan {
-            local,
-            s3,
-            direction,
-            delete,
-        } => {
-            // A real run stores and executes its plan: fail before any work
-            // when it cannot.
-            let real = if args.dry_run {
-                None
-            } else {
-                Some((require_dirs(ctx)?, engine(ctx)?))
-            };
-            let plan = analyze(ctx, local, s3, direction, delete).await?;
-            let Some((dirs, engine)) = real else {
-                return report_only(plan, true, out);
-            };
-            if sync::row_counts(&plan.rows).total == 0 {
-                // Nothing to execute: no plan is stored.
-                return report_only(plan, false, out);
-            }
-            let store = open_store(dirs).await?;
-            let plan = insert_plan(&store, plan).await?;
-            execute(ctx, store, engine, plan, out).await
+pub async fn run(
+    ctx: &Context,
+    args: &SyncArgs,
+    job: Option<SyncJob>,
+    out: &mut Output,
+) -> Result<(), Failure> {
+    let started = Instant::now();
+    let spec = match target(args)? {
+        Target::Resume(plan_id) => return resume(ctx, plan_id, args.summary, out).await,
+        Target::Plan { .. } => spec_from_args(args)?,
+        Target::Job(name) => {
+            let job = job
+                .ok_or_else(|| Error::Internal(format!("the sync job '{name}' was not loaded")))?;
+            spec_from_job(job, args)?
         }
+    };
+    if let Some(name) = &args.save_job {
+        save_job(ctx, name, &spec, out).await?;
     }
+    // A real run stores and executes its plan: fail before any work
+    // when it cannot.
+    let real = if args.dry_run {
+        None
+    } else {
+        Some((require_dirs(ctx)?, engine(ctx)?))
+    };
+    let plan = analyze(ctx, &spec, !args.dry_run).await?;
+    let Some((dirs, engine)) = real else {
+        return report_only(plan, true, args.summary.then_some(started), out);
+    };
+    if sync::row_counts(&plan.rows).total == 0 {
+        // Nothing to execute: no plan is stored.
+        return report_only(plan, false, args.summary.then_some(started), out);
+    }
+    let store = open_store(dirs).await?;
+    let plan = insert_plan(&store, plan).await?;
+    execute(
+        ctx,
+        store,
+        engine,
+        plan,
+        args.summary.then_some(started),
+        out,
+    )
+    .await
+}
+
+/// `--save-job NAME`: stores the setup of this run as a job (a job of that name is
+/// replaced).
+async fn save_job(ctx: &Context, name: &str, spec: &Spec, out: &mut Output) -> Result<(), Failure> {
+    let dirs = require_dirs(ctx)?.clone();
+    let local_root = if spec.direction == SyncDirection::S3ToS3 {
+        String::new()
+    } else {
+        let absolute = std::path::absolute(&spec.local).map_err(|err| {
+            Error::Usage(format!(
+                "invalid local folder '{}': {err}",
+                spec.local.display()
+            ))
+        })?;
+        absolute.display().to_string()
+    };
+    let mut options = spec.options.clone();
+    if let Some(file) = options.exclude_file.take() {
+        let absolute = std::path::absolute(file.trim())
+            .map_err(|err| Error::Usage(format!("invalid exclusion file '{file}': {err}")))?;
+        options.exclude_file = Some(absolute.display().to_string());
+    }
+    let job = SyncJob {
+        id: String::new(),
+        name: name.to_owned(),
+        account_id: ctx.account_id.clone(),
+        direction: spec.direction,
+        local_root,
+        s3_prefix: spec.destination.to_string(),
+        s3_source: spec.source.as_ref().map(ToString::to_string),
+        delete: spec.delete,
+        options,
+    };
+    let saved = blocking(move || {
+        let store = ConfigStore::new(&dirs);
+        let mut job = job;
+        if let Ok(existing) = syncjobs::find(&store, &job.name) {
+            job.id = existing.id;
+        }
+        syncjobs::save(&store, job)
+    })
+    .await?;
+    out.notice(&format!("bb: saved sync job '{}'", saved.name));
+    Ok(())
 }
 
 /// The transfer engine of the account, with the transfer settings.
@@ -158,35 +367,36 @@ async fn insert_plan(store: &Arc<SyncStore>, plan: SyncPlan) -> Result<SyncPlan,
 
 /// Lists the prefix and compares it with the folder. Nothing is written; a
 /// stop simply drops the work.
-async fn analyze(
-    ctx: &Context,
-    local: &Path,
-    s3: &S3Uri,
-    direction: SyncDirection,
-    delete: bool,
-) -> Result<SyncPlan, Error> {
-    let folder = sync::as_folder(s3)?;
-    let listing = tokio::select! {
-        listing = ctx.s3.list_all(folder.bucket(), folder.key()) => listing?,
-        () = ctx.stop.stopped() => return Err(Error::Cancelled),
+/// A dry run writes nothing, so it never writes the listing cache either.
+async fn analyze(ctx: &Context, spec: &Spec, use_cache: bool) -> Result<SyncPlan, Error> {
+    let request = AnalysisRequest {
+        account_id: ctx.account_id.clone(),
+        direction: spec.direction,
+        local_root: spec.local.clone(),
+        s3_prefix: spec.destination.clone(),
+        source_prefix: spec.source.clone(),
+        delete: spec.delete,
+        options: spec.options.clone(),
+        cache_dir: ctx
+            .dirs
+            .as_ref()
+            .filter(|_| use_cache)
+            .map(|dirs| dirs.data_dir.join(sync::listing::CACHE_DIR_NAME)),
     };
-    let account_id = ctx.account_id.clone();
-    let local = local.to_path_buf();
-    let analysis = tokio::task::spawn_blocking(move || {
-        let mut request = AnalyzeRequest::new(&account_id, &local, &folder, direction);
-        request.delete = delete;
-        sync::analyze(&request, listing)
-    });
     tokio::select! {
-        joined = analysis => {
-            joined.map_err(|err| Error::Internal(format!("the analysis thread failed: {err}")))?
-        }
+        plan = sync::analyze_async(&ctx.s3, &request) => plan,
         () = ctx.stop.stopped() => Err(Error::Cancelled),
     }
 }
 
 /// `--resume`: runs the rows of a stored plan that are not done.
-async fn resume(ctx: &Context, plan_id: &str, out: &mut Output) -> Result<(), Failure> {
+async fn resume(
+    ctx: &Context,
+    plan_id: &str,
+    summary: bool,
+    out: &mut Output,
+) -> Result<(), Failure> {
+    let started = Instant::now();
     let engine = engine(ctx)?;
     let store = open_store(require_dirs(ctx)?).await?;
     let plan = {
@@ -202,7 +412,7 @@ async fn resume(ctx: &Context, plan_id: &str, out: &mut Output) -> Result<(), Fa
         .into());
     }
     reach(ctx, &plan.s3_prefix).await?;
-    execute(ctx, store, engine, plan, out).await
+    execute(ctx, store, engine, plan, summary.then_some(started), out).await
 }
 
 /// Asks for one key of the plan's prefix before any row runs. A fresh plan was
@@ -220,8 +430,14 @@ async fn reach(ctx: &Context, prefix: &S3Uri) -> Result<(), Error> {
 
 /// Reports the rows of a plan that is not executed: a dry run, or a plan
 /// whose rows are all equal or failed.
-fn report_only(plan: SyncPlan, dry_run: bool, out: &mut Output) -> Result<(), Failure> {
+fn report_only(
+    plan: SyncPlan,
+    dry_run: bool,
+    report_since: Option<Instant>,
+    out: &mut Output,
+) -> Result<(), Failure> {
     let mut reporter = Reporter::new(out, plan, None, dry_run);
+    reporter.report_since = report_since;
     reporter.report_rows(|row| row.action != SyncAction::Equal);
     reporter.finish(None, false)
 }
@@ -248,10 +464,12 @@ async fn execute(
     store: Arc<SyncStore>,
     engine: TransferEngine,
     plan: SyncPlan,
+    report_since: Option<Instant>,
     out: &mut Output,
 ) -> Result<(), Failure> {
     let plan_id = plan.id.clone();
     let mut reporter = Reporter::new(out, plan, Some(plan_id.clone()), false);
+    reporter.report_since = report_since;
     if ctx.show_progress {
         reporter.show_progress();
     }
@@ -317,6 +535,8 @@ enum Operation {
     Download,
     DeleteRemote,
     DeleteLocal,
+    /// A server-side copy between two S3 prefixes.
+    Copy,
     /// A row the analysis could not plan.
     Unsyncable,
 }
@@ -334,7 +554,9 @@ fn operation(row: &SyncRow) -> Operation {
 /// The size of the file a row copies or deletes, when the plan knows it.
 fn row_size(row: &SyncRow) -> Option<u64> {
     match operation(row) {
-        Operation::Upload | Operation::DeleteLocal => row.local_meta.as_ref().map(|m| m.size),
+        Operation::Upload | Operation::Copy | Operation::DeleteLocal => {
+            row.local_meta.as_ref().map(|m| m.size)
+        }
         Operation::Download | Operation::DeleteRemote => row.s3_meta.as_ref().map(|m| m.size),
         Operation::Unsyncable => None,
     }
@@ -346,6 +568,8 @@ struct Layout {
     root: PathBuf,
     bucket: String,
     prefix: String,
+    /// Bucket and prefix of the source of an S3 to S3 sync.
+    source: Option<(String, String)>,
 }
 
 impl Layout {
@@ -355,7 +579,26 @@ impl Layout {
             root: plan.local_root.clone(),
             bucket: plan.s3_prefix.bucket().to_owned(),
             prefix: plan.s3_prefix.key().to_owned(),
+            source: plan
+                .source_prefix
+                .as_ref()
+                .map(|uri| (uri.bucket().to_owned(), uri.key().to_owned())),
         }
+    }
+
+    /// What a row does here: an upload in an S3 to S3 plan is a copy.
+    fn operation(&self, row: &SyncRow) -> Operation {
+        match operation(row) {
+            Operation::Upload if self.source.is_some() => Operation::Copy,
+            other => other,
+        }
+    }
+
+    /// The `s3://` URI of the source object of an S3 to S3 row.
+    fn source_uri(&self, rel_path: &str) -> Option<String> {
+        self.source
+            .as_ref()
+            .map(|(bucket, prefix)| format!("s3://{bucket}/{}", join_key(prefix, rel_path)))
     }
 
     /// The local file of a row, with the separators of this OS.
@@ -371,11 +614,18 @@ impl Layout {
     }
 
     fn record(&self, row: &SyncRow, dry_run: bool) -> SyncRowRecord {
-        let (local, remote) = match operation(row) {
-            Operation::Unsyncable => (None, None),
+        let operation = self.operation(row);
+        let (local, remote, source) = match operation {
+            Operation::Unsyncable => (None, None, None),
+            Operation::Copy => (
+                None,
+                Some(self.remote(&row.rel_path)),
+                self.source_uri(&row.rel_path),
+            ),
             _ => (
                 Some(self.local(&row.rel_path)),
                 Some(self.remote(&row.rel_path)),
+                None,
             ),
         };
         SyncRowRecord {
@@ -385,6 +635,7 @@ impl Layout {
             target: row.target,
             local,
             remote,
+            source,
             size: row_size(row),
             dry_run,
             done: row.done,
@@ -395,8 +646,10 @@ impl Layout {
     /// `uploaded a/b.txt to s3://...`, or with `--dry-run` `would upload ...`.
     fn success_line(&self, row: &SyncRow, dry_run: bool) -> String {
         let (local, remote) = (self.local(&row.rel_path), self.remote(&row.rel_path));
+        let source = self.source_uri(&row.rel_path).unwrap_or_default();
         let verb = |would: &'static str, done: &'static str| if dry_run { would } else { done };
-        match operation(row) {
+        match self.operation(row) {
+            Operation::Copy => format!("{} {source} to {remote}", verb("would copy", "copied")),
             Operation::Upload => {
                 format!("{} {local} to {remote}", verb("would upload", "uploaded"))
             }
@@ -414,7 +667,9 @@ impl Layout {
     fn failure_line(&self, row: &SyncRow) -> String {
         let (local, remote) = (self.local(&row.rel_path), self.remote(&row.rel_path));
         let why = row.error.as_deref().unwrap_or("unknown error");
-        match operation(row) {
+        let source = self.source_uri(&row.rel_path).unwrap_or_default();
+        match self.operation(row) {
+            Operation::Copy => format!("failed to copy {source} to {remote}: {why}"),
             Operation::Upload => format!("failed to upload {local} to {remote}: {why}"),
             Operation::Download => format!("failed to download {remote} to {local}: {why}"),
             Operation::DeleteRemote => format!("failed to delete {remote}: {why}"),
@@ -469,6 +724,13 @@ impl Tally {
     }
 }
 
+/// The `--summary` report in the human format: one indented line per action.
+fn report_text(report: &SyncReport) -> String {
+    let mut lines = vec!["summary:".to_owned()];
+    lines.extend(report.lines().into_iter().map(|line| format!("  {line}")));
+    lines.join("\n")
+}
+
 /// The one line that ends a run in the human format.
 fn summary_line(tally: &Tally, dry_run: bool) -> String {
     let mut line = if dry_run {
@@ -503,6 +765,8 @@ struct Reporter<'o> {
     totals: Option<Arc<Totals>>,
     /// Writing to standard output failed: nothing more is printed.
     broken: Option<Failure>,
+    /// `--summary`: when the command started, for the report at the end.
+    report_since: Option<Instant>,
 }
 
 impl<'o> Reporter<'o> {
@@ -515,6 +779,7 @@ impl<'o> Reporter<'o> {
             dry_run,
             totals: None,
             broken: None,
+            report_since: None,
         }
     }
 
@@ -525,7 +790,12 @@ impl<'o> Reporter<'o> {
         let bytes = rows
             .iter()
             .filter(|row| sync::row_is_pending(row))
-            .filter(|row| matches!(operation(row), Operation::Upload | Operation::Download))
+            .filter(|row| {
+                matches!(
+                    self.layout.operation(row),
+                    Operation::Upload | Operation::Download | Operation::Copy
+                )
+            })
             .filter_map(row_size)
             .sum();
         let totals = Totals::new(sync::row_counts(rows).pending(), bytes);
@@ -575,7 +845,10 @@ impl<'o> Reporter<'o> {
     fn finished(&mut self, index: usize, row: SyncRow) {
         if let Some(totals) = &self.totals {
             totals.item_finished();
-            if matches!(operation(&row), Operation::Upload | Operation::Download) {
+            if matches!(
+                self.layout.operation(&row),
+                Operation::Upload | Operation::Download | Operation::Copy
+            ) {
                 let size = row_size(&row).unwrap_or(0);
                 let progress = ItemProgress::new(Arc::clone(totals), size);
                 if row.done {
@@ -627,7 +900,10 @@ impl<'o> Reporter<'o> {
             plan_id: kept,
             direction: self.plan.direction,
             delete: self.plan.delete,
-            local: self.plan.local_root.display().to_string(),
+            local: self.plan.source_prefix.as_ref().map_or_else(
+                || self.plan.local_root.display().to_string(),
+                ToString::to_string,
+            ),
             remote: self.plan.s3_prefix.to_string(),
             dry_run: self.dry_run,
             cancelled,
@@ -643,6 +919,17 @@ impl<'o> Reporter<'o> {
             self.out.row(&record, || text)?;
         } else {
             self.out.change(&record, || text)?;
+        }
+        if let Some(started) = self.report_since {
+            let report = SyncReport::from_rows(
+                &self.plan.id,
+                self.plan.direction,
+                &self.plan.rows,
+                started.elapsed(),
+                cancelled,
+            );
+            let text = report_text(&report);
+            self.out.row(&SyncRecord::Report(report), || text)?;
         }
         if cancelled {
             return Err(Error::Cancelled.into());
@@ -708,6 +995,7 @@ mod tests {
             root: PathBuf::from("root"),
             bucket: "bucket".to_owned(),
             prefix: "backup/".to_owned(),
+            source: None,
         }
     }
 
@@ -738,7 +1026,7 @@ mod tests {
                     delete: found_delete,
                     ..
                 } => assert_eq!((found, found_delete), (direction, delete), "{extra:?}"),
-                Target::Resume(_) => panic!("{extra:?} is not a resume"),
+                Target::Resume(_) | Target::Job(_) => panic!("{extra:?} is not a plan"),
             }
         }
         let id = "5b0e6a7a-3f1c-4d2e-9a47-0c8d2f6e1b35";

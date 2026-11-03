@@ -36,13 +36,15 @@ use tokio_util::sync::CancellationToken;
 
 use super::checksum::{ALGORITHMS, Checksummer, ObjectChecksum, checksum_field, is_full_object};
 use super::control::{Hooks, Outcome, StopReason};
+use super::policy::{ItemInfo, MTIME_META_KEY, Placed, object_time, parse_mtime};
 use super::{
     TransferEngine, blocking, bucket_client, require_object_key, to_utc, unquote,
     without_response_validation,
 };
 use crate::error::{Error, ErrorKind, IoContext, Result};
+use crate::model::TransferKind;
 use crate::s3uri::S3Uri;
-use crate::settings::ChecksumAlgorithm;
+use crate::settings::{ChecksumAlgorithm, IfExists};
 
 /// Suffix of the partial file a download writes before the rename.
 pub const PARTIAL_SUFFIX: &str = ".bbpart";
@@ -83,6 +85,10 @@ pub struct DownloadState {
     pub size: u64,
     /// The object's `Last-Modified`.
     pub last_modified: Option<DateTime<Utc>>,
+    /// The `mtime` user metadata of the object (see
+    /// [`MTIME_META_KEY`](super::policy::MTIME_META_KEY)), when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<DateTime<Utc>>,
     /// The object's full-object checksum, when validation is on and the
     /// server reported one.
     pub checksum: Option<ObjectChecksum>,
@@ -105,6 +111,14 @@ pub struct DownloadOutcome {
     /// True when saved progress was dropped because the object had changed
     /// (or the partial data was gone) and the download started over.
     pub restarted: bool,
+    /// The time a kept modification time gives the file: the `mtime` user
+    /// metadata an upload stored, else `last_modified`.
+    #[serde(default)]
+    pub file_time: Option<DateTime<Utc>>,
+    /// The path the file was written to when the destination existed and the
+    /// policy renamed the download (`name (1).ext`); `None` otherwise.
+    #[serde(default)]
+    pub renamed_to: Option<std::path::PathBuf>,
 }
 
 /// Where downloaded bytes go.
@@ -596,6 +610,25 @@ impl TransferEngine {
         }
         require_object_key(src)?;
         reject_partial_name(dest)?;
+        let mut target = dest.to_path_buf();
+        if self.options.if_exists != IfExists::Overwrite && hooks.stop.reason().is_none() {
+            let head = self.s3.head_object(src.bucket(), src.key(), None).await?;
+            let info = ItemInfo {
+                size: Some(head.size),
+                modified: object_time(&head),
+            };
+            match self
+                .place_local(TransferKind::Download, src.to_string(), info, dest, hooks)
+                .await?
+            {
+                Placed::Go(placed) => target = placed,
+                Placed::Skip(reason) => return Ok(Outcome::Skipped(reason)),
+                Placed::Stop(reason) => return Ok(Outcome::stopped(reason)),
+            }
+            reject_partial_name(&target)?;
+        }
+        let renamed = (target != dest).then(|| target.clone());
+        let dest = target.as_path();
         let partial = partial_path(dest)?;
         match hooks.stop.reason() {
             Some(StopReason::Cancel) => {
@@ -621,8 +654,14 @@ impl TransferEngine {
         match outcome {
             Outcome::Completed(done) => {
                 let dest = dest.to_path_buf();
-                let modified = done.last_modified;
+                let modified = self
+                    .options
+                    .preserve_mtime
+                    .then_some(done.file_time)
+                    .flatten();
                 blocking(move || sink.finish(&dest, modified)).await??;
+                let mut done = done;
+                done.renamed_to = renamed;
                 Ok(Outcome::Completed(done))
             }
             Outcome::Paused => Ok(Outcome::Paused),
@@ -631,6 +670,7 @@ impl TransferEngine {
                 remove_partial(&partial).await?;
                 Ok(Outcome::Cancelled)
             }
+            Outcome::Skipped(reason) => Ok(Outcome::Skipped(reason)),
         }
     }
 
@@ -938,6 +978,8 @@ impl TransferEngine {
             size: state.size,
             etag: (!state.etag.is_empty()).then(|| unquote(&state.etag).to_owned()),
             last_modified: state.last_modified,
+            file_time: state.mtime.or(state.last_modified),
+            renamed_to: None,
             resumed_from,
             restarted: false,
         })))
@@ -1031,6 +1073,10 @@ impl TransferEngine {
             etag: out.e_tag().unwrap_or_default().to_owned(),
             size,
             last_modified: out.last_modified().and_then(to_utc),
+            mtime: out
+                .metadata()
+                .and_then(|meta| meta.get(MTIME_META_KEY))
+                .and_then(|text| parse_mtime(text)),
             checksum,
             offset: 0,
         })
@@ -1445,6 +1491,7 @@ mod tests {
                 algorithm: ChecksumAlgorithm::Crc64nvme,
                 value: "v==".into(),
             }),
+            mtime: None,
             offset: 4,
         };
         let value = serde_json::to_value(&state).unwrap();

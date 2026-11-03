@@ -6,7 +6,9 @@ import type { AppInfo, WindowLocation } from "../api/types";
 import { BookmarkController } from "./bookmarks";
 import { mountSupported } from "../features/mount/support";
 import { BrowserController } from "./browser";
+import { ConflictStore } from "./conflicts";
 import { DialogController } from "./dialogs";
+import { EditController } from "./edits";
 import { FilterController } from "./filters";
 import { LogController } from "./log";
 import { PromptController } from "./prompts";
@@ -58,12 +60,14 @@ export class AppModel {
   readonly session: SessionController;
   readonly settings: SettingsController;
   readonly transfers: TransferStore;
+  readonly conflicts: ConflictStore;
   readonly log: LogController;
   readonly browser: BrowserController;
   readonly dialogs: DialogController;
   readonly sync: SyncController;
   readonly filters: FilterController;
   readonly bookmarks: BookmarkController;
+  readonly edits: EditController;
   readonly clipboard: StoreApi<ClipboardState>;
   readonly app: StoreApi<AppState>;
   private startGeneration = 0;
@@ -79,12 +83,14 @@ export class AppModel {
     this.session = new SessionController(this.api);
     this.settings = new SettingsController(this.api);
     this.transfers = new TransferStore(scheduler);
+    this.conflicts = new ConflictStore();
     this.log = new LogController(this.api, scheduler);
     this.browser = new BrowserController(this.api, this.session, this.settings, this.status);
     this.dialogs = new DialogController();
     this.sync = new SyncController(this.api, this.prompts, scheduler);
     this.filters = new FilterController(this.api, this.browser, this.status);
     this.bookmarks = new BookmarkController(this.api, this.session, this.browser);
+    this.edits = new EditController(this.api, this.dialogs, this.status);
     this.startAt = options.startAt ?? null;
     this.clipboard = createStore<ClipboardState>(() => ({ contents: null }));
     this.app = createStore<AppState>(() => ({ info: null, ready: false }));
@@ -97,11 +103,15 @@ export class AppModel {
     const cleanups: (() => void)[] = [
       api.listen("transfer://update", (task) => this.transfers.upsert(task)),
       api.listen("transfer://removed", (event) => this.transfers.remove(event.ids)),
+      api.listen("transfer://conflict", (event) => this.conflicts.onEvent(event)),
       api.listen("sync://progress", (progress) => this.sync.onProgress(progress)),
       api.listen("sync://row", (event) => this.sync.onRow(event)),
+      api.listen("sync://report", (report) => this.sync.onReport(report)),
+      api.listen("sync_jobs://changed", (jobs) => this.sync.setJobs(jobs)),
       api.listen("log://entry", (entry) => this.log.append(entry)),
       api.listen("security://changed", (security) => this.session.setSecurity(security)),
       api.listen("bookmarks://changed", (items) => this.bookmarks.set(items)),
+      api.listen("edit://changed", (session) => this.edits.onChanged(session)),
       this.transfers.onFlush((changed) => this.browser.onTasksChanged(changed)),
       this.session.onActiveChange((accountId) => {
         // A finished or never-run plan belongs to the previous account; a running one stays
@@ -122,6 +132,7 @@ export class AppModel {
     ];
     // Whether the build can mount drives decides if the bucket menu offers it.
     mountSupported(this);
+    void this.edits.load();
     void this.bootstrap(generation);
     return () => {
       this.startGeneration += 1;
@@ -161,9 +172,18 @@ export class AppModel {
         }
       })
       .catch((error: unknown) => this.status.error(error));
+    void this.api
+      .list_conflicts()
+      .then((pending) => {
+        if (alive()) {
+          this.conflicts.mergeSnapshot(pending);
+        }
+      })
+      .catch((error: unknown) => this.status.error(error));
     void this.log.load();
     void this.filters.reload();
     void this.bookmarks.load();
+    void this.sync.loadJobs();
     void this.api
       .app_info()
       .then((info) => {

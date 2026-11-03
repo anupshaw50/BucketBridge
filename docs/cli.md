@@ -87,17 +87,47 @@ with an MFA device needs a fresh code; without one it fails with
 `mfa_required` (exit 3). With the `environment` account `--mfa-code` is a
 usage error.
 
-### `bb account add|list|remove|default`
+### `bb account add|list|remove|default|import-aws|sso-login`
 
 | Command | Effect |
 |---|---|
 | `bb account add --label L --access-key-id ID [--region R] [--endpoint URL] [--path-style] [--request-payer] [--mfa-serial SERIAL] [--secret-stdin]` | Stores an account (secrets as above). Labels are unique, case-insensitively; a taken label is a `conflict`. The first account becomes the default. |
-| `bb account list` | One line per account: `*` for the default, label, region, endpoint (`-` for AWS), ID. |
+| `bb account add --label L --assume-role ARN --source-account LABEL\|ID [--session-name NAME] [--duration DURATION] [--external-id ID] [--mfa-serial SERIAL]` | Stores an account that assumes a role through another stored account (see [Credential sources](#credential-sources)). |
+| `bb account add --label L --sso --sso-start-url URL --sso-region R --sso-account-id ID --sso-role-name NAME [--sso-session NAME]` | Stores an account that uses a role of IAM Identity Center. |
+| `bb account add --label L --instance-role [--no-probe]` | Stores an account that uses the role of this EC2 instance or container. It first checks that the role exists (`auth`, exit 3, when not), unless `--no-probe`. |
+| `bb account import-aws [--profile NAME]...` | Links profiles of the AWS config files as accounts (no key is copied). Without `--profile`, every usable profile that is not linked yet. |
+| `bb account sso-login [LABEL\|ID] [--start-url URL --sso-region R] [--sso-session NAME] [--no-browser]` | Signs in to IAM Identity Center (device authorization). |
+| `bb account list` | One line per account: `*` for the default, label, region, endpoint (`-` for AWS), credential source (`keys`, `aws-profile`, `assume-role`, `sso`, `instance-role`), ID. |
 | `bb account remove LABEL\|ID` | Removes the account and its secrets. Removing the default makes the first remaining account the default. |
 | `bb account default LABEL\|ID` | Makes the account the default. |
 
 The account is an argument of these commands; `--account` and `--mfa-code`
 are usage errors with them.
+
+All endpoint options of `account add` (`--region`, `--endpoint`, `--path-style`,
+`--request-payer`) also apply to the accounts below. An account that gets its
+credentials from another source has no secret: `--access-key-id` and
+`--secret-stdin` are not allowed with `--assume-role`, `--sso` or
+`--instance-role` (usage error).
+
+### Credential sources
+
+| Source | How to use it |
+|---|---|
+| AWS profile | `bb account import-aws --profile dev` links the profile `dev` of `~/.aws/config` and `~/.aws/credentials` (or `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE`) as an account. The files stay the source of the keys; the account stores only the profile name. |
+| One-off profile | `bb --profile dev ls` runs a command with a profile without storing it. `BB_REGION`, `BB_ENDPOINT` and `BB_PATH_STYLE` apply as for the environment account (the region defaults to the profile's). `--profile` cannot be combined with `--account` or `--mfa-code`, and is given once (several times only to `import-aws`). |
+| Assumed role | `bb account add --label prod --assume-role arn:aws:iam::123456789012:role/Admin --source-account work --duration 2h --external-id ID`. The session name defaults to `bucketbridge`; the duration (`900` seconds to `12h`, default `1h`) accepts the usual duration forms. The session refreshes before it expires. With `--mfa-serial` the role asks for a code: `bb --account prod --mfa-code 123456 ls`. |
+| IAM Identity Center | `bb account sso-login --start-url https://example.awsapps.com/start --sso-region eu-west-1` prints the verification URL and code, opens the browser when run in a terminal (not with `--no-browser` or `--json`), waits for the approval and stores the token in the AWS CLI cache. Then add the account with `bb account add --sso ...`. `bb account sso-login LABEL` signs in to the portal of a stored SSO account. |
+| Instance or container role | `bb account add --label ec2 --instance-role` on an EC2 instance, ECS or EKS container. |
+
+`sso-login` records with `--json`: first `{"user_code", "verification_uri",
+"verification_uri_complete", "expires_in_secs"}`, then `{"start_url",
+"sso_region", "expires_at"}`. `import-aws` prints one account record per
+imported profile and, for a profile that was left out, `{"profile", "reason",
+"skipped": true}`; it exits 1 when profiles were named and none could be
+imported. Exit codes follow [Exit codes](#exit-codes): a sign-in that was denied
+or has expired, a missing sign-in and a machine without a role are `auth`
+(exit 3).
 
 ## Configuration
 
@@ -115,6 +145,7 @@ These work before or after the command name.
 | Option | Effect |
 |---|---|
 | `--account <LABEL\|ID>` | Account to use (see [Accounts](#accounts)). |
+| `--profile <NAME>` | Use a profile of the AWS config files without storing it (see [Credential sources](#credential-sources)); for `bb account import-aws`, the profiles to import (repeatable). |
 | `--mfa-code <CODE>` | Log in with the account's MFA device first. |
 | `--json` | One JSON record per item on stdout (NDJSON); errors become JSON records on stderr. |
 | `-q`, `--quiet` | Print nothing for successful changes (`cp`, `mv`, `sync`, `rm`, `mb`, `rb`, `mpu abort`, `export`, `account add\|remove\|default`) and no progress. Failures are still reported. Listings (`ls`, `presign`, `mpu list`, `account list`) are unaffected. |
@@ -178,7 +209,7 @@ with `bb rm --version-id`), an SSE-C version and a version above 5 GiB are usage
 (exit 1); restoring the current version is a `conflict` (exit 2); a missing version is
 `not_found`. Prints `restored version V of s3://bucket/key (new version N)`.
 
-### `bb cp SOURCE DESTINATION [-r] [--include GLOB] [--exclude GLOB] [--dry-run]` and `bb mv ...`
+### `bb cp SOURCE DESTINATION [-r] [--include GLOB] [--exclude GLOB] [--dry-run] [--if-exists POLICY] [--no-preserve-mtime] [--from-account A] [--to-account B]` and `bb mv ...`
 
 Uploads (local to S3), downloads (S3 to local) and server-side copies
 (S3 to S3). Two local paths are a usage error.
@@ -251,14 +282,75 @@ How transfers run:
 * Progress (bytes, rate and items done) is drawn on stderr, only when
   stderr is a terminal and neither `--quiet` nor `--json` is given.
 
-`mv` deletes each source only after its own transfer succeeded: a failed or
-interrupted item keeps its source. Local folders that `mv` emptied are
+`mv` deletes each source only after its own transfer succeeded: a failed,
+skipped or interrupted item keeps its source. Local folders that `mv` emptied are
 removed, up to the selected folder; folders still holding excluded or
 failed files stay.
 
 `--dry-run` prints what would be transferred (`would upload ...`) and writes
 nothing, locally or remotely; a single named source is still checked to
 exist.
+
+#### When the destination exists: `--if-exists`
+
+`--if-exists overwrite|skip|newer|rename|ask` chooses what happens to an item
+whose destination (object or local file) already exists; without it the
+`transfer.if_exists` setting applies (default `overwrite`).
+
+* `skip` keeps the destination. The item is reported as skipped, never
+  silently: a `bb: skipped SOURCE to DEST: ...` line on stderr (also with
+  `--quiet`), or with `--json` a record with `"copied": false` and a
+  `skipped` reason. It is not a failure (exit code 0), and `mv` keeps the
+  source of a skipped item.
+* `newer` replaces the destination only when the source is newer: the
+  local modification time against the object's `mtime` metadata (else
+  `Last-Modified`); for S3 to S3 the same two object times. Times compare in
+  whole seconds; an unknown time counts as not newer.
+* `rename` writes to `name (1).ext`, `name (2).ext`, ... (the first free name);
+  the record and the report name the destination that was used.
+* `ask` (also from the setting) asks for each conflict on the terminal:
+  `[o]verwrite, [s]kip, [r]ename, [n]ewer only, [c]ancel`; a capital letter
+  applies the answer to all remaining conflicts of the command. It needs a
+  terminal on standard input and standard error: elsewhere the command stops
+  with a usage error (exit 1) before it transfers anything, so scripts never
+  block. `--dry-run` does not check destinations.
+
+`bb sync` has no `--if-exists`: its plan already decides what is written, and
+its semantics are unchanged.
+
+#### Modification times: `--no-preserve-mtime`
+
+By default an upload stores the local modification time as the user metadata
+`x-amz-meta-mtime` (Unix seconds, with a fraction when the time has one) and a
+download sets the file's modification time to that value, or to the object's
+`Last-Modified` when there is none, so a round trip keeps the original time.
+`--no-preserve-mtime` (and the setting `data_integrity.preserve_mtime`) turns
+both off.
+
+#### Copies between accounts: `--from-account` and `--to-account`
+
+`--from-account A` names the account that owns the S3 source (default: the
+account of `--account`, the default account or the environment account) and
+`--to-account B` the one that owns the S3 destination; each takes a label, an
+ID or `environment`. They also work with uploads (`--to-account`) and
+downloads (`--from-account`); the other one is a usage error. With either on a
+copy or move between S3 locations:
+
+```bash
+bb cp -r --from-account Work --to-account Archive s3://work-data/2026/ s3://archive/work/
+bb mv    --from-account Work --to-account Archive s3://work-data/a.csv s3://archive/a.csv
+```
+
+When both accounts use the same endpoint, the destination account first asks
+the service to copy (no data passes this machine; it needs read access to the
+source). On `AccessDenied`, or when the endpoints differ, the object is
+streamed through this machine with bounded memory, the checksums, resume and
+the bandwidth limit of any transfer. Requester pays applies on both sides.
+`mv` deletes a source only after the copy was read back and compared with it
+(size, plain ETags, checksums of the same kind); a failed or unverifiable copy
+keeps the source. The streaming route does not copy tags or ACLs. There is no
+per-URI account syntax: the accounts are options of the command. MFA codes
+(`--mfa-code`) apply to `--account` only.
 
 #### Client-side encryption of uploads and downloads
 
@@ -315,7 +407,7 @@ first and the S3 location second (swapping them is a usage error). A
 relative folder is made absolute against the current directory.
 `s3://bucket/photos` names the folder `photos/`, so `photos-old/...` is never
 part of it; `s3://bucket` is the whole bucket. Only files are synced: empty
-folders and folder markers are not.
+folders and folder markers are not (unless `--keep-empty-folders` is given).
 
 | `--direction` | Effect |
 |---|---|
@@ -401,6 +493,45 @@ password locks the stored one). Bitly needs a token, TinyURL works without.
 of your own, or a local server in tests). A short link keeps working after the
 presigned URL expires only as a redirect to a URL that no longer works. With
 `--json` the record has an extra `short_url`.
+
+### `bb edit S3_URI [--app APP]`
+
+Edits one object in place: downloads it to a private copy under the data
+folder (`data/edit/<uuid>/`, mode 0700 on Unix), opens the copy, and uploads
+every save until Ctrl-C. Without `--app` the copy opens with the system's
+default application (`open` on macOS, `xdg-open` on Linux, the file handler on
+Windows); `--app` is an `.app` bundle on macOS (opened with `open -a`) or a
+program elsewhere (run with the copy's path as its argument). `bb` does not
+wait for the application to exit.
+
+A save is uploaded one second after the file stops changing, whether the
+editor writes in place or writes a new file and renames it (the watcher
+covers both). The object's content type, `Cache-Control`,
+`Content-Disposition`, `Content-Encoding`, user metadata, storage class and
+tags are kept. Before each upload `bb` reads the object: if its ETag is no
+longer the one `bb` last saw (somebody changed or deleted it), the save is
+**not** uploaded and the object is never overwritten silently. On a terminal
+`bb` asks: overwrite (`o`), save your version as a copy `name (edited).ext`
+(`c`), discard your changes (`d`) or decide later (`l`). Without a terminal
+(or with `--json`) it reports the conflict on standard error and keeps
+watching; stopping then fails with exit code 2 (`conflict`) and the message
+names the folder that keeps your edited copy. The upload also carries
+`If-Match` where the server supports it (a server that answers `501` is not
+asked again).
+
+Ctrl-C ends the session: a save that is pending is uploaded first and the copy
+is deleted (exit code 0). A conflict or a failed upload keeps the copy and
+exits with the error's code. A second Ctrl-C stops waiting. Folders, a bucket
+without a key, objects that do not exist and client-side encrypted objects
+are rejected. A versioned bucket always edits the current version, and every
+upload creates a new one.
+
+Each event prints a line (`editing`, `uploaded`, `stopped editing`; problems
+go to standard error); with `--json` one record per event:
+`{ event, bucket, key, local_path, etag, copy_key, message }` with `event` one
+of `started`, `uploaded`, `conflict`, `error`, `copy_saved`, `discarded`,
+`stopped`. Copies of sessions that never ended are deleted at a later run once
+they are a week old.
 
 ### `bb scan [--bucket B]`
 
@@ -597,7 +728,7 @@ counts, absent values `null`.
 | `rm` | `bucket`, `key`, `version_id` (with `--versions` or `--version-id`), `dry_run`, `deleted`, `error` |
 | `restore-version` | `bucket`, `key`, `restored_version_id`, `version_id` (the new current version, `null` when the server reports none), `etag`, `size` |
 | `cp`, `mv` | `source`, `destination` (local paths or `s3://` URIs), `size`, `etag`, `dry_run`, `copied` (the upload, download or copy was made), `source_deleted` (`mv` only), `error` |
-| `sync` | two kinds of record, told apart by `type`: `row` and `summary` (below) |
+| `sync` | three kinds of record, told apart by `type`: `row`, `summary` and, with `--summary`, `report` (below) |
 | `presign` | `bucket`, `key`, `method` (`get`/`put`), `expires_secs`, `expires_at`, `url`, `short_url` (only with `--shorten`) |
 | `mpu list` | `bucket`, `key`, `upload_id`, `initiated`, `storage_class`, `initiator` |
 | `mpu abort` | `bucket`, `key`, `upload_id`, `dry_run`, `aborted`, `error` |
@@ -628,6 +759,81 @@ not be uploaded` (for `io` failures followed by the first one's cause).
 With `--json` the final error, and any error that stops a command, is a
 single `{"code", "message"}` record on stderr. Usage errors found while
 parsing the command line are always plain text.
+
+### `bb sync` options, jobs and S3 to S3 (v0.2.0)
+
+```
+bb sync [OPTIONS] LOCAL S3_URI
+bb sync [OPTIONS] S3_SOURCE S3_URI          # between two S3 prefixes
+bb sync [OPTIONS] --job NAME
+bb sync --resume PLAN_ID
+bb sync jobs list | show NAME | delete NAME --yes
+```
+
+**S3 to S3.** With two `s3://` locations the first is copied to the second on the server
+(the same bucket or two buckets of the account), by the rules of `upload`
+(`docs/sync.md`, "Bucket to bucket sync"). `--direction` does not apply (usage error), the
+two prefixes must not contain each other, and `--delete` removes objects that exist only
+in the destination. A folder named `jobs` as first argument must be written `./jobs`,
+since `bb sync jobs` is the job command.
+
+**Filters and exclusion rules.**
+
+| Option | Effect |
+|---|---|
+| `--exclude RULE` | a gitignore-style rule (repeatable): `*.tmp`, `build/`, `!keep.tmp`, `logs/**/debug.log` |
+| `--exclude-from FILE` | rules from a file, one per line; `#` comments and blank lines are skipped. A missing file is an error (exit 2) |
+| `--include GLOB` | only paths that match one of the globs are synced (repeatable) |
+
+The rules apply to both sides, so an excluded path is neither copied nor deleted
+(`docs/sync.md`, "Exclusion rules"). A bad rule is a usage error that names the rule.
+
+**Analysis options.**
+
+| Option | Effect |
+|---|---|
+| `--keep-empty-folders` | also sync empty folders (folder markers in S3, empty folders locally) |
+| `--skip-duplicates` | treat files as equal when size and checksum match, even if the times differ |
+| `--no-cache` | do not use the local cache of remote listings (it is never used with `--delete`) |
+| `--parallel N` | list N remote folders at the same time, 1 to 32 (default 4) |
+| `--summary` | end with a report: counts and bytes per action, the duration and the failures |
+
+**Saved jobs.** A job is a named setup stored in `config.toml`; the desktop app creates
+them ("Save as job"), and `--save-job NAME` stores the setup of a command line (with the
+account in use) before running it, replacing a job of that name.
+
+* `bb sync --job NAME` runs the job (name in any letter case, or its ID) with the job's
+  account; `--account` is only accepted when it names that account. The job's locations,
+  direction and `--delete` cannot be combined with `--job`. `--dry-run`, `--summary`,
+  `--exclude`, `--exclude-from`, `--include`, `--keep-empty-folders`, `--skip-duplicates`,
+  `--no-cache` and `--parallel` are added to the job's options for this run (rules of the
+  command line come after the job's). `bb sync --job` runs the plan like `bb sync` does,
+  including `--resume`.
+* `bb sync jobs list` prints one line per job (`NAME<TAB>DIRECTION<TAB>FROM -> TO`), `show
+  NAME` prints all its settings, and `delete NAME --yes` deletes it (without `--yes` it is
+  a usage error and nothing is deleted). With `--json` each job is one record with the
+  fields of `SyncJob` (`docs/desktop-api.md`, "Sync jobs and sync options (v0.2.0)"). The
+  job commands need no account and no credentials.
+
+**Records.** A row of an S3 to S3 sync has `source` (the source object) and `remote` (the
+destination), and `local` is `null`; `local` of the `summary` record is the source prefix.
+Rows of folders (`--keep-empty-folders`) have a path that ends in `/`. With `--summary`
+the human format ends with
+
+```
+summary:
+  uploaded: 3 files, 1.5 MiB
+  deleted in S3: 1 file
+  already in sync: 120 files
+  took 2.4 s
+```
+
+and `--json` ends with one more record after the `summary` record:
+`{"type": "report", "plan_id", "direction", "duration_ms", "cancelled", "upload", "download", "copy",
+"delete_local", "delete_remote", "equal", "unsyncable", "failed", "failures"}`, where each
+kind has `files`, `bytes`, `failed` and `pending`, and `failures` lists up to 100 rows
+with `rel_path` and `error`. With `--dry-run` the report counts what would be done as
+`pending`.
 
 ### `bb sync` records
 

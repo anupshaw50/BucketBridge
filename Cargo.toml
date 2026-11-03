@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/core", "crates/cli", "crates/desktop", "tests"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["Anup Shaw (anupshaw50)"]
@@ -11,7 +11,7 @@ repository = "https://github.com/anupshaw50/BucketBridge"
 
 [workspace.dependencies]
 # Workspace crates.
-bucketbridge-core = { path = "crates/core", version = "0.1.0" }
+bucketbridge-core = { path = "crates/core", version = "0.2.0" }
 bucketbridge-tests = { path = "tests" }
 
 # AWS SDK. Every aws-sdk-* crate must turn default features off and enable
@@ -22,6 +22,13 @@ bucketbridge-tests = { path = "tests" }
 aws-sdk-s3 = { version = "1.156.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 # STS GetSessionToken for MFA sessions (crates/core/src/mfa.rs).
 aws-sdk-iam = { version = "1.133.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-config = { version = "1.13.0", default-features = false, features = ["default-https-client", "rt-tokio", "credentials-process", "sso"] }
+aws-credential-types = "1.3.1"
+aws-runtime = "1.10.2"
+aws-types = "1.7.0"
+# IAM Identity Center (SSO): device authorization and role credentials (crates/core/src/creds/sso).
+aws-sdk-sso = { version = "1.118.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-ssooidc = { version = "1.120.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sdk-sts = { version = "1.123.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 # CloudFront distributions and invalidations (crates/core/src/cloudfront.rs).
 aws-sdk-cloudfront = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
@@ -39,6 +46,8 @@ aws-smithy-checksums = "0.65.0"
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize"] }
 base64 = "0.22.1"
+hex = "0.4.3"
+sha1 = "0.10.6"
 getrandom = "0.4.3"
 hyper-rustls = { version = "0.27.10", default-features = false, features = ["aws-lc-rs", "http1", "http2", "tls12"] }
 keyring-core = "1.0.1"
@@ -59,6 +68,7 @@ futures = "0.3.34"
 http = "1.5.0"
 # Content-MD5 of S3 requests that require an integrity header.
 md-5 = "0.11.0"
+notify = "8.2.0"
 http-body = "1.1.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -82,7 +92,7 @@ zeroize = { version = "1.9.1", features = ["derive"] }
 # crate's low-level writer: no arrow, no compression codec except Snappy (pure
 # Rust). XLSX is written in constant-memory mode, so a listing of any size
 # needs bounded memory. calamine reads XLSX files back in tests.
-calamine = "0.37.0"
+calamine = "0.38"
 parquet = { version = "60.1.0", default-features = false, features = ["snap"] }
 rust_xlsxwriter = { version = "0.102.0", features = ["constant_memory"] }
 # Opens the XLSX package in tests; the features rust_xlsxwriter already uses.

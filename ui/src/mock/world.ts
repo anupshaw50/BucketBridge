@@ -122,13 +122,13 @@ function day(offsetDays: number, hour = 9, minute = 30): string {
 
 function newAccount(
   secrets: Map<string, string>,
-  fields: Omit<Account, "id" | "secret_ref" | "session_token_ref">,
+  fields: Omit<Account, "id" | "secret_ref" | "session_token_ref" | "source">,
   secret: string,
 ): Account {
   const id = uuid();
   const secretRef = `bucketbridge/account/${id}/secret`;
   secrets.set(secretRef, secret);
-  return { id, secret_ref: secretRef, session_token_ref: null, ...fields };
+  return { id, secret_ref: secretRef, session_token_ref: null, source: { type: "static_keys" }, ...fields };
 }
 
 function emptyProviders(): Map<string, Provider> {

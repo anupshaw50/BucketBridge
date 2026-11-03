@@ -21,6 +21,3 @@ and the favicon is `ui/public/favicon.svg`; keep their colours in step.
 
 `social-preview.png` (1280x640) is the image for the repository's social
 preview (GitHub Settings, General, Social preview).
-
-The name "BucketBridge" and the logo identify this project and are not covered
-by the GPL; see the Trademark section of the main README.

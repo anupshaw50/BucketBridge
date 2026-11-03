@@ -4,6 +4,10 @@ import { bucketUrl } from "../lib/bucketUrl";
 import { MockCloudFront } from "./cloudfront";
 import { validatePaths } from "../features/cloudfront/paths";
 import type {
+  ConflictEvent,
+  IfExists,
+  OverwriteChoice,
+  PendingConflict,
   CloudFrontDistribution,
   CloudFrontInvalidation,
   CloudFrontPage,
@@ -13,6 +17,14 @@ import type {
   AccelerationStatus,
   AbortResult,
   Account,
+  AwsProfileEntry,
+  CredentialSource,
+  ImportOutcome,
+  InstanceRoleProbe,
+  SsoAccount,
+  SsoLoginPoll,
+  SsoLoginStarted,
+  SsoSignInStatus,
   BucketRules,
   CorsConfig,
   LifecycleConfig,
@@ -31,6 +43,8 @@ import type {
   LoggingTarget,
   DiagnosticsReport,
   ExportOutcome,
+  EditResolved,
+  EditSession,
   DeleteOutcome,
   LogEntry,
   LogLevel,
@@ -43,6 +57,7 @@ import type {
   RestoreOutcome,
   SecurityStatus,
   Settings,
+  SyncJob,
   SyncPlan,
   SyncRow,
   TransferKind,
@@ -66,14 +81,18 @@ import { basename, joinPath, type MockFile, type MockFs, normalizePath } from ".
 import { checkUserPolicy, IamMock } from "./iamMock";
 import { reportBytes, scanReport } from "./scanMock";
 import { ToolsMock } from "./toolsMock";
+import { EditMock } from "./editMock";
 import { CseMock } from "./cse";
+import { CredentialsMock, checkSource } from "./credentialsMock";
 import { ObjectMetaMock, seedObjectMeta } from "./objectMeta";
 import { clone, compareKeys, MiB, nowIso, seededBytes, sleep, toHex, uuid } from "./util";
 import { MockVersions } from "./versions";
+import { buildReport, ExcludeRules, MockSyncJobs } from "./syncJobs";
 import {
   AWS_PROVIDER,
   buildWorld,
   makeObject,
+  MOCK_CREDENTIALS,
   MOCK_HOME,
   MOCK_MFA_CODE,
   type MockBucket,
@@ -112,10 +131,22 @@ export interface MockOptions {
 /** Drive letters the mock offers when it pretends to be Windows. */
 const MOCK_DRIVE_LETTERS = ["D", "E", "Z"];
 
+/** What one enqueue call asked for besides the selection. */
+interface JobOptions {
+  ifExists: IfExists | null;
+  /** The account that owns the destination bucket of a copy or move; null: the task's account. */
+  dstAccount: string | null;
+}
+
+const NO_OPTIONS: JobOptions = { ifExists: null, dstAccount: null };
+
 interface TaskRecord {
   task: TransferTask;
   /** Keys a delete task removes, fixed when it starts. */
   deleteKeys: string[] | null;
+  options?: JobOptions;
+  /** Set while the task waits for an answer to an overwrite question. */
+  waiting?: PendingConflict;
 }
 
 interface PlanRecord {
@@ -123,6 +154,7 @@ interface PlanRecord {
   executing: boolean;
   queue: number[];
   attempts: Map<number, number>;
+  cancelled?: boolean;
 }
 
 interface Connection {
@@ -212,6 +244,8 @@ export class MockBackend implements Backend {
   private unlocked: boolean;
   private readonly mfaSessions = new Map<string, number>();
   private readonly tasks = new Map<string, TaskRecord>();
+  /** "Apply to all" answers by task group. */
+  private readonly batchAnswers = new Map<string, OverwriteChoice>();
   private readonly plans = new Map<string, PlanRecord>();
   private settings: Settings;
   private proxyPassword: string | null = null;
@@ -222,6 +256,7 @@ export class MockBackend implements Backend {
   /** External buckets pinned to an account: account id to bucket names. */
   private readonly pins = new Map<string, Set<string>>();
   private bookmarks: Bookmark[] = [];
+  private readonly syncJobs = new MockSyncJobs();
   /** Locations of the windows opened with `open_new_window` (null: no location), for tests. */
   readonly openedWindows: (WindowLocation | null)[] = [];
   /** Accounts whose ListBuckets is refused (AccessDenied). */
@@ -238,12 +273,24 @@ export class MockBackend implements Backend {
   private readonly handlers = new Map<BackendEventName, Set<(payload: never) => void>>();
   private readonly tools: ToolsMock;
   private readonly cse = new CseMock();
+  /** AWS profiles, the instance role and the SSO sign-in (tests drive its knobs). */
+  readonly credentials = new CredentialsMock({
+    latency: () => this.latency(),
+    opener: (url) => {
+      this.openedUrls.push(url);
+    },
+  });
   private readonly objectMeta = new ObjectMetaMock({
     bucket: (accountId, name) => this.bucketFor(this.connect(accountId), name),
     latency: () => this.latency(),
     log: (message) => this.addLog("information", "s3", message),
   });
   private readonly mounts = new Map<string, MountInfo>();
+  private readonly edits = new EditMock({
+    bucket: (accountId, name) => this.bucketFor(this.connect(accountId), name),
+    log: (message) => this.addLog("information", "s3", message),
+    emit: (session) => this.emit("edit://changed", session),
+  });
   private timer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
 
@@ -465,6 +512,10 @@ export class MockBackend implements Backend {
       fail("usage", "The account label cannot be empty.");
     }
     this.requireUniqueLabel(label, null);
+    const source: CredentialSource = input.source ?? { type: "static_keys" };
+    if (source.type !== "static_keys") {
+      return this.addKeylessAccount(input, label, source);
+    }
     if (input.access_key_id.trim().length === 0 || input.secret_access_key.length === 0) {
       fail("usage", "The access key ID and the secret access key are required.");
     }
@@ -491,9 +542,39 @@ export class MockBackend implements Backend {
       path_style: input.path_style,
       request_payer: input.request_payer,
       mfa_serial: input.mfa_serial,
+      source: { type: "static_keys" },
     };
     this.accounts.push(account);
     this.defaultAccountId ??= id;
+    this.addLog("information", "accounts", `Account "${label}" added.`);
+    return clone(account);
+  }
+
+  /** An account whose credentials come from a profile, a role, SSO or the instance role: no secret is stored. */
+  private addKeylessAccount(input: CommandArgs["add_account"]["input"], label: string, source: CredentialSource): Account {
+    if (input.access_key_id.trim().length > 0 || input.secret_access_key.length > 0 || input.session_token !== null) {
+      fail("usage", "an account that gets its credentials from another source has no access key, secret key or session token of its own");
+    }
+    this.checkRegion(input.region);
+    if (input.endpoint !== null) {
+      this.checkEndpoint(input.endpoint);
+    }
+    checkSource(source, this.accounts, null);
+    const account: Account = {
+      id: uuid(),
+      label,
+      access_key_id: "",
+      secret_ref: "",
+      session_token_ref: null,
+      region: input.region,
+      endpoint: input.endpoint,
+      path_style: input.path_style,
+      request_payer: input.request_payer,
+      mfa_serial: source.type === "assume_role" ? (source.mfa_serial ?? null) : null,
+      source,
+    };
+    this.accounts.push(account);
+    this.defaultAccountId ??= account.id;
     this.addLog("information", "accounts", `Account "${label}" added.`);
     return clone(account);
   }
@@ -523,6 +604,15 @@ export class MockBackend implements Backend {
     if (update.access_key_id?.trim().length === 0) {
       fail("usage", "The access key ID cannot be empty.");
     }
+    if (update.source) {
+      if (account.source.type === "static_keys" || account.source.type !== update.source.type) {
+        fail("usage", "the kind of credential source of an account cannot change");
+      }
+      checkSource(update.source, this.accounts, account.id);
+      account.source = update.source;
+      account.mfa_serial = update.source.type === "assume_role" ? (update.source.mfa_serial ?? null) : null;
+      this.mfaSessions.delete(account.id);
+    }
     if (update.label !== null) account.label = update.label.trim();
     if (update.access_key_id !== null) account.access_key_id = update.access_key_id.trim();
     if (update.secret_access_key !== null) this.secrets.set(account.secret_ref, update.secret_access_key);
@@ -551,6 +641,12 @@ export class MockBackend implements Backend {
   async remove_account(args: CommandArgs["remove_account"]): Promise<void> {
     await this.latency();
     const account = this.getAccount(args.id);
+    const dependent = this.accounts.find(
+      (item) => item.source.type === "assume_role" && item.source.source_account_id === account.id,
+    );
+    if (dependent !== undefined) {
+      fail("conflict", `account "${dependent.label}" assumes a role through this account: remove it first`);
+    }
     this.secrets.delete(account.secret_ref);
     if (account.session_token_ref !== null) {
       this.secrets.delete(account.session_token_ref);
@@ -558,6 +654,7 @@ export class MockBackend implements Backend {
     this.accounts = this.accounts.filter((item) => item.id !== account.id);
     this.pins.delete(account.id);
     this.bookmarks = this.bookmarks.filter((item) => item.account_id !== account.id);
+    this.syncJobs.dropAccount(account.id);
     this.listingDenied.delete(account.id);
     this.mfaSessions.delete(account.id);
     if (this.defaultAccountId === account.id) {
@@ -571,6 +668,85 @@ export class MockBackend implements Backend {
     const account = this.getAccount(args.id);
     this.defaultAccountId = account.id;
     this.addLog("information", "accounts", `Account "${account.label}" is now the default.`);
+  }
+
+  // ------------------------------------------------- credential sources
+
+  async list_aws_profiles(): Promise<AwsProfileEntry[]> {
+    return this.credentials.listProfiles(
+      (name) =>
+        this.accounts.find((item) => item.source.type === "aws_profile" && item.source.profile === name)?.id ?? null,
+    );
+  }
+
+  async import_aws_profiles(args: CommandArgs["import_aws_profiles"]): Promise<ImportOutcome> {
+    const listed = await this.list_aws_profiles();
+    const outcome: ImportOutcome = { imported: [], skipped: [] };
+    for (const name of new Set(args.names)) {
+      const entry = listed.find((item) => item.name === name);
+      if (entry === undefined) {
+        outcome.skipped.push({ profile: name, reason: "the profile does not exist" });
+      } else if (entry.account_id !== null) {
+        outcome.skipped.push({ profile: name, reason: "the profile is imported already" });
+      } else if (!entry.importable) {
+        outcome.skipped.push({ profile: name, reason: entry.note ?? "the profile cannot be used" });
+      } else {
+        let label = name;
+        for (let n = 1; this.accounts.some((item) => item.label.toLowerCase() === label.toLowerCase()); n += 1) {
+          label = n === 1 ? `${name} (AWS)` : `${name} (AWS ${n})`;
+        }
+        outcome.imported.push(
+          await this.add_account({
+            input: {
+              label,
+              access_key_id: "",
+              secret_access_key: "",
+              session_token: null,
+              region: entry.region ?? "us-east-1",
+              endpoint: null,
+              path_style: false,
+              request_payer: false,
+              mfa_serial: null,
+              source: { type: "aws_profile", profile: name },
+            },
+          }),
+        );
+      }
+    }
+    return outcome;
+  }
+
+  probe_instance_role(): Promise<InstanceRoleProbe> {
+    return this.credentials.probeInstanceRole();
+  }
+
+  sso_start_login(args: CommandArgs["sso_start_login"]): Promise<SsoLoginStarted> {
+    return this.credentials.startLogin(args);
+  }
+
+  sso_poll_login(args: CommandArgs["sso_poll_login"]): Promise<SsoLoginPoll> {
+    return this.credentials.pollLogin(args.login_id);
+  }
+
+  sso_cancel_login(args: CommandArgs["sso_cancel_login"]): Promise<void> {
+    this.credentials.cancelLogin(args.login_id);
+    return Promise.resolve();
+  }
+
+  sso_status(args: CommandArgs["sso_status"]): Promise<SsoSignInStatus> {
+    return this.credentials.status(args);
+  }
+
+  sso_sign_out(args: CommandArgs["sso_sign_out"]): Promise<void> {
+    return this.credentials.signOut(args);
+  }
+
+  sso_list_accounts(args: CommandArgs["sso_list_accounts"]): Promise<SsoAccount[]> {
+    return this.credentials.listAccounts(args);
+  }
+
+  sso_list_roles(args: CommandArgs["sso_list_roles"]): Promise<string[]> {
+    return this.credentials.listRoles(args, args.account_id);
   }
 
   async mfa_login(args: CommandArgs["mfa_login"]): Promise<void> {
@@ -810,6 +986,50 @@ export class MockBackend implements Backend {
       ...this.settings.general.open_with_recent.filter((known) => known !== args.app),
     ].slice(0, 8);
     this.addLog("information", "s3", `Opened s3://${args.bucket}/${args.key} with ${args.app}.`);
+  }
+
+  async start_edit(args: CommandArgs["start_edit"]): Promise<EditSession> {
+    await this.latency();
+    const app = args.app?.trim() ?? "";
+    this.connect(args.account_id);
+    const { session } = this.edits.start(args.account_id, args.bucket, args.key);
+    if (app.length > 0) {
+      this.settings.general.open_with_recent = [
+        app,
+        ...this.settings.general.open_with_recent.filter((known) => known !== app),
+      ].slice(0, 8);
+    }
+    return session;
+  }
+
+  async list_edits(): Promise<EditSession[]> {
+    await this.latency();
+    return this.edits.list();
+  }
+
+  async stop_edit(args: CommandArgs["stop_edit"]): Promise<void> {
+    await this.latency();
+    this.edits.stop(args.id, args.discard === true);
+  }
+
+  async resolve_edit_conflict(args: CommandArgs["resolve_edit_conflict"]): Promise<EditResolved> {
+    await this.latency();
+    return this.edits.resolve(args.id, args.resolution);
+  }
+
+  /** Plays the user's editor saving the local copy of an edit session (uploads it unless the object changed). */
+  saveEdit(id: string): void {
+    this.edits.save(id);
+  }
+
+  /** Plays somebody else replacing an object on the server (its ETag changes). */
+  changeObject(accountId: string, bucket: string, key: string): void {
+    this.edits.changeRemote(accountId, bucket, key);
+  }
+
+  /** Plays somebody else deleting an object on the server. */
+  deleteObject(accountId: string, bucket: string, key: string): void {
+    this.edits.deleteRemote(accountId, bucket, key);
   }
 
   async open_bucket_in_browser(args: CommandArgs["open_bucket_in_browser"]): Promise<string> {
@@ -1303,7 +1523,7 @@ export class MockBackend implements Backend {
       }
     }
     this.addLog("information", "transfer", `Queued ${created.length} upload task(s) to s3://${args.bucket}/${args.prefix}.`);
-    return this.announce(created);
+    return this.announce(created, { ifExists: args.if_exists ?? null, dstAccount: null });
   }
 
   async enqueue_download(args: CommandArgs["enqueue_download"]): Promise<TransferTask[]> {
@@ -1355,7 +1575,7 @@ export class MockBackend implements Backend {
       }
     }
     this.addLog("information", "transfer", `Queued ${created.length} download task(s) to ${destination}.`);
-    return this.announce(created);
+    return this.announce(created, { ifExists: args.if_exists ?? null, dstAccount: null });
   }
 
   async enqueue_copy(args: CommandArgs["enqueue_copy"]): Promise<TransferTask[]> {
@@ -1429,6 +1649,36 @@ export class MockBackend implements Backend {
     return [...this.tasks.values()].map((record) => clone(record.task));
   }
 
+  async list_conflicts(): Promise<PendingConflict[]> {
+    await this.latency();
+    const waiting: PendingConflict[] = [];
+    for (const record of this.tasks.values()) {
+      if (record.waiting !== undefined) {
+        waiting.push(clone(record.waiting));
+      }
+    }
+    return waiting;
+  }
+
+  async answer_conflict(args: CommandArgs["answer_conflict"]): Promise<void> {
+    await this.latency();
+    const record = this.tasks.get(args.task_id);
+    if (!record?.waiting) {
+      fail("not_found", `Task ${args.task_id} is not waiting for an answer.`);
+    }
+    const group = record.task.group_id;
+    this.settleConflict(record, args.choice);
+    if (args.apply_to_batch && group !== null) {
+      this.batchAnswers.set(group, args.choice);
+      for (const other of [...this.tasks.values()]) {
+        if (other.waiting !== undefined && other.task.group_id === group) {
+          this.settleConflict(other, args.choice);
+        }
+      }
+    }
+    this.ensureTimer();
+  }
+
   async start_all(): Promise<void> {
     await this.latency();
     for (const record of this.tasks.values()) {
@@ -1480,6 +1730,7 @@ export class MockBackend implements Backend {
     if (record.task.state !== "queued" && record.task.state !== "running") {
       fail("conflict", "Only queued or running tasks can be paused.");
     }
+    this.dropQuestion(record);
     this.setState(record, "stopped");
   }
 
@@ -1496,9 +1747,10 @@ export class MockBackend implements Backend {
   async cancel_task(args: CommandArgs["cancel_task"]): Promise<void> {
     await this.latency();
     const record = this.getTask(args.id);
-    if (record.task.state === "completed" || record.task.state === "cancelled") {
+    if (record.task.state === "completed" || record.task.state === "cancelled" || record.task.state === "skipped") {
       fail("conflict", "The task has already finished.");
     }
+    this.dropQuestion(record);
     this.setState(record, "cancelled");
   }
 
@@ -1528,21 +1780,31 @@ export class MockBackend implements Backend {
     const [, bucketName = "", prefix = ""] = match;
     this.checkPrefix(prefix);
     const target = this.bucketFor(connection, bucketName);
+    const options = args.options;
+    const rules = new ExcludeRules(options?.exclude ?? []);
+    const included = (rel: string): boolean =>
+      !rules.isExcluded(rel) &&
+      (options === undefined || options.include.length === 0 || options.include.some((glob) => includeMatches(glob, rel)));
+    const remote = new Map<string, MockObject>();
+    for (const key of this.keysUnder(target, prefix)) {
+      if (!isFolderKey(key) && included(key.slice(prefix.length))) {
+        const object = target.objects.get(key);
+        if (object) {
+          remote.set(key.slice(prefix.length), object);
+        }
+      }
+    }
+    if (args.direction === "s3_to_s3") {
+      return this.analyzeS3ToS3(connection, args, prefix, remote, included);
+    }
     const root = normalizePath(args.local_root);
     if (root === null || !this.fs.isDir(root)) {
       fail("not_found", `The local folder does not exist: ${args.local_root}`);
     }
     const local = new Map<string, MockFile>();
     for (const file of this.fs.walk(root).files) {
-      local.set(file.rel, file.file);
-    }
-    const remote = new Map<string, MockObject>();
-    for (const key of this.keysUnder(target, prefix)) {
-      if (!isFolderKey(key)) {
-        const object = target.objects.get(key);
-        if (object) {
-          remote.set(key.slice(prefix.length), object);
-        }
+      if (included(file.rel)) {
+        local.set(file.rel, file.file);
       }
     }
     const paths = [...new Set([...local.keys(), ...remote.keys()])].sort(compareKeys);
@@ -1600,6 +1862,7 @@ export class MockBackend implements Backend {
       return;
     }
     record.queue = [];
+    record.cancelled = true;
     this.addLog("warning", "sync", "Sync cancelled; unprocessed rows can be resumed.");
     this.finishPlan(record);
   }
@@ -1607,6 +1870,38 @@ export class MockBackend implements Backend {
   async sync_get(args: CommandArgs["sync_get"]): Promise<SyncPlan> {
     await this.latency();
     return clone(this.getPlan(args.plan_id).plan);
+  }
+
+  async list_sync_jobs(): Promise<SyncJob[]> {
+    await this.latency();
+    return this.syncJobs.list();
+  }
+
+  async save_sync_job(args: CommandArgs["save_sync_job"]): Promise<SyncJob> {
+    await this.latency();
+    const saved = this.syncJobs.save(args.job, (id) => this.accounts.some((account) => account.id === id));
+    this.emit("sync_jobs://changed", this.syncJobs.list());
+    return saved;
+  }
+
+  async delete_sync_job(args: CommandArgs["delete_sync_job"]): Promise<SyncJob[]> {
+    await this.latency();
+    const left = this.syncJobs.delete(args.id);
+    this.emit("sync_jobs://changed", clone(left));
+    return left;
+  }
+
+  async run_sync_job(args: CommandArgs["run_sync_job"]): Promise<SyncPlan> {
+    const job = this.syncJobs.find(args.id);
+    return this.sync_analyze({
+      account_id: job.account_id,
+      local_root: job.local_root,
+      s3_prefix: job.s3_prefix,
+      direction: job.direction,
+      delete: job.delete,
+      options: job.options,
+      ...(job.s3_source === undefined ? {} : { source_prefix: job.s3_source }),
+    });
   }
 
   // ---------------------------------------------------------------- versions and preview
@@ -1883,7 +2178,7 @@ export class MockBackend implements Backend {
     await this.latency();
     return {
       name: "BucketBridge",
-      version: "0.1.0",
+      version: "0.2.0",
       license: "GPL-3.0-only",
       repository_url: "https://github.com/anupshaw50/BucketBridge",
       config_dir: `${MOCK_HOME}/.config/bucketbridge`,
@@ -2215,6 +2510,14 @@ export class MockBackend implements Backend {
     const provider =
       this.providers.get(account.endpoint ?? AWS_PROVIDER) ??
       fail("remote", `Could not connect to ${account.endpoint ?? "the endpoint"}: connection refused.`);
+    if (account.source.type !== "static_keys") {
+      // Profiles, roles, SSO and the instance role all reach the demo identity in the mock.
+      const demo = provider.credentials.get(MOCK_CREDENTIALS.demo.accessKeyId);
+      if (demo === undefined) {
+        fail("auth", "The credentials of this account could not be loaded.");
+      }
+      return { provider, owner: demo.owner };
+    }
     const credential = provider.credentials.get(account.access_key_id);
     if (!credential) {
       this.addLog("error", "s3", `Access key of "${account.label}" was rejected (InvalidAccessKeyId).`);
@@ -2342,7 +2645,9 @@ export class MockBackend implements Backend {
   private enqueueCopyOrMove(kind: "copy" | "move", args: CommandArgs["enqueue_copy"]): TransferTask[] {
     const connection = this.connect(args.account_id);
     const source = this.bucketFor(connection, args.src_bucket);
-    this.bucketFor(connection, args.dst_bucket);
+    const dstAccount = args.dst_account_id ?? null;
+    const crossAccount = dstAccount !== null && dstAccount !== args.account_id;
+    this.bucketFor(crossAccount ? this.connect(dstAccount) : connection, args.dst_bucket);
     this.checkPrefix(args.dst_prefix);
     this.requireKeys(args.keys);
     this.requireDistinctDestinations(
@@ -2351,7 +2656,7 @@ export class MockBackend implements Backend {
     );
     const created: TransferTask[] = [];
     for (const key of args.keys) {
-      if (args.src_bucket === args.dst_bucket) {
+      if (args.src_bucket === args.dst_bucket && !crossAccount) {
         if (parentPrefix(key) === args.dst_prefix) {
           fail("usage", "The source and the destination are the same folder.");
         }
@@ -2398,13 +2703,13 @@ export class MockBackend implements Backend {
       "transfer",
       `Queued ${created.length} ${kind} task(s) to s3://${args.dst_bucket}/${args.dst_prefix}.`,
     );
-    return this.announce(created);
+    return this.announce(created, { ifExists: args.if_exists ?? null, dstAccount: crossAccount ? dstAccount : null });
   }
 
   /** Queues the new tasks (only once every check passed), emits them and returns copies. */
-  private announce(created: TransferTask[]): TransferTask[] {
+  private announce(created: TransferTask[], options: JobOptions = NO_OPTIONS): TransferTask[] {
     for (const task of created) {
-      this.tasks.set(task.id, { task, deleteKeys: null });
+      this.tasks.set(task.id, { task, deleteKeys: null, options });
     }
     for (const task of created) {
       this.emit("transfer://update", task);
@@ -2541,7 +2846,7 @@ export class MockBackend implements Backend {
         return false;
       }
       if ((task.kind === "copy" || task.kind === "move") && task.dst?.type === "s3") {
-        if (this.findBucket(task.account_id, task.dst.bucket) === null) {
+        if (this.findBucket(record.options?.dstAccount ?? task.account_id, task.dst.bucket) === null) {
           this.failTask(record, "The destination bucket does not exist (NoSuchBucket).");
           return false;
         }
@@ -2552,11 +2857,156 @@ export class MockBackend implements Backend {
     task.error = null;
     task.updated_at = nowIso();
     this.emit("transfer://update", task);
-    return true;
+    this.placeTask(record);
+    return record.task.state === "running";
+  }
+
+  // ---------------------------------------------------------------- internals: overwrite policy
+
+  /** The time of what the task reads, and of what it would replace (ms since the epoch). */
+  private timesOf(record: TaskRecord): { exists: boolean; source: number | null; destination: number | null } {
+    const task = record.task;
+    const parse = (value: string | undefined) => (value === undefined ? null : Date.parse(value));
+    const dst = task.dst;
+    const src = task.src;
+    if (dst === null || isFolderKey(dst.type === "s3" ? dst.key : "") || (src.type === "s3" && isFolderKey(src.key))) {
+      return { exists: false, source: null, destination: null };
+    }
+    if (task.kind === "upload" && src.type === "local" && dst.type === "s3") {
+      const object = this.findBucket(task.account_id, dst.bucket)?.objects.get(dst.key);
+      return {
+        exists: object !== undefined,
+        source: parse(this.fs.stat(src.path)?.modified),
+        destination: parse(object?.last_modified),
+      };
+    }
+    if (task.kind === "download" && src.type === "s3" && dst.type === "local") {
+      const object = this.findBucket(task.account_id, src.bucket)?.objects.get(src.key);
+      const file = this.fs.stat(dst.path);
+      return { exists: file !== null, source: parse(object?.last_modified), destination: parse(file?.modified) };
+    }
+    if ((task.kind === "copy" || task.kind === "move") && src.type === "s3" && dst.type === "s3") {
+      const object = this.findBucket(task.account_id, src.bucket)?.objects.get(src.key);
+      const existing = this.findBucket(record.options?.dstAccount ?? task.account_id, dst.bucket)?.objects.get(dst.key);
+      return { exists: existing !== undefined, source: parse(object?.last_modified), destination: parse(existing?.last_modified) };
+    }
+    return { exists: false, source: null, destination: null };
+  }
+
+  /** Applies the overwrite policy to a task that just started: it goes on, is skipped, is renamed, or waits. */
+  private placeTask(record: TaskRecord): void {
+    const task = record.task;
+    if (task.kind === "delete" || task.dst === null) {
+      return;
+    }
+    const policy = record.options?.ifExists ?? this.settings.transfer.if_exists;
+    if (policy === "overwrite") {
+      return;
+    }
+    const times = this.timesOf(record);
+    if (!times.exists) {
+      return;
+    }
+    if (policy === "ask") {
+      const group = task.group_id;
+      const remembered = group === null ? undefined : this.batchAnswers.get(group);
+      if (remembered !== undefined) {
+        this.applyChoice(record, remembered, times);
+        return;
+      }
+      const side = (location: TransferTask["src"]) => (location.type === "local" ? location.path : `s3://${location.bucket}/${location.key}`);
+      const pending: PendingConflict = {
+        task_id: task.id,
+        group_id: group,
+        conflict: {
+          kind: task.kind,
+          source: side(task.src),
+          destination: side(task.dst),
+          source_info: {
+            size: task.bytes_total,
+            modified: times.source === null ? null : new Date(times.source).toISOString(),
+          },
+          destination_info: {
+            size: null,
+            modified: times.destination === null ? null : new Date(times.destination).toISOString(),
+          },
+        },
+      };
+      record.waiting = pending;
+      this.emit("transfer://conflict", { type: "asked", ...pending });
+      return;
+    }
+    this.applyChoice(record, policy, times);
+  }
+
+  private applyChoice(
+    record: TaskRecord,
+    choice: OverwriteChoice,
+    times: { source: number | null; destination: number | null },
+  ): void {
+    const task = record.task;
+    if (choice === "overwrite") {
+      return;
+    }
+    const newer = times.source !== null && times.destination !== null && Math.floor(times.source / 1000) > Math.floor(times.destination / 1000);
+    if (choice === "skip" || (choice === "overwrite_if_newer" && !newer)) {
+      const reason =
+        choice === "skip" ? "the destination already exists" : "the destination exists and the source is not newer";
+      this.setState(record, "skipped", reason);
+      this.addLog("information", "transfer", `${this.describe(task)} skipped: ${reason}.`);
+      return;
+    }
+    if (choice === "rename" && task.dst !== null) {
+      task.dst = this.renamedDestination(record, task.dst);
+      task.updated_at = nowIso();
+      this.emit("transfer://update", task);
+    }
+  }
+
+  /** `name (1).ext`, `name (2).ext`, ... until the destination is free. */
+  private renamedDestination(record: TaskRecord, dst: NonNullable<TransferTask["dst"]>): NonNullable<TransferTask["dst"]> {
+    const numbered = (name: string, n: number) => {
+      const dot = name.lastIndexOf(".");
+      return dot > 0 && dot + 1 < name.length ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`;
+    };
+    const free = (candidate: NonNullable<TransferTask["dst"]>): boolean => {
+      if (candidate.type === "local") {
+        return !this.fs.exists(candidate.path);
+      }
+      const account = record.options?.dstAccount ?? record.task.account_id;
+      return !this.findBucket(account, candidate.bucket)?.objects.has(candidate.key);
+    };
+    for (let n = 1; n < 10_000; n += 1) {
+      const candidate: NonNullable<TransferTask["dst"]> =
+        dst.type === "local"
+          ? { type: "local", path: `${dst.path.slice(0, dst.path.length - baseName(dst.path).length)}${numbered(baseName(dst.path), n)}` }
+          : { type: "s3", bucket: dst.bucket, key: `${dst.key.slice(0, dst.key.length - baseName(dst.key).length)}${numbered(baseName(dst.key), n)}` };
+      if (free(candidate)) {
+        return candidate;
+      }
+    }
+    return dst;
+  }
+
+  private settleConflict(record: TaskRecord, choice: OverwriteChoice): void {
+    record.waiting = undefined;
+    this.emit("transfer://conflict", { type: "resolved", task_id: record.task.id } satisfies ConflictEvent);
+    this.applyChoice(record, choice, this.timesOf(record));
+  }
+
+  /** A task that stops waiting (paused or cancelled) no longer asks. */
+  private dropQuestion(record: TaskRecord): void {
+    if (record.waiting !== undefined) {
+      record.waiting = undefined;
+      this.emit("transfer://conflict", { type: "resolved", task_id: record.task.id } satisfies ConflictEvent);
+    }
   }
 
   private progress(record: TaskRecord, dt: number, share: number): void {
     const task = record.task;
+    if (record.waiting !== undefined) {
+      return;
+    }
     const total = task.bytes_total ?? 0;
     let rate: number;
     if (task.kind === "delete") {
@@ -2613,7 +3063,7 @@ export class MockBackend implements Backend {
       }
     } else if ((task.kind === "copy" || task.kind === "move") && src.type === "s3" && dst?.type === "s3") {
       const source = this.findBucket(task.account_id, src.bucket);
-      const target = this.findBucket(task.account_id, dst.bucket);
+      const target = this.findBucket(record.options?.dstAccount ?? task.account_id, dst.bucket);
       const object = source?.objects.get(src.key);
       if (!object || !target || !source) {
         this.failTask(record, "The specified key does not exist (NoSuchKey).");
@@ -2683,6 +3133,66 @@ export class MockBackend implements Backend {
     return null;
   }
 
+  /** S3 to S3 analysis: the source listing stands in for the local folder (rows copy to the remote side). */
+  private analyzeS3ToS3(
+    connection: Connection,
+    args: CommandArgs["sync_analyze"],
+    prefix: string,
+    remote: Map<string, MockObject>,
+    included: (rel: string) => boolean,
+  ): SyncPlan {
+    const source = /^s3:\/\/([^/]+)\/(.*)$/.exec(args.source_prefix ?? "");
+    if (!source) {
+      fail("usage", "An S3 to S3 sync needs a source prefix like \"s3://bucket/prefix/\".");
+    }
+    const [, sourceBucketName = "", sourcePrefix = ""] = source;
+    const sourceBucket = this.bucketFor(connection, sourceBucketName);
+    if (sourceBucketName === (/^s3:\/\/([^/]+)/.exec(args.s3_prefix)?.[1] ?? "") && (sourcePrefix.startsWith(prefix) || prefix.startsWith(sourcePrefix))) {
+      fail("usage", "The source and the destination prefix must not be the same or contain each other.");
+    }
+    const from = new Map<string, MockObject>();
+    for (const key of this.keysUnder(sourceBucket, sourcePrefix)) {
+      const object = sourceBucket.objects.get(key);
+      if (object && !isFolderKey(key) && included(key.slice(sourcePrefix.length))) {
+        from.set(key.slice(sourcePrefix.length), object);
+      }
+    }
+    const rows: SyncRow[] = [];
+    for (const rel of [...new Set([...from.keys(), ...remote.keys()])].sort(compareKeys)) {
+      const a = from.get(rel) ?? null;
+      const b = remote.get(rel) ?? null;
+      const meta = a ? { size: a.size, modified: a.last_modified } : null;
+      const entry = b ? objectEntry(`${prefix}${rel}`, b) : null;
+      const base = { rel_path: rel, local_meta: meta, s3_meta: entry, error: null };
+      if (a && b) {
+        const newer = (parseTimestamp(a.last_modified) ?? 0) - (parseTimestamp(b.last_modified) ?? 0) > 2000;
+        rows.push(
+          a.size === b.size && !newer
+            ? { ...base, action: "equal", target: null, done: true }
+            : { ...base, action: "copy", target: "remote", done: false },
+        );
+      } else if (a) {
+        rows.push({ ...base, action: "copy", target: "remote", done: false });
+      } else if (b && args.delete) {
+        rows.push({ ...base, action: "delete", target: "remote", done: false });
+      }
+    }
+    const plan: SyncPlan = {
+      id: uuid(),
+      account_id: connection.account.id,
+      local_root: "",
+      s3_prefix: args.s3_prefix,
+      source_prefix: args.source_prefix ?? "",
+      direction: "s3_to_s3",
+      delete: args.delete,
+      created_at: nowIso(),
+      rows,
+    };
+    this.plans.set(plan.id, { plan, executing: false, queue: [], attempts: new Map() });
+    this.addLog("information", "sync", `Sync analysed: ${rows.length} row(s) from ${args.source_prefix} to ${args.s3_prefix}.`);
+    return clone(plan);
+  }
+
   private stepPlan(record: PlanRecord, dt: number): void {
     let budget = (this.options.bytesPerSecond * dt) / 1000;
     let processed = 0;
@@ -2728,6 +3238,16 @@ export class MockBackend implements Backend {
     const localPath = joinPath(plan.local_root, row.rel_path);
     if (nameMatches(row.rel_path, "flaky") && attempt === 1) {
       return "Connection reset by peer (os error 54)";
+    }
+    if (plan.direction === "s3_to_s3" && row.action === "copy") {
+      const source = /^s3:\/\/([^/]+)\/(.*)$/.exec(plan.source_prefix ?? "");
+      const from = source ? this.findBucket(plan.account_id, source[1] ?? "") : null;
+      const object = from?.objects.get(`${source?.[2] ?? ""}${row.rel_path}`);
+      if (!object) {
+        return "The source object no longer exists (NoSuchKey).";
+      }
+      target.objects.set(key, { ...object, last_modified: nowIso() });
+      return null;
     }
     if (row.action === "copy" && row.target === "remote") {
       const file = this.fs.stat(localPath);
@@ -2786,6 +3306,9 @@ export class MockBackend implements Backend {
   private finishPlan(record: PlanRecord): void {
     record.executing = false;
     this.emitProgress(record, true);
+    const cancelled = record.queue.length > 0 || record.cancelled === true;
+    this.emit("sync://report", buildReport(record.plan, 0, cancelled));
+    record.cancelled = false;
     const { total, done, failed } = this.planProgress(record.plan);
     this.addLog(
       failed > 0 ? "warning" : "information",
@@ -2808,4 +3331,17 @@ export class MockBackend implements Backend {
     }
     this.emit("log://entry", entry);
   }
+}
+
+/** An include glob of the mock: "*" within a folder, "**" across folders, "?" one character. */
+function includeMatches(glob: string, rel: string): boolean {
+  const escaped = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\//g, "@@SLASHES@@")
+    .replace(/\*\*/g, "@@ANY@@")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, "[^/]")
+    .replace(/@@SLASHES@@/g, "(?:.*/)?")
+    .replace(/@@ANY@@/g, ".*");
+  return new RegExp(`^${escaped}$`).test(rel);
 }

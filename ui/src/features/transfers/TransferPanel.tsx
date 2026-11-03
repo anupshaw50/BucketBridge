@@ -60,6 +60,7 @@ const STATE_COLORS: Record<TransferState, string> = {
   completed: "teal",
   failed: "red",
   cancelled: "gray",
+  skipped: "orange",
 };
 
 const VIEW_LABELS: Record<TransferView, string> = {
@@ -95,11 +96,13 @@ async function runTaskAction(model: AppModel, action: TaskAction, id: string): P
 
 interface RowProps {
   task: TransferTask;
+  /** The task waits for an answer to an overwrite question. */
+  waiting: boolean;
   top: number;
   onAction: (action: TaskAction, id: string) => void;
 }
 
-const TransferRow = memo(function TransferRow({ task, top, onAction }: RowProps) {
+const TransferRow = memo(function TransferRow({ task, waiting, top, onAction }: RowProps) {
   const Icon = KIND_ICONS[task.kind];
   const source = describeLocation(task.src);
   const destination = describeLocation(task.dst);
@@ -143,14 +146,14 @@ const TransferRow = memo(function TransferRow({ task, top, onAction }: RowProps)
             {task.state === "running" && task.eta !== null ? ` · ${formatEta(task.eta)} left` : ""}
           </Text>
           {task.error ? (
-            <Text size="xs" c="red" className="bb-ellipsis" title={task.error}>
-              {task.error}
+            <Text size="xs" c={task.state === "skipped" ? "dimmed" : "red"} className="bb-ellipsis" title={task.error}>
+              {task.state === "skipped" ? `Skipped: ${task.error}` : task.error}
             </Text>
           ) : null}
         </Group>
       </div>
-      <Badge size="sm" variant="light" color={STATE_COLORS[task.state]} className="bb-task-state">
-        {STATE_LABELS[task.state]}
+      <Badge size="sm" variant="light" color={waiting ? "orange" : STATE_COLORS[task.state]} className="bb-task-state">
+        {waiting ? "Waiting" : STATE_LABELS[task.state]}
       </Badge>
       <Group gap={2} wrap="nowrap" className="bb-task-actions">
         <Tooltip label="Pause">
@@ -211,6 +214,8 @@ export function TransferPanel() {
   const tasks = useSlice(model.transfers.store, (state) => state.tasks);
   const counts = useSlice(model.transfers.store, (state) => state.counts);
   const settingsLoaded = useSlice(model.settings.store, (state) => state.loaded);
+  const questions = useSlice(model.conflicts.store, (state) => state.pending);
+  const waitingIds = useMemo(() => new Set(questions.map((item) => item.task_id)), [questions]);
   const ids = useMemo(
     () => (view === "all" ? order : order.filter((id) => inView(view, tasks.get(id)?.state ?? "cancelled"))),
     [order, tasks, view],
@@ -298,7 +303,7 @@ export function TransferPanel() {
           <Button
             size="compact-xs"
             variant="subtle"
-            disabled={counts.completed + counts.cancelled === 0}
+            disabled={counts.completed + counts.cancelled + counts.skipped === 0}
             onClick={() => void bulk("clear")}
           >
             Clear finished
@@ -324,7 +329,9 @@ export function TransferPanel() {
             {virtualizer.getVirtualItems().map((item) => {
               const id = ids[item.index];
               const task = id === undefined ? undefined : tasks.get(id);
-              return task ? <TransferRow key={task.id} task={task} top={item.start} onAction={onAction} /> : null;
+              return task ? (
+                <TransferRow key={task.id} task={task} waiting={waitingIds.has(task.id)} top={item.start} onAction={onAction} />
+              ) : null;
             })}
           </div>
         )}

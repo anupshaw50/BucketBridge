@@ -4,6 +4,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { OpenDialog } from "../state/dialogs";
 import { AboutDialog } from "./about/AboutDialog";
 import { AccountManagerDialog, AddAccountDialog, EditAccountDialog } from "./accounts/AccountDialogs";
+import { ImportAwsDialog } from "./accounts/ImportAwsDialog";
 import { MasterPasswordDialog } from "./accounts/MasterPasswordDialog";
 import { CreateBucketDialog, DeleteBucketDialog } from "./buckets/BucketDialogs";
 import { BookmarkDialog } from "./bookmarks/BookmarkDialog";
@@ -20,6 +21,8 @@ import { OwnershipDialog } from "./objectlock/OwnershipDialog";
 import { RestoreDialog } from "./objectlock/RestoreDialog";
 import { IamDialog } from "./iam/IamDialog";
 import { EncryptionDialog } from "./cse/EncryptionDialog";
+import { EditConflictDialog } from "./edit/EditConflictDialog";
+import { EditingDialog } from "./edit/EditingDialog";
 import { OpenWithDialog } from "./fileopen/OpenWithDialog";
 import { WebsiteRedirectDialog } from "./fileopen/WebsiteRedirectDialog";
 import { MetadataDialog } from "./objectmeta/MetadataDialog";
@@ -28,6 +31,7 @@ import { SecurityScanDialog } from "./scan/SecurityScanDialog";
 import { SharingWizard } from "./sharing/SharingWizard";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { SyncDialog } from "./sync/SyncDialog";
+import { SyncJobsDialog } from "./sync/SyncJobsDialog";
 import { DiagnosticsDialog } from "./tools/DiagnosticsDialog";
 import { ExportDialog } from "./tools/ExportDialog";
 import { FiltersDialog } from "./tools/FiltersDialog";
@@ -41,6 +45,8 @@ function renderDialog(dialog: OpenDialog, close: () => void, answer: (confirmed:
       return <AccountManagerDialog onClose={close} />;
     case "add-account":
       return <AddAccountDialog onClose={close} />;
+    case "import-aws":
+      return <ImportAwsDialog onClose={close} />;
     case "edit-account":
       return <EditAccountDialog accountId={dialog.accountId} focusMfa={dialog.focus === "mfa"} onClose={close} />;
     case "master-password":
@@ -50,7 +56,9 @@ function renderDialog(dialog: OpenDialog, close: () => void, answer: (confirmed:
     case "about":
       return <AboutDialog onClose={close} />;
     case "sync":
-      return <SyncDialog at={dialog.at} onClose={close} />;
+      return <SyncDialog at={dialog.at} job={dialog.job} review={dialog.review} onClose={close} />;
+    case "sync-jobs":
+      return <SyncJobsDialog onClose={close} />;
     case "create-bucket":
       return <CreateBucketDialog accountId={dialog.accountId} onClose={close} />;
     case "delete-bucket":
@@ -158,6 +166,10 @@ function renderDialog(dialog: OpenDialog, close: () => void, answer: (confirmed:
       return <OpenWithDialog accountId={dialog.accountId} bucket={dialog.bucket} objectKey={dialog.key} onClose={close} />;
     case "website-redirect":
       return <WebsiteRedirectDialog accountId={dialog.accountId} bucket={dialog.bucket} objectKey={dialog.key} onClose={close} />;
+    case "edit-sessions":
+      return <EditingDialog onClose={close} />;
+    case "edit-conflict":
+      return <EditConflictDialog sessionId={dialog.sessionId} onClose={close} />;
     case "crash":
       return <CrashReportDialog report={dialog.report} onClose={close} />;
     case "confirm":

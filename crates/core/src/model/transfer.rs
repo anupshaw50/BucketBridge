@@ -38,6 +38,9 @@ pub enum TransferState {
     Failed,
     /// Cancelled and cleaned up.
     Cancelled,
+    /// Finished without transferring: the destination exists and the
+    /// overwrite policy says to keep it. `error` holds the reason.
+    Skipped,
 }
 
 /// Source or destination of a transfer.
@@ -118,6 +121,7 @@ mod tests {
             (TransferState::Completed, "completed"),
             (TransferState::Failed, "failed"),
             (TransferState::Cancelled, "cancelled"),
+            (TransferState::Skipped, "skipped"),
         ];
         for (state, text) in states {
             assert_eq!(serde_json::to_value(state).unwrap(), json!(text));

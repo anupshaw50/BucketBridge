@@ -34,6 +34,7 @@
 //! | [`cse`] | Client-side compression and encryption: streaming AES-256-GCM envelope, password states, in-place rewrite of objects |
 //! | [`preview`] | Object previews: ranged reads, image, text and JSON detection, paging of text |
 //! | [`shorten`] | Optional URL shorteners (Bitly, TinyURL) for share links |
+//! | [`edit`] | Edit in place: a local copy of an object whose saves are uploaded, with a conflict check ([`edit::EditManager`]) |
 //! | [`scan`] | Security scan (T13): public ACLs and policies, public access block, default encryption, versioning, object ownership |
 //!
 //! All fallible functions return [`Result`]. Blocking functions (the
@@ -52,14 +53,17 @@ pub mod client;
 pub mod cloudfront;
 pub mod config;
 pub mod crash;
+pub mod creds;
 pub mod cse;
 pub mod diagnostics;
+pub mod edit;
 pub mod engine;
 pub mod error;
 pub mod eventlog;
 pub mod export;
 pub mod filter;
 pub mod iam;
+pub mod ignore;
 pub mod mfa;
 pub mod model;
 pub mod mount;
@@ -77,11 +81,12 @@ pub mod session;
 pub mod settings;
 pub mod shorten;
 pub mod sync;
+pub mod syncjobs;
 pub mod transfer;
 pub mod versions;
 
 pub use accounts::AccountManager;
-pub use client::{ClientOptions, Credentials, build_client};
+pub use client::{ClientOptions, Credentials, build_client, build_client_with_provider};
 pub use config::{AppConfig, ConfigStore, Dirs};
 pub use crash::CrashReport;
 pub use error::{BbError, Error, ErrorKind, Result};
@@ -97,3 +102,9 @@ pub use sync::{SyncExecutor, SyncStore};
 pub use aws_sdk_cloudfront;
 /// Re-export of the AWS SDK for S3, so dependents use the same version.
 pub use aws_sdk_s3;
+/// Re-export of the AWS SDK for IAM Identity Center (portal), for tests of dependents.
+pub use aws_sdk_sso;
+/// Re-export of the AWS SDK for IAM Identity Center (OIDC), for tests of dependents.
+pub use aws_sdk_ssooidc;
+/// Re-export of the AWS SDK for STS, for tests of dependents.
+pub use aws_sdk_sts;

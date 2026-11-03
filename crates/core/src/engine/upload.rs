@@ -36,15 +36,17 @@ use super::body::{SentCounter, range_body};
 use super::checksum::{Checksummer, checksum_field, sdk_algorithm, set_checksum};
 use super::content_type::guess_content_type;
 use super::control::{Hooks, Outcome, StopReason};
+use super::policy::{ItemInfo, MTIME_META_KEY, Placed, format_mtime};
 use super::source::{FileSource, SourceFingerprint, UploadSource};
 use super::{
     TransferEngine, WriteCondition, blocking, bucket_client, require_object_key, to_i64, unquote,
     without_request_checksums,
 };
 use crate::error::{Error, ErrorKind, Result};
+use crate::model::TransferKind;
 use crate::ops::{MAX_PART_SIZE, MAX_PARTS, MIN_PART_SIZE, part_size_for};
 use crate::s3uri::S3Uri;
-use crate::settings::ChecksumAlgorithm;
+use crate::settings::{ChecksumAlgorithm, IfExists};
 
 /// Bytes read at a time when computing a checksum before sending.
 const HASH_CHUNK: u64 = 1024 * 1024;
@@ -101,6 +103,10 @@ pub struct UploadOutcome {
     /// The object's checksum for the configured algorithm, as the server
     /// reported it (multipart objects may carry a composite `-N` value).
     pub checksum: Option<String>,
+    /// The key the object was stored under when the destination existed and
+    /// the policy renamed the upload (`name (1).ext`); `None` otherwise.
+    #[serde(default)]
+    pub renamed_to: Option<String>,
 }
 
 /// A part listed by `ListParts`.
@@ -163,6 +169,12 @@ impl TransferEngine {
     }
 
     /// Uploads `source` to `dst` (see [`TransferEngine::upload_file`]).
+    ///
+    /// When `dst` exists the overwrite policy decides
+    /// ([`TransferEngine::with_if_exists`]): a skipped upload ends with
+    /// [`Outcome::Skipped`] and a renamed one reports the key it used in
+    /// [`UploadOutcome::renamed_to`]. With `preserve_mtime` the source's
+    /// modification time is stored in the `mtime` user metadata.
     pub async fn upload(
         &self,
         source: Arc<dyn UploadSource>,
@@ -173,6 +185,69 @@ impl TransferEngine {
         checkpoint: &(dyn Fn(&UploadState) + Send + Sync),
     ) -> Result<Outcome<UploadOutcome>> {
         require_object_key(dst)?;
+        let mut target = dst.clone();
+        let policy = self.options.if_exists;
+        // A resumed upload was placed by the run that created it (a rename
+        // is stable: the name it picked is still free).
+        let decide = policy != IfExists::Overwrite
+            && (resume.is_none() || policy == IfExists::Rename)
+            && hooks.stop.reason().is_none();
+        if decide {
+            let info = ItemInfo {
+                size: Some(source.size()),
+                modified: source.fingerprint().modified,
+            };
+            match self
+                .place_remote(
+                    &self.s3,
+                    TransferKind::Upload,
+                    source.describe(),
+                    info,
+                    dst,
+                    hooks,
+                )
+                .await?
+            {
+                Placed::Go(placed) => target = placed,
+                Placed::Skip(reason) => return Ok(Outcome::Skipped(reason)),
+                Placed::Stop(reason) => return Ok(Outcome::stopped(reason)),
+            }
+        }
+        let engine = self.with_source_mtime(source.fingerprint().modified);
+        let mut outcome = engine
+            .upload_inner(source, &target, content_type, hooks, resume, checkpoint)
+            .await?;
+        if target != *dst
+            && let Outcome::Completed(done) = &mut outcome
+        {
+            done.renamed_to = Some(target.key().to_owned());
+        }
+        Ok(outcome)
+    }
+
+    /// These engines with the `mtime` user metadata set to `modified`, when
+    /// modification times are kept and the caller set none itself.
+    fn with_source_mtime(&self, modified: Option<chrono::DateTime<chrono::Utc>>) -> Self {
+        let Some(modified) = modified.filter(|_| self.options.preserve_mtime) else {
+            return self.clone();
+        };
+        let mut headers = self.upload_headers.clone().unwrap_or_default();
+        headers
+            .metadata
+            .entry(MTIME_META_KEY.to_owned())
+            .or_insert_with(|| format_mtime(modified));
+        self.with_upload_headers(headers)
+    }
+
+    async fn upload_inner(
+        &self,
+        source: Arc<dyn UploadSource>,
+        dst: &S3Uri,
+        content_type: Option<&str>,
+        hooks: &Hooks,
+        resume: Option<UploadState>,
+        checkpoint: &(dyn Fn(&UploadState) + Send + Sync),
+    ) -> Result<Outcome<UploadOutcome>> {
         if let Some(outcome) = self.stop_before_start(hooks, resume.as_ref()).await? {
             return Ok(outcome);
         }
@@ -451,6 +526,7 @@ impl TransferEngine {
             parts: count,
             reused_parts: reused,
             checksum: checksum_field!(out, state.checksum_algorithm).map(str::to_owned),
+            renamed_to: None,
         }))
     }
 
@@ -661,6 +737,7 @@ impl TransferEngine {
                 checksum: checksum_field!(out, algorithm)
                     .map(str::to_owned)
                     .or(checksum),
+                renamed_to: None,
             })
         };
         // Dropping an unfinished PutObject leaves no object: S3 stores an

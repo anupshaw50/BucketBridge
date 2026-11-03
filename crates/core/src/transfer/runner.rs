@@ -142,6 +142,29 @@ pub struct TaskContext {
     limiter: BandwidthLimiter,
     stop: StopSignal,
     resume: ResumeState,
+    skip: SkipSlot,
+}
+
+/// Where a run says that it skipped its item (see
+/// [`TaskContext::mark_skipped`]). Clones share the slot.
+#[derive(Debug, Clone, Default)]
+pub struct SkipSlot(Arc<std::sync::Mutex<Option<String>>>);
+
+impl SkipSlot {
+    fn set(&self, reason: String) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reason);
+    }
+
+    /// Takes the reason, if a run skipped.
+    pub fn take(&self) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
 }
 
 impl TaskContext {
@@ -162,7 +185,21 @@ impl TaskContext {
             limiter,
             stop,
             resume,
+            skip: SkipSlot::default(),
         }
+    }
+
+    /// Declares that this run transferred nothing on purpose (for example
+    /// the destination exists and the overwrite policy keeps it): when the
+    /// run then returns `Ok(())`, the task ends `skipped` with `reason` as
+    /// its `error`, instead of `completed`.
+    pub fn mark_skipped(&self, reason: impl Into<String>) {
+        self.skip.set(reason.into());
+    }
+
+    /// A handle on the skip slot, for the queue.
+    pub(crate) fn skip_slot(&self) -> SkipSlot {
+        self.skip.clone()
     }
 
     /// The task as it was when this run started (`state` is `running`,

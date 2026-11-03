@@ -7,20 +7,13 @@ to suggest a new one.
 
 What is already built is listed in the [README](README.md#features).
 
-## Priority 1: access and data movement
+## Done in 0.2.0
 
-| # | Item | Details | Size |
-|---|---|---|---|
-| 1 | AWS IAM Identity Center (SSO) | Browser sign-in with SSO session profiles and cached tokens, including GovCloud. | L |
-| 2 | Assume role | Accounts that assume a role from a source account, with session name, duration and MFA. | M |
-| 3 | AWS shared configuration | Use the profiles in `~/.aws/config` and `~/.aws/credentials` as accounts. | M |
-| 4 | Instance and container roles | Credentials from EC2 (IMDSv2) and ECS roles, for use on servers. | S |
-| 5 | Cross-account copy and move | Copy to and move to between accounts, not only within one. | M |
-| 6 | Saved sync jobs | Named sync setups, run from the app or with `bb sync --job <name>`; exclusion rules loaded from a file. | M |
-| 7 | Sync improvements | Bucket-to-bucket sync, skip empty folders, skip duplicate content, a local metadata cache for faster rescans, parallel analysis, a summary report. | L |
-| 8 | Overwrite policy | For an existing destination: ask, overwrite, skip, overwrite if newer, or rename automatically. | S |
-| 9 | Keep modification times | Downloads keep the object's last-modified time. | S |
-| 10 | Edit in place | Open an object, edit it locally, and upload the change automatically when the file is saved. | M |
+Priority 1 (access and data movement) shipped in version 0.2.0: AWS IAM
+Identity Center (SSO), assume role, AWS shared configuration profiles,
+instance and container roles, cross-account copy and move, saved sync jobs,
+sync improvements, the overwrite policy, kept modification times and edit in
+place. See the [changelog](CHANGELOG.md#020---2026-11-03).
 
 ## Priority 2: everyday use
 

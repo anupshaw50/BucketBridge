@@ -165,7 +165,8 @@ async fn transform(
     let engine = TransferEngine::new(
         ctx.s3.clone(),
         TransferOptions::from_settings(&ctx.settings),
-    )?;
+    )?
+    .with_if_exists(bucketbridge_core::settings::IfExists::Overwrite);
     let hooks = Hooks::new().with_stop(ctx.stop.clone());
     let one = |key: String| {
         let request = TransformRequest {

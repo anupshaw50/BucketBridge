@@ -362,6 +362,7 @@ impl S3 {
                 .and_then(|result| result.e_tag())
                 .map(unquote),
             parts: 0,
+            renamed_to: None,
         })
     }
 }

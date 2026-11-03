@@ -51,13 +51,16 @@ and native-tls are not used.
 | `objectmeta` | Object metadata (T06): `S3::object_details`, tags, storage class, server-side encryption (`CustomerKey` for SSE-C), HTTP headers and user metadata, canned ACLs; batch methods with per-object `ObjectChange` results; the in-place copy behind class, encryption and header changes | object metadata |
 | `filter` | `Filter` (compiled `FilterSpec`), `Glob`, `IncludeExclude` (CLI `--include`/`--exclude`) | filters |
 | `sync` | `analyze`, local and remote scans, the planner, `SyncStore` (resumable plan store), `RowCounts` | sync (see `docs/sync.md`) |
+| `sync::{options, analysis, listing, duplicate, folders, report}`, `syncjobs`, `ignore` | `SyncOptions`, `analyze_async` and `analyze_s3`, parallel and cached listing, duplicate content, empty folders, `SyncReport`, saved `SyncJob`s, ignore-file style `IgnoreRules` | sync (see `docs/sync.md`, "Saved jobs, exclusion rules and options") |
 | `eventlog` | `EventLog` (ring buffer, rotating log file, CSV/JSON export, `tracing` layer) | event log (see `docs/logging.md`) |
 | `crash` | panic hook, `CrashReport`, newest report, dismiss | event log (see `docs/logging.md`) |
 | `secrets` | `SecretStore` (OS keychain `KeyringStore`, `MemoryStore`), master-password `Vault`, `SecretRef`, `SecretString` | accounts and security (docs/security.md) |
 | `accounts` | `AccountManager`: accounts, their secrets, the master password, crash-safe changes | accounts and security |
 | `session` | `Session`: the process-wide entry point (accounts, unlock and lock, MFA login, cached S3 handles, security broadcasts) | accounts and security |
 | `mfa` | STS `GetSessionToken`, in-memory `MfaSessions` | accounts and security |
+| `creds` | credential sources other than static keys: AWS profiles, assumed roles, IAM Identity Center (SSO), instance and container roles; refreshing credentials providers, the AWS CLI token cache | accounts and security (see `docs/security.md`) |
 | `versions` | `S3::list_version_groups` (versions grouped by key, filters, pages), `head_version`, `restore_version`, `purge_versions`, `enqueue_download_version` | versions and preview (T08) |
+| `edit` | `EditManager`: edit sessions (local copy, `notify` watcher with debounce, `HeadObject` ETag check, upload with the object's headers and `If-Match`, conflict resolutions, cleanup) | edit in place |
 | `preview` | `S3::preview_object`: ranged reads of an object or version, image, text and JSON detection, paging of text | versions and preview (T08) |
 | `proxy` | the proxy-aware HTTP client (HTTP and SOCKS5 proxies, bypass list) shared by every SDK client | accounts and security |
 | `diagnostics` | `run`, `probe_account`, `probe_input`: the step-by-step probe (DNS, TCP, proxy tunnel, TLS with the certificate, a signed request, the bucket region) and its `Report` | tools (T12) |

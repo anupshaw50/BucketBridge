@@ -8,7 +8,7 @@ export const TRANSFER_VIEWS: readonly TransferView[] = ["all", "queued", "runnin
 export type TransferCounts = Record<TransferState | "all", number>;
 
 export function emptyCounts(): TransferCounts {
-  return { all: 0, queued: 0, running: 0, stopped: 0, completed: 0, failed: 0, cancelled: 0 };
+  return { all: 0, queued: 0, running: 0, stopped: 0, completed: 0, failed: 0, cancelled: 0, skipped: 0 };
 }
 
 export function inView(view: TransferView, state: TransferState): boolean {
@@ -35,7 +35,7 @@ export function canCancel(state: TransferState): boolean {
 }
 
 export function isFinished(state: TransferState): boolean {
-  return state === "completed" || state === "cancelled";
+  return state === "completed" || state === "cancelled" || state === "skipped";
 }
 
 export const STATE_LABELS: Record<TransferState, string> = {
@@ -45,6 +45,7 @@ export const STATE_LABELS: Record<TransferState, string> = {
   completed: "Completed",
   failed: "Failed",
   cancelled: "Cancelled",
+  skipped: "Skipped",
 };
 
 export const KIND_LABELS: Record<TransferKind, string> = {

@@ -18,18 +18,20 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bucketbridge_core::cse::{self, Compression};
 use bucketbridge_core::engine::{
-    CopyItem, DownloadState, ExpandFailure, Expansion, Hooks, Outcome, StopSignal, Throttle,
-    TransferEngine, TransferOptions, UploadState, expand_upload,
+    CopyItem, DownloadState, ExpandFailure, Expansion, Hooks, Outcome, SkipReason, StopSignal,
+    Throttle, TransferEngine, TransferOptions, UploadState, expand_upload, verify_copy,
 };
 use bucketbridge_core::filter::IncludeExclude;
 use bucketbridge_core::path::join_key;
 use bucketbridge_core::secrets::SecretString;
+use bucketbridge_core::settings::IfExists;
 use bucketbridge_core::transfer::{RetryPolicy, SplitMix64};
 use bucketbridge_core::{BbError, Error, ErrorKind, Result, S3, S3Uri};
 use futures::{StreamExt, TryStreamExt, stream};
 
-use crate::cli::CopyArgs;
-use crate::context::Context;
+use crate::ask::TerminalResolver;
+use crate::cli::{Command, CopyArgs, GlobalArgs};
+use crate::context::{Context, Inputs, account_s3};
 use crate::location::{
     Location, check_recursive_pair, relative_to_source, single_destination, upload_prefix,
 };
@@ -128,6 +130,21 @@ pub fn check(args: &CopyArgs, mode: Mode) -> Result<()> {
     let route = route(args)?;
     let direction = route.direction();
     check_cse(args, direction)?;
+    match direction {
+        Direction::Upload if args.from_account.is_some() => {
+            return Err(Error::Usage(
+                "--from-account names the account of an S3 source; the source here is a local path"
+                    .into(),
+            ));
+        }
+        Direction::Download if args.to_account.is_some() => {
+            return Err(Error::Usage(
+                "--to-account names the account of an S3 destination; the destination here is a local path"
+                    .into(),
+            ));
+        }
+        _ => {}
+    }
     let src = match route {
         Route::Upload { .. } => return Ok(()),
         Route::Download { src, .. } | Route::Copy { src, .. } => src,
@@ -237,15 +254,49 @@ pub async fn run(
     rules: &IncludeExclude,
     mode: Mode,
     password: Option<SecretString>,
+    accounts: &CopyAccounts,
     out: &mut Output,
 ) -> std::result::Result<(), Failure> {
     check(args, mode)?;
     let cse = CseOp::of(args, password)?;
     let route = route(args)?;
-    let engine = TransferEngine::new(
-        ctx.s3.clone(),
-        TransferOptions::from_settings(&ctx.settings),
-    )?;
+    let direction = route.direction();
+    let policy = args.if_exists.unwrap_or(ctx.settings.transfer.if_exists);
+    if policy == IfExists::Ask && !ctx.can_ask && !args.dry_run {
+        return Err(Error::Usage(
+            "the overwrite policy is 'ask', which needs a terminal; pass --if-exists overwrite, skip, newer or rename"
+                .into(),
+        )
+        .into());
+    }
+    // The upload goes to the destination account, everything else starts at
+    // the source account; a copy between S3 locations may end in another one.
+    let (primary, other) = match direction {
+        Direction::Upload => (accounts.to.as_ref().unwrap_or(&ctx.s3), None),
+        Direction::Download => (accounts.from.as_ref().unwrap_or(&ctx.s3), None),
+        Direction::Copy => (
+            accounts.from.as_ref().unwrap_or(&ctx.s3),
+            (accounts.from.is_some() || accounts.to.is_some())
+                .then(|| accounts.to.as_ref().unwrap_or(&ctx.s3)),
+        ),
+    };
+    let mut options = TransferOptions::from_settings(&ctx.settings);
+    options.if_exists = policy;
+    options.preserve_mtime = options.preserve_mtime && !args.no_preserve_mtime;
+    let resolver: Option<Arc<dyn bucketbridge_core::engine::ConflictResolver>> =
+        (policy == IfExists::Ask).then(|| {
+            Arc::new(TerminalResolver::new())
+                as Arc<dyn bucketbridge_core::engine::ConflictResolver>
+        });
+    let build = |s3: &S3| -> Result<TransferEngine> {
+        let engine = TransferEngine::new(s3.clone(), options.clone())?;
+        Ok(match &resolver {
+            Some(resolver) => engine.with_conflict_resolver(Arc::clone(resolver)),
+            None => engine,
+        })
+    };
+    let engine = build(primary)?;
+    let dest = other.map(build).transpose()?;
     let planner = Planner {
         engine: &engine,
         rules,
@@ -264,7 +315,36 @@ pub async fn run(
             () = ctx.stop.stopped() => Err(Error::Cancelled.into()),
         };
     }
-    execute(ctx, &engine, plan, mode, cse, out).await
+    execute(ctx, &engine, dest.as_ref(), plan, mode, cse, out).await
+}
+
+/// The transports of `--from-account` and `--to-account`.
+#[derive(Default)]
+pub struct CopyAccounts {
+    /// The account that owns the source.
+    pub from: Option<S3>,
+    /// The account that owns the destination.
+    pub to: Option<S3>,
+}
+
+/// Builds the transports of the accounts a `cp` or `mv` names; nothing for
+/// other commands.
+pub async fn accounts(
+    command: &Command,
+    global: &GlobalArgs,
+    inputs: &Inputs,
+) -> Result<CopyAccounts> {
+    let (Command::Cp(args) | Command::Mv(args)) = command else {
+        return Ok(CopyAccounts::default());
+    };
+    let open = async |selector: &Option<String>| match selector {
+        Some(selector) => account_s3(selector, global, inputs).await.map(Some),
+        None => Ok(None),
+    };
+    Ok(CopyAccounts {
+        from: open(&args.from_account).await?,
+        to: open(&args.to_account).await?,
+    })
 }
 
 /// One transfer.
@@ -312,7 +392,19 @@ impl Job {
             dry_run,
             copied: false,
             source_deleted: false,
+            skipped: None,
             error: None,
+        }
+    }
+
+    /// The destination as reported when the policy renamed it to `renamed`
+    /// (a key, or a path for a download).
+    fn landed(&self, renamed: &str) -> String {
+        match self {
+            Job::Upload { dst, .. } | Job::Copy { dst, .. } => {
+                format!("s3://{}/{renamed}", dst.bucket())
+            }
+            Job::Download { .. } => renamed.to_owned(),
         }
     }
 
@@ -656,6 +748,7 @@ impl Planner<'_> {
                     dry_run: self.dry_run,
                     copied: false,
                     source_deleted: false,
+                    skipped: None,
                     error: Some(BbError {
                         code: failure.code,
                         message: failure.message.clone(),
@@ -792,6 +885,7 @@ async fn dry_run(
 async fn execute(
     ctx: &Context,
     engine: &TransferEngine,
+    dest: Option<&TransferEngine>,
     plan: Plan,
     mode: Mode,
     cse: Option<CseOp>,
@@ -810,6 +904,7 @@ async fn execute(
         .then(|| ProgressLine::start(Arc::clone(&totals), out.stderr().clone()));
     let runner = Runner {
         engine,
+        dest,
         mode,
         direction,
         policy: RetryPolicy::from_settings(&ctx.settings.transfer),
@@ -842,6 +937,7 @@ async fn execute(
                 }
                 report.done(&record);
             }
+            Ended::Skipped(record) => report.skipped_item(&record),
             Ended::Failed(record, err) => {
                 // A single item's error ends the command; its record is only
                 // needed when part of it happened (mv: copied, not deleted).
@@ -945,6 +1041,17 @@ impl<'o> Report<'o> {
         self.print(|out| out.item_failed(record, || text));
     }
 
+    /// An item the overwrite policy left alone: reported, and not a failure.
+    fn skipped_item(&mut self, record: &CopyRecord) {
+        self.batch.succeeded();
+        let reason = record.skipped.clone().unwrap_or_default();
+        let text = format!(
+            "skipped {} to {}: {reason}",
+            record.source, record.destination
+        );
+        self.print(|out| out.skipped_item(record, || text));
+    }
+
     fn skipped(&mut self, skipped: &Skipped) {
         self.batch.failed(skipped.kind, skipped.message.clone());
         let text = format!(
@@ -996,6 +1103,9 @@ fn done_line(mode: Mode, direction: Direction, record: &CopyRecord) -> String {
 /// How a job ended.
 enum Ended {
     Done(CopyRecord),
+    /// Nothing was transferred and the source is untouched: the destination
+    /// exists and the overwrite policy keeps it.
+    Skipped(CopyRecord),
     Failed(CopyRecord, Error),
     /// Stopped by Ctrl-C (the engine cleaned up); not reported.
     Stopped,
@@ -1005,11 +1115,22 @@ enum Ended {
 struct Done {
     size: u64,
     etag: Option<String>,
+    /// The destination when the policy renamed it (a path, or a key).
+    renamed: Option<String>,
+}
+
+/// How a transfer ended when it did not fail.
+enum Transferred {
+    Done(Done),
+    Skipped(SkipReason),
+    Stopped,
 }
 
 /// Runs jobs through the engines with the shared hooks and retries.
 struct Runner<'a> {
     engine: &'a TransferEngine,
+    /// The engine of the destination account of a copy between accounts.
+    dest: Option<&'a TransferEngine>,
     mode: Mode,
     direction: Direction,
     policy: RetryPolicy,
@@ -1044,8 +1165,13 @@ impl Runner<'_> {
         let transferred = self.transfer(job, &hooks).await;
         self.totals.item_finished();
         let done = match transferred {
-            Ok(Some(done)) => done,
-            Ok(None) => return Ended::Stopped,
+            Ok(Transferred::Done(done)) => done,
+            Ok(Transferred::Skipped(reason)) => {
+                // Nothing was written; a move keeps its source.
+                record.skipped = Some(reason.describe().to_owned());
+                return Ended::Skipped(record);
+            }
+            Ok(Transferred::Stopped) => return Ended::Stopped,
             Err(_) if self.stop.is_stopped() => return Ended::Stopped,
             Err(err) => {
                 record.error = Some(err.to_payload());
@@ -1054,10 +1180,14 @@ impl Runner<'_> {
         };
         record.copied = true;
         record.size = Some(done.size);
-        record.etag = done.etag;
+        record.etag = done.etag.clone();
+        if let Some(renamed) = &done.renamed {
+            record.destination = job.landed(renamed);
+        }
         if self.mode == Mode::Move {
-            // Only now that this transfer succeeded.
-            if let Err(err) = self.remove_source(job).await {
+            // Only now that this transfer succeeded, and, between accounts,
+            // only after the copy was compared with its source.
+            if let Err(err) = self.verify_then_remove(job, &done).await {
                 let err = err.with_context(format!(
                     "the {} succeeded but the source could not be deleted",
                     match self.direction {
@@ -1077,7 +1207,7 @@ impl Runner<'_> {
     /// One transfer with retries; `None` when it was stopped. A transfer
     /// that finally fails leaves nothing behind: its multipart upload is
     /// aborted, its partial download removed.
-    async fn transfer(&self, job: &Job, hooks: &Hooks) -> Result<Option<Done>> {
+    async fn transfer(&self, job: &Job, hooks: &Hooks) -> Result<Transferred> {
         match job {
             Job::Upload { path, dst, .. } => {
                 let saved = Mutex::new(None::<UploadState>);
@@ -1121,9 +1251,10 @@ impl Runner<'_> {
                     // Best effort: `bb mpu abort` frees whatever is left.
                     let _ = self.engine.discard_upload(&state).await;
                 }
-                Ok(result?.into_completed().map(|done| Done {
+                Ok(settle(result?, |done| Done {
                     size: done.size,
                     etag: done.etag,
+                    renamed: done.renamed_to,
                 }))
             }
             Job::Download {
@@ -1165,20 +1296,48 @@ impl Runner<'_> {
                     // Best effort, like the engine's own clean-up on cancel.
                     let _ = self.engine.discard_download(path).await;
                 }
-                Ok(result?.into_completed().map(|done| Done {
+                Ok(settle(result?, |done| Done {
                     size: done.size,
                     etag: done.etag,
+                    renamed: done.renamed_to.map(|path| path.display().to_string()),
                 }))
             }
-            Job::Copy { src, dst, .. } => {
-                let result = self
-                    .retrying(async || self.engine.copy(src, dst, hooks).await)
-                    .await;
-                Ok(result?.into_completed().map(|done| Done {
-                    size: done.size,
-                    etag: done.etag,
-                }))
-            }
+            Job::Copy { src, dst, .. } => match self.dest {
+                Some(dest) => {
+                    let saved = Mutex::new(None::<UploadState>);
+                    let checkpoint = |state: &UploadState| *lock(&saved) = Some(state.clone());
+                    let result = self
+                        .retrying(async || {
+                            let resume = lock(&saved).clone();
+                            self.engine
+                                .copy_to(dest, src, dst, hooks, resume, &checkpoint)
+                                .await
+                        })
+                        .await;
+                    let leftover = lock(&saved).take();
+                    if result.is_err()
+                        && let Some(state) = leftover
+                    {
+                        // Best effort: `bb mpu abort` frees whatever is left.
+                        let _ = dest.discard_upload(&state).await;
+                    }
+                    Ok(settle(result?, |(done, _route)| Done {
+                        size: done.size,
+                        etag: done.etag,
+                        renamed: done.renamed_to,
+                    }))
+                }
+                None => {
+                    let result = self
+                        .retrying(async || self.engine.copy(src, dst, hooks).await)
+                        .await;
+                    Ok(settle(result?, |done| Done {
+                        size: done.size,
+                        etag: done.etag,
+                        renamed: done.renamed_to,
+                    }))
+                }
+            },
         }
     }
 
@@ -1212,6 +1371,35 @@ impl Runner<'_> {
         }
     }
 
+    /// `mv`: deletes the source of a finished transfer. Between accounts the
+    /// copy is read back and compared with its source first; any difference
+    /// keeps the source.
+    async fn verify_then_remove(&self, job: &Job, done: &Done) -> Result<()> {
+        if let (Some(dest), Job::Copy { src, dst, .. }) = (self.dest, job)
+            && !src.key().ends_with('/')
+        {
+            let landed = match &done.renamed {
+                Some(key) => S3Uri::new(dst.bucket(), key.clone())?,
+                None => dst.clone(),
+            };
+            let before = self
+                .engine
+                .s3()
+                .head_object(src.bucket(), src.key(), None)
+                .await?;
+            let after = dest
+                .s3()
+                .head_object(landed.bucket(), landed.key(), None)
+                .await?;
+            verify_copy(&before, &after).map_err(|err| {
+                err.with_context(format!(
+                    "the source {src} was kept because the copy {landed} could not be verified"
+                ))
+            })?;
+        }
+        self.remove_source(job).await
+    }
+
     /// `mv`: deletes the source of a finished transfer.
     async fn remove_source(&self, job: &Job) -> Result<()> {
         match job {
@@ -1232,6 +1420,16 @@ impl Runner<'_> {
                 delete_object(self.engine.s3(), src, src.key().ends_with('/')).await
             }
         }
+    }
+}
+
+/// The result of a finished engine run: done, skipped by the overwrite
+/// policy, or stopped.
+fn settle<T>(outcome: Outcome<T>, done: impl FnOnce(T) -> Done) -> Transferred {
+    match outcome {
+        Outcome::Completed(value) => Transferred::Done(done(value)),
+        Outcome::Skipped(reason) => Transferred::Skipped(reason),
+        Outcome::Paused | Outcome::Cancelled => Transferred::Stopped,
     }
 }
 
@@ -1257,6 +1455,7 @@ mod tests {
             dry_run,
             copied: !dry_run,
             source_deleted: false,
+            skipped: None,
             error: None,
         }
     }

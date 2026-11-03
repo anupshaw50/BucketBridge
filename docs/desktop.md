@@ -175,6 +175,7 @@ redacted in debug output.
 | `list_objects` | `S3::list_objects` with `max_keys` set to `settings.advanced.list_page_size` |
 | `presign` | `S3::presign_get` or `presign_put`. `expires_secs` must be 1 to 604,800, otherwise `usage`. |
 | `open_object`, `open_object_with`, `open_bucket_in_browser` | See "Opening objects" |
+| `start_edit`, `list_edits`, `stop_edit`, `resolve_edit_conflict` | `EditManager` of `bucketbridge_core::edit`, held by `Core`. See "Edit in place". |
 | `enqueue_upload`, `enqueue_download`, `enqueue_copy`, `enqueue_move`, `enqueue_delete`, `rename` | `Session::s3_for(account_id)`, then the core's `engine::enqueue_*` helper on the queue. See "Transfer queue". |
 | `list_tasks` | `TransferQueue::list` |
 | `start_all`, `stop_all`, `cancel_all`, `clear_finished`, `pause_task`, `resume_task`, `cancel_task`, `retry_task` | The queue method of the same name. The queue's state machine (docs/transfers.md) answers `not_found` for an unknown id and `conflict` for a transition it does not allow. |
@@ -219,6 +220,7 @@ instead of a `BbError`, which the UI maps to `internal`.
 | `security://changed` | `Session::subscribe()`, forwarded by a task started at startup |
 | `log://entry` | `EventLog::subscribe()`, forwarded the same way. The log only records entries at or above `settings.logging.level`, so only those are sent. |
 | `sync://progress`, `sync://row` | The `SyncEvents` of each run (`SyncEmitter` in `events.rs`) |
+| `edit://changed` | `EditManager::subscribe()`, forwarded the same way: the `EditSession` after every change, and once with `state: "stopped"` when a session ends |
 | `transfer://update`, `transfer://removed` | `TransferQueue::subscribe()`, forwarded by a task started at startup: `QueueEvent::Updated` is `transfer://update` and `QueueEvent::Removed` is `transfer://removed` (`{ "ids": [...] }`). `QueueEvent::PersistFailed` is not sent to the UI: it is written to the event log as an error from source `bucketbridge::transfer`. |
 
 A forwarder that falls behind skips to newer items. The queue forwarder is the
@@ -343,6 +345,63 @@ host name. Tests replace both seams with recorders (`CoreParts::open_with`,
 A failed download removes its folder. Copies are kept while the app runs,
 because the application showing one may still need it, and are deleted at a
 later start once they are a day old.
+
+## Edit in place
+
+`start_edit` is `open_object` plus a watcher. The core module `edit`
+(`EditManager`, one per process, built in `Core::build` with the session's
+`s3_for` as its S3 provider and the shared bandwidth limiter as its throttle)
+does the work; the command only opens the copy.
+
+1. A folder key is `usage`; an object that is client-side encrypted is `usage`
+   (decrypt it first). An object that already has a session returns that
+   session and the command opens its copy again.
+2. `HeadObject` reads the object's ETag and headers, then the download engine
+   fetches it into `data_dir/edit/<uuid>/<name>` (mode 0700 on Unix, same
+   file-name rules as `open_object`). A versioned bucket always edits the
+   current version. The ETag of what was downloaded is the one the session
+   expects to find on the server.
+3. A `notify` watcher is set on the copy's folder, not on the file, so a save
+   that writes a new file and renames it over the old one is seen as well as
+   an in-place write. Events are debounced: the file must be quiet for one
+   second. The file's size and modification time are compared first, then an
+   MD5 of its content with the last uploaded content, so a save that changes
+   nothing (or a read that touches the file) uploads nothing. A file that is
+   missing for a moment (an editor between delete and create) is waited for.
+4. The command opens the copy through the `Opener` seam, or with the chosen
+   application through the `OpenWith` seam (and records it in
+   `general.open_with_recent`). If the application cannot be started the
+   session is dropped and its folder removed.
+
+**On each save** the session task (one per session, so a save, a resolution
+and a stop never race) runs `HeadObject` first. If the ETag is not the one it
+last saw, or the object is gone, nothing is uploaded: the session turns
+`conflict` and waits for `resolve_edit_conflict`. Otherwise the upload engine
+sends the file with the object's content type, `Cache-Control`,
+`Content-Disposition`, `Content-Encoding`, user metadata and storage class
+(read fresh from that `HeadObject`) and `If-Match: <etag>`; the object's tags
+are read before and put again after, because an upload replaces them. A server
+that answers `501 NotImplemented` to `If-Match` is remembered for the session
+and the upload is repeated without it (the head check remains the guard);
+`412` is a conflict; any other failure is state `error` with the message, and
+the next save or `resolve_edit_conflict` with `retry` tries again. What is not
+carried over: ACLs, the KMS key of SSE-KMS, Object Lock settings, `Expires` and
+`Content-Language` (they follow the bucket's defaults, as for any upload).
+
+**Resolutions.** `overwrite` uploads over whatever is there (a deleted object
+is created again, with `If-None-Match: *`); `save_copy` uploads under
+`name (edited).ext`, or `name (edited 2).ext` and so on when that key exists
+(never overwriting one) and ends the session; `discard` drops the local
+changes and ends the session; `retry` repeats a failed upload.
+
+**Ending.** `stop_edit` uploads a save that is still pending, then deletes the
+copy; with a conflict or a failed upload it rejects (`conflict`, or the
+upload's error) and the session stays, unless `discard` is set. On app exit
+`Core::shutdown` stops every session the same way, each for at most the
+shutdown grace; a session that cannot upload keeps its folder on disk and is
+logged as a warning. Folders of sessions that never ended (a crash, a failed
+upload at exit) are deleted at a later start once nothing in them was changed
+for a week.
 
 ## Event log
 
@@ -504,7 +563,7 @@ second window is added.
 | `core:event:allow-listen`, `core:event:allow-unlisten` | `transfer://*`, `sync://*`, `log://entry`, `security://changed` events, and OS file drops (`onDragDropEvent`) |
 | `dialog:allow-open`, `dialog:allow-save` | File and folder pickers: upload sources, download destination, sync root, log export path |
 | `dialog:allow-message` | `message()`, `ask()`, and `confirm()`. In plugin-dialog 2.8 all three use the `message` command. `dialog:allow-ask` and `dialog:allow-confirm` are deprecated aliases of this permission and are removed in v3. |
-| `opener:allow-open-url`, scoped | Opens `https://github.com/anupshaw50/BucketBridge` and anything below `https://github.com/anupshaw50/BucketBridge/` in the default browser (About, help, license, issue links). Any other URL is rejected. |
+| `opener:allow-open-url`, scoped | Opens `https://github.com/anupshaw50/BucketBridge` and anything below it, the project website `https://anupshaw50.github.io/BucketBridge/`, the author profiles `https://github.com/anupshaw50` and `https://www.linkedin.com/in/anup-kumar-shaw/`, and `https://github.com/sponsors/anupshaw50` in the default browser (About, help, license, issue and author links). Any other URL is rejected. |
 | `opener:allow-reveal-item-in-dir` | "Show in folder" for downloaded files. The plugin has no scope for this command, but it only highlights a path in the file manager. |
 | `clipboard-manager:allow-write-text` | Copy-to-clipboard fields: keys, S3 paths, presigned URLs |
 | `clipboard-manager:allow-write-secret` | Copying generated passwords and secret keys with `writeSecret()`, which keeps them out of clipboard history and clipboard managers |

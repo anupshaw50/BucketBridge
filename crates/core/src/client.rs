@@ -43,6 +43,7 @@
 use std::fmt;
 use std::time::Duration;
 
+use aws_credential_types::provider::SharedCredentialsProvider;
 use aws_sdk_s3::config::retry::RetryConfig;
 use aws_sdk_s3::config::timeout::TimeoutConfig;
 use aws_sdk_s3::config::{
@@ -230,14 +231,6 @@ pub fn build_client(
     if credentials.secret_access_key.is_empty() {
         return Err(Error::Usage("the secret access key is empty".into()));
     }
-    validate_region(&account.region)?;
-    if let Some(endpoint) = &account.endpoint {
-        validate_endpoint(endpoint)?;
-    }
-    if options.max_attempts == 0 {
-        return Err(Error::Usage("max_attempts must be at least 1".into()));
-    }
-
     let sdk_credentials = aws_sdk_s3::config::Credentials::new(
         credentials.access_key_id.clone(),
         credentials.secret_access_key.clone(),
@@ -245,6 +238,30 @@ pub fn build_client(
         None,
         "bucketbridge-account",
     );
+    build_client_with_provider(
+        account,
+        SharedCredentialsProvider::new(sdk_credentials),
+        options,
+    )
+}
+
+/// Builds an S3 client for `account` whose credentials come from `provider`
+/// (a refreshing source such as an assumed role, an AWS profile, IAM
+/// Identity Center or the instance role; see [`crate::creds`]). The SDK
+/// caches what the provider returns until shortly before it expires and
+/// then asks it again. Everything else is as for [`build_client`].
+pub fn build_client_with_provider(
+    account: &Account,
+    provider: SharedCredentialsProvider,
+    options: &ClientOptions,
+) -> Result<aws_sdk_s3::Client> {
+    validate_region(&account.region)?;
+    if let Some(endpoint) = &account.endpoint {
+        validate_endpoint(endpoint)?;
+    }
+    if options.max_attempts == 0 {
+        return Err(Error::Usage("max_attempts must be at least 1".into()));
+    }
     let app_name = AppName::new(APP_NAME)
         .map_err(|err| Error::Internal(format!("invalid app name: {err}")))?;
 
@@ -252,7 +269,7 @@ pub fn build_client(
         .behavior_version(BehaviorVersion::latest())
         .app_name(app_name)
         .region(Region::new(account.region.clone()))
-        .credentials_provider(sdk_credentials)
+        .credentials_provider(provider)
         .retry_config(RetryConfig::standard().with_max_attempts(options.max_attempts))
         .timeout_config(
             TimeoutConfig::builder()

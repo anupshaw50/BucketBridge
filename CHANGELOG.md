@@ -7,24 +7,52 @@ version are on the [Releases page](https://github.com/anupshaw50/BucketBridge/re
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-03
+
 ### Added
 
-- Project website at <https://anupshaw50.github.io/BucketBridge/>, deployed with
-  GitHub Pages.
-- Screenshots in the README and on the website.
-- Package manifests for winget (`AnupShaw.BucketBridge`, `AnupShaw.bb`),
-  Scoop (`bucketbridge`, `bb`) and Homebrew (cask `bucketbridge`, formula
-  `bb`), regenerated for each release by `scripts/ci/package-manifests.mjs`.
-- Contributing guide, security policy, code of conduct, issue forms and a
-  pull request template.
-- Roadmap of planned features (`ROADMAP.md`).
-- This changelog.
+- **Credential sources.** An account can now get its credentials from
+  somewhere other than stored keys:
+  - **AWS profiles** from `~/.aws/config` and `~/.aws/credentials`
+    ("Import from AWS config", `bb account import-aws`, `--profile NAME`).
+  - **AWS IAM Identity Center (SSO)**: sign in through the browser, pick an
+    account and role; the sign-in is shared with the AWS CLI
+    (`bb account sso-login`).
+  - **Assume role** from another account, with session name, duration,
+    external ID and MFA; credentials renew before they expire.
+  - **EC2 and ECS instance roles**, for `bb` on servers.
+- **Cross-account copy and move**: choose the destination account in the
+  picker or with `bb cp/mv --from-account A --to-account B`. A server-side copy
+  is used where possible, otherwise the data streams through this machine. A
+  move deletes the source only after the copy is verified.
+- **Overwrite policy** for uploads, downloads, copies and moves: overwrite,
+  skip, overwrite if newer, rename, or ask (with "apply to all"); skipped
+  items are reported. CLI `--if-exists`.
+- **Modification times are kept**: downloads take the original file time,
+  stored on upload as `x-amz-meta-mtime` (CLI `--no-preserve-mtime`).
+- **Edit in place**: open an object, edit it, and each save is uploaded,
+  with a check that nobody changed the object in the meantime (`bb edit`).
+- **Saved sync jobs**: name a sync setup and run it again from the app or
+  with `bb sync --job NAME`; gitignore-style exclusion files
+  (`--exclude-from`).
+- **Sync options**: bucket-to-bucket sync, skip empty folders, skip
+  duplicate content, a local listing cache for faster rescans, parallel
+  listing, and a summary report at the end (`--summary`).
+- About dialog: author links and the full GPL-3.0 text.
+- Project website, screenshots, package manifests for winget, Scoop and
+  Homebrew, contributing guide, security policy, code of conduct, issue
+  forms, roadmap and this changelog.
 
 ### Changed
 
 - Copyright holder is Anup Shaw (anupshaw50) in the app, the installers and
   `bb.exe`.
-- README: install instructions per platform, trademark and author sections.
+- Credential-provider failures are reported as authentication errors.
+
+### Security
+
+- Updated `calamine` (RUSTSEC-2026-0436, used only in tests) and
+  `async-executor` (yanked release).
 
 ## [0.1.0] - 2026-11-01
 
@@ -73,5 +101,6 @@ First public release.
   platform, `SHA256SUMS` and third-party licence notices.
 - Licensed under GPL-3.0-only.
 
-[Unreleased]: https://github.com/anupshaw50/BucketBridge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/anupshaw50/BucketBridge/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/anupshaw50/BucketBridge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/anupshaw50/BucketBridge/releases/tag/v0.1.0

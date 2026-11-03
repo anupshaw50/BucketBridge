@@ -42,6 +42,7 @@ export const DIRECTION_LABELS: Record<SyncDirection, string> = {
   upload: "Upload (local to S3)",
   download: "Download (S3 to local)",
   bidirectional: "Both directions",
+  s3_to_s3: "S3 to S3 (between prefixes)",
 };
 
 export const ACTION_LABELS: Record<SyncAction, string> = {
@@ -67,4 +68,20 @@ export function parseS3Prefix(uri: string): { bucket: string; prefix: string } |
     return null;
   }
   return { bucket, prefix };
+}
+
+/** `850 ms`, `12.3 s`, `4 min 5 s` or `2 h 3 min`. */
+export function formatRunDuration(millis: number): string {
+  if (millis < 1000) {
+    return `${millis} ms`;
+  }
+  const seconds = Math.floor(millis / 1000);
+  if (seconds < 60) {
+    return `${(millis / 1000).toFixed(1)} s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes} min ${seconds % 60} s`;
+  }
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }

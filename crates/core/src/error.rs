@@ -376,6 +376,11 @@ impl ServiceError {
             SdkError::DispatchFailure(_) if crate::proxy::is_proxy_auth_failure(err) => {
                 Self::transport(ErrorKind::Auth, "proxy authentication failed", err)
             }
+            SdkError::DispatchFailure(_) if has_credentials_failure(err) => Self::transport(
+                ErrorKind::Auth,
+                "the credentials of the account could not be loaded",
+                err,
+            ),
             SdkError::DispatchFailure(_) => Self::transport(
                 ErrorKind::Remote,
                 "the request failed before a response was received",
@@ -462,6 +467,8 @@ const AUTH_CODES: &[&str] = &[
     "UnrecognizedClientException",
     "MissingAuthenticationToken",
     "AccessDeniedException",
+    // IAM Identity Center portal APIs: the sign-in token was rejected.
+    "UnauthorizedException",
 ];
 
 /// Codes that mean the referenced resource does not exist.
@@ -540,6 +547,23 @@ fn hint(code: &str) -> Option<&'static str> {
 
 /// Joins the messages of the `source()` chain below `err`, skipping messages
 /// that repeat the previous one (connectors often wrap the same text twice).
+/// Whether a credentials provider failed somewhere in the causes of `err`
+/// (an assumed role, an AWS profile, IAM Identity Center or the instance
+/// role that could not give credentials).
+fn has_credentials_failure(err: &dyn StdError) -> bool {
+    let mut next = err.source();
+    while let Some(current) = next {
+        if current
+            .downcast_ref::<aws_credential_types::provider::error::CredentialsError>()
+            .is_some()
+        {
+            return true;
+        }
+        next = current.source();
+    }
+    false
+}
+
 fn source_chain(err: &dyn StdError) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut next = err.source();

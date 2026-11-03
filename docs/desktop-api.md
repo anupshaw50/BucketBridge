@@ -365,7 +365,7 @@ unfinished tasks come back as `stopped` and resume from their saved progress.
 
 | Command | Arguments | Returns |
 |---|---|---|
-| `sync_analyze` | `account_id, local_root, s3_prefix, direction: SyncDirection, delete: boolean` | `SyncPlan` (dry run, writes nothing) |
+| `sync_analyze` | `account_id, local_root, s3_prefix, direction: SyncDirection, delete: boolean` (and optionally `options`, `source_prefix`: see "Sync jobs and sync options (v0.2.0)") | `SyncPlan` (dry run, writes nothing) |
 | `sync_execute` | `plan_id` | `void`; runs in the background, rows with `done: false` only, so calling it again resumes |
 | `sync_cancel` | `plan_id` | `void` |
 | `sync_get` | `plan_id` | `SyncPlan` |
@@ -1546,3 +1546,383 @@ expires, but the target then fails.
   on macOS, `exe`, `bat`, `cmd`, `com` on Windows, none on Linux).
 
 Errors: `usage`, `not_found`, `io`, plus the account errors of the other commands.
+
+## Edit in place (v0.2.0)
+
+Open an object, edit a local copy and upload every save. The core module
+`bucketbridge_core::edit` does the work (see "Edit in place" in desktop.md); the
+commands and the event are its contract.
+
+### Types
+
+```ts
+type EditState = "watching" | "uploading" | "uploaded" | "conflict" | "error" | "stopped";
+
+interface EditConflict {
+  remote_deleted: boolean;         // the object no longer exists
+  remote_etag: string | null;      // the ETag it has now, without quotes
+  remote_modified: string | null;  // RFC 3339
+}
+
+interface EditSession {
+  id: string;
+  account_id: string;
+  bucket: string;
+  key: string;
+  local_path: string;              // absolute path of the local copy
+  state: EditState;
+  etag: string | null;             // the ETag the next upload expects to find
+  version_id: string | null;       // version at open time, on versioned buckets
+  started_at: string;              // RFC 3339
+  last_upload_at: string | null;
+  uploads: number;                 // saves uploaded so far
+  error: string | null;            // why the last upload failed (state "error")
+  conflict: EditConflict | null;   // set while state is "conflict"
+}
+
+type EditResolution = "overwrite" | "save_copy" | "discard" | "retry";
+
+interface EditResolved {
+  session: EditSession | null;     // null when the resolution ended the session
+  copy_key: string | null;         // the key of the copy, for "save_copy"
+}
+```
+
+### Commands
+
+| Command | Args | Result |
+|---|---|---|
+| `start_edit` | `account_id, bucket, key, app: string \| null` | `EditSession`. Downloads the current version of the object into a private folder under the data folder, starts watching the copy and opens it with the default application, or with `app` (as `open_object_with`; the application is added to `settings.general.open_with_recent`). An object that already has a session returns that session and opens its copy again. |
+| `list_edits` | none | `EditSession[]`, oldest first |
+| `stop_edit` | `id, discard: boolean \| null` | `void`. Uploads a save that is still pending, then ends the session and deletes the copy. With `discard: true` local changes are dropped and nothing is uploaded. |
+| `resolve_edit_conflict` | `id, resolution` | `EditResolved` |
+
+Errors:
+
+- `start_edit`: `usage` for a folder key or a client-side encrypted object (a
+  blank `app` means the default application); `not_found` for a missing object or bucket; `io` when the application cannot
+  be started (the session is dropped and nothing stays on disk); download errors
+  as in `open_object`; the account errors of the other commands.
+- `stop_edit`: `not_found` for an unknown id; `conflict` when the session is in
+  conflict (resolve it, or pass `discard: true`); the upload's own error when the
+  pending save cannot be uploaded (the session stays). A conflict found while
+  uploading the pending save is also `conflict`.
+- `resolve_edit_conflict`: `not_found` for an unknown id; `usage` when the
+  session is not in the state the resolution needs (`overwrite` and `save_copy`
+  need `conflict`, `retry` needs `error`, `discard` needs `conflict` or `error`);
+  `conflict` when the object changed again during an overwrite.
+
+### Behaviour
+
+- **Saves.** The copy's folder is watched, so saves that write in place and
+  saves that rename a new file over the old one are both seen. A save is
+  uploaded when the file has been quiet for one second and its content differs
+  from what was last uploaded.
+- **Conflict check.** Before every upload the object is read with `HeadObject`.
+  When its ETag is not `EditSession.etag`, or the object is gone, nothing is
+  uploaded and the session is `conflict` (`conflict` is set) until the user
+  resolves it. The upload carries `If-Match` with that ETag where the server
+  supports conditional writes (`501` is remembered for the session and the
+  upload is repeated without it; `412` is a conflict). The object is never
+  overwritten without `overwrite`.
+- **What an upload keeps:** content type, `Cache-Control`,
+  `Content-Disposition`, `Content-Encoding`, user metadata, storage class and
+  tags. ACLs, the SSE-KMS key, Object Lock settings, `Expires` and
+  `Content-Language` are not carried over.
+- **Resolutions.** `overwrite` uploads over the object (a deleted object is
+  created again, with `If-None-Match: *`). `save_copy`
+  uploads to `name (edited).ext`, `name (edited 2).ext`, ... (the first key that
+  does not exist; an existing key is never overwritten) and ends the session.
+  `discard` ends the session and deletes the copy. `retry` repeats a failed
+  upload.
+- **Versioned buckets** always edit the current version; every upload creates a
+  new current version.
+- **Ending.** `stop_edit`, `resolve_edit_conflict` with `save_copy` or
+  `discard`, and app exit end a session. At exit pending saves are uploaded
+  first; a session that cannot upload (conflict or error) keeps its copy on disk
+  and is logged. The copy of a session that ended cleanly is deleted. Folders
+  of sessions that never ended are deleted at a later start once nothing in
+  them was changed for a week.
+
+### Event
+
+| Event | Payload | When |
+|---|---|---|
+| `edit://changed` | `EditSession` | Every change of a session: started (`watching`), `uploading`, `uploaded`, `conflict`, `error`; and once with `state: "stopped"` when it ends (it is no longer listed by `list_edits`). |
+
+## Transfers: overwrite policy, modification times, cross-account copy (v0.2.0)
+
+### Settings
+
+```ts
+settings.transfer.if_exists: "ask" | "overwrite" | "skip" | "overwrite_if_newer" | "rename"; // "overwrite"
+settings.data_integrity.preserve_mtime: boolean;                                            // true
+```
+
+`preserve_mtime`: uploads store the local modification time as the user
+metadata `x-amz-meta-mtime` (Unix seconds, with a fraction when there is one,
+`1700000000.123`); downloads set the file's time to that value, else to the
+object's `Last-Modified`. Old files without these fields load with the defaults.
+
+### Changed commands
+
+All new parameters are optional (`null` or absent means the setting).
+
+| Command | New parameters |
+|---|---|
+| `enqueue_upload`, `enqueue_download` | `if_exists`, `preserve_mtime` |
+| `enqueue_copy`, `enqueue_move` | `dst_account_id`: the account that owns `dst_bucket` (default `account_id`); `if_exists` |
+
+* `dst_account_id` makes a copy between accounts: the destination account asks
+  the service to copy when both accounts share an endpoint and it may read the
+  source, and the objects stream through this machine otherwise. A move deletes
+  each source only after the copy was read back and compared with it. An
+  unknown or locked destination account rejects the command (`not_found`,
+  `locked`, `mfa_required`) as for `account_id`. Tags and ACLs are not copied
+  when the data streams.
+* The options of a call are carried by the `group_id` of its tasks (a suffix
+  after `~`); clients treat `group_id` as opaque.
+* `TransferState` gains `"skipped"`: the destination existed and the policy kept
+  it (`skip`, or `overwrite_if_newer` with a source that is not newer). `error`
+  holds the reason ("the destination already exists"). `skipped` is terminal
+  like `completed`: no command applies to it except `clear_finished`, which
+  removes it, and a move never deletes the source of a skipped item.
+
+### Overwrite questions (`ask`)
+
+A task that finds its destination under the policy `ask` stays `running` and
+sends no byte until it is answered.
+
+| Command | Args | Result |
+|---|---|---|
+| `list_conflicts` | none | `PendingConflict[]`, oldest task first |
+| `answer_conflict` | `task_id`, `choice: "overwrite" \| "skip" \| "overwrite_if_newer" \| "rename"`, `apply_to_batch: boolean` | `void`; `not_found` when the task is not waiting |
+
+```ts
+PendingConflict { task_id: string; group_id: string | null; conflict: Conflict }
+Conflict { kind: TransferKind; source: string; destination: string;  // a path or an s3:// URI
+           source_info: { size: number | null; modified: string | null };
+           destination_info: { size: number | null; modified: string | null } }
+```
+
+`apply_to_batch` also settles every other waiting task of the same
+`group_id` and every later question of that group. Pausing or cancelling a
+waiting task withdraws its question. A `rename` answer writes to
+`name (1).ext`, `name (2).ext`, ...; the task keeps its original `dst`.
+
+Event `transfer://conflict`: `{ type: "asked", task_id, group_id, conflict }`
+when a task starts to wait, `{ type: "resolved", task_id }` when it no longer
+does.
+
+Errors: `not_found` (`answer_conflict`), plus those of the enqueue commands.
+
+## Credential sources (v0.2.0)
+
+Until version 0.1.0 every account held static keys. An account now has a
+`source` that says where its credentials come from. Only `static_keys` keeps
+a secret in the secret store; every other source asks for temporary
+credentials when they are needed and refreshes them before they expire. No
+source ever writes a secret to `config.toml` or sends one over IPC.
+
+### Types
+
+```ts
+type CredentialSource =
+  | { type: "static_keys" }                                   // the default
+  | { type: "aws_profile"; profile: string }
+  | { type: "assume_role"; source_account_id: string; role_arn: string;
+      session_name: string;              // default "bucketbridge", 2 to 64 of [A-Za-z0-9_+=,.@-]
+      duration_secs: number;             // 900 to 43200, default 3600
+      external_id?: string | null;       // 2 to 1224 characters
+      mfa_serial?: string | null }
+  | { type: "sso"; start_url: string; sso_region: string; account_id: string;
+      role_name: string; sso_session?: string | null }
+  | { type: "instance_role" };
+```
+
+- `Account.source` is always present in answers. A `config.toml` written by
+  version 0.1.0 has no `source`; such accounts load as `static_keys`.
+- Accounts that are not `static_keys` have `access_key_id: ""` and
+  `secret_ref: ""`. For `assume_role`, `Account.mfa_serial` mirrors the role's
+  `mfa_serial`, so the existing MFA prompt flow applies (`mfa_required`, then
+  `mfa_login`).
+- `AccountInput.source` (default `static_keys`) and `AccountUpdate.source`
+  (`null` keeps it). `add_account` with another source takes no access key,
+  secret key or session token (`usage` when any is given); `mfa_serial` is
+  accepted for `static_keys` and, through the source, for `assume_role`.
+- `update_account` with `source` changes the settings of an account that
+  already has that kind of source (for example the role session length); the
+  kind of source cannot change (`usage`), and a changed source drops the
+  account's MFA session. Keys, secrets and session tokens cannot be set on such
+  an account (`usage`).
+- Validation (`usage`): the role ARN must look like
+  `arn:<partition>:iam::<12 digits>:role/<name>`; the session length is 900 to
+  43200 seconds; an SSO start URL starts with `https://`, the account id is 12
+  digits. An `assume_role` whose `source_account_id` does not exist is
+  `not_found`; a source chain that loops or an account that is its own source is
+  `usage`. `remove_account` of an account that is the source of a role is
+  `conflict`.
+
+```ts
+type AwsProfileKind = "static_keys" | "assume_role" | "sso" | "credential_process" | "web_identity" | "incomplete";
+interface AwsProfileEntry {            // never carries a key or secret
+  name: string; kind: AwsProfileKind; region: string | null;
+  role_arn: string | null; source_profile: string | null;
+  sso_start_url: string | null; sso_account_id: string | null; sso_role_name: string | null;
+  importable: boolean; note: string | null;   // why it cannot be used
+  account_id: string | null;                  // the account that links it already
+}
+interface ImportOutcome { imported: Account[]; skipped: { profile: string; reason: string }[] }
+interface InstanceRoleProbe { kind: "instance" | "container"; access_key_id: string; expires_at: string | null }
+interface SsoLoginStarted {
+  login_id: string; user_code: string; verification_uri: string;
+  verification_uri_complete: string | null; expires_in_secs: number;
+  interval_secs: number; browser_opened: boolean;
+}
+type SsoLoginPoll = { state: "pending"; interval_secs: number } | { state: "complete"; expires_at: string };
+interface SsoSignInStatus { signed_in: boolean; expires_at: string | null; can_refresh: boolean }
+interface SsoAccount { account_id: string; account_name: string; email_address: string | null }
+```
+
+### Commands
+
+| Command | Args | Result |
+|---|---|---|
+| `list_aws_profiles` | none | `AwsProfileEntry[]`, sorted by name |
+| `import_aws_profiles` | `names: string[]` | `ImportOutcome` |
+| `probe_instance_role` | none | `InstanceRoleProbe` |
+| `sso_start_login` | `start_url, sso_region, sso_session?, open_browser?` | `SsoLoginStarted` |
+| `sso_poll_login` | `login_id` | `SsoLoginPoll` |
+| `sso_cancel_login` | `login_id` | `void` |
+| `sso_status` | `start_url, sso_region, sso_session?` | `SsoSignInStatus` |
+| `sso_sign_out` | `start_url, sso_region, sso_session?` | `void` |
+| `sso_list_accounts` | `start_url, sso_region, sso_session?` | `SsoAccount[]`, sorted by name |
+| `sso_list_roles` | `start_url, sso_region, sso_session?, account_id` | `string[]`, sorted |
+
+- **AWS shared config.** `list_aws_profiles` reads `~/.aws/config` and
+  `~/.aws/credentials`, or the files named by `AWS_CONFIG_FILE` and
+  `AWS_SHARED_CREDENTIALS_FILE`. Missing files give an empty list; a malformed
+  file is `usage`. `import_aws_profiles` creates one `aws_profile` account per
+  usable profile, labelled with the profile name (`name (AWS)`, `name (AWS 2)`,
+  ... when the label is taken) and with the profile's region (default
+  `us-east-1`). Only the profile name is stored. Profiles that do not exist, are
+  linked already or are not `importable` come back in `skipped` with a reason;
+  the call itself succeeds. The profile is read again whenever credentials are
+  needed, so a rotated key or a new role in the files applies without
+  re-importing. A profile that has disappeared fails the account's requests with
+  `auth`.
+- **Instance role.** `probe_instance_role` asks for credentials once: the
+  container credentials endpoint when `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`
+  or `AWS_CONTAINER_CREDENTIALS_FULL_URI` is set, otherwise the EC2 instance
+  metadata service with a session token (IMDSv2). Off EC2 or without a role it
+  fails with `auth` and a message that says so (it waits up to 8 seconds).
+- **SSO sign-in** (OIDC device authorization). `sso_start_login` registers a
+  public OIDC client and asks for a device code. Unless `open_browser` is
+  `false`, the host opens `verification_uri_complete` (else `verification_uri`)
+  in the system browser; `browser_opened` says whether that worked, and the UI
+  shows `user_code` and the URL either way. The UI then calls `sso_poll_login`
+  every `interval_secs` seconds. `pending` carries the interval to use next (it
+  grows after a `slow_down` answer); `complete` means the token is in the AWS CLI
+  cache. A denied sign-in or an expired code is `auth` and ends the sign-in; an
+  unknown or finished `login_id` is `not_found`; other failures (network) keep
+  the sign-in, so polling can continue. At most 4 sign-ins wait at once and each
+  is forgotten after 20 minutes. `sso_cancel_login` forgets one.
+- `sso_list_accounts` and `sso_list_roles` use the cached token (refreshed with
+  its refresh token when it is about to expire). Without a usable sign-in they
+  fail with `auth`. The portal region decides the partition (commercial,
+  GovCloud, China).
+- The same commands exist for the sign-in of an account that is already stored:
+  pass its `start_url`, `sso_region` and `sso_session`.
+
+Errors: `usage`, `not_found`, `conflict`, `auth`, plus the account errors of
+the other commands (`locked` comes before everything else, then `mfa_required`).
+
+## Sync jobs and sync options (v0.2.0)
+
+Saved sync jobs, exclusion rules, bucket-to-bucket sync, empty folders, duplicate
+content, the listing cache, parallel analysis and the run report. Rules and algorithms are
+in `docs/sync.md`; the CLI side is in `docs/cli.md`.
+
+### Types
+
+```ts
+type SyncDirection = "upload" | "download" | "bidirectional" | "s3_to_s3";
+
+interface SyncOptions {
+  filter: FilterSpec;              // prefix, glob, sizes, dates, storage classes
+  include: string[];               // globs; when not empty only matching paths are synced
+  exclude: string[];               // gitignore-style rules, one per entry
+  exclude_file: string | null;     // file of rules, read at every run
+  skip_empty_folders: boolean;     // default true
+  skip_duplicate_content: boolean; // default false
+  use_cache: boolean;              // default true; never used when delete is set
+  parallelism: number;             // 1..32, default 4
+}
+
+interface SyncJob {
+  id: string;                      // "" when creating
+  name: string;                    // 1..100 characters, unique without regard to case
+  account_id: string;
+  direction: SyncDirection;
+  local_root: string;              // absolute; "" for s3_to_s3
+  s3_prefix: string;               // "s3://bucket/prefix/"; the destination for s3_to_s3
+  s3_source?: string;              // s3_to_s3 only
+  delete: boolean;
+  options: SyncOptions;            // every field optional on input, defaults as above
+}
+```
+
+`SyncPlan` gains `source_prefix?: string` (present only for `s3_to_s3`, where `local_root`
+is `""`, `s3_prefix` is the destination, `local_meta` of a row is the source object and
+`s3_meta` the destination object, and every copy or delete has `target: "remote"`). A
+row whose `rel_path` ends in `/` is a folder row (`skip_empty_folders: false`): a copy to
+`remote` creates the folder marker, a copy to `local` creates the empty local folder.
+
+### Commands
+
+| Command | Args | Result |
+|---|---|---|
+| `sync_analyze` | the existing arguments plus `options?: SyncOptions` and `source_prefix?: string` | `SyncPlan`. `direction: "s3_to_s3"` needs `source_prefix` (`local_root` is ignored); `usage` when it is missing or the prefixes overlap. The exclusion file named in `options` must exist (`not_found`) |
+| `list_sync_jobs` | none | `SyncJob[]` in creation order |
+| `save_sync_job` | `job: SyncJob` | `SyncJob` as stored. An empty `id` creates, an `id` replaces. `usage` (invalid name, locations that do not fit the direction, `delete` with `bidirectional`, invalid options), `not_found` (account or id), `conflict` (name in use, more than 200 jobs) |
+| `delete_sync_job` | `id` | `SyncJob[]` left; `not_found` for an unknown id |
+| `run_sync_job` | `id` (id or name) | `SyncPlan`: the job analysed like `sync_analyze` and stored. Nothing is copied until `sync_execute`; `not_found` for an unknown job |
+
+The job commands only read and write `config.toml`, so listing, saving and deleting work
+while the secrets are locked; `run_sync_job` needs the account like `sync_analyze`.
+
+### Events
+
+| Event | Payload |
+|---|---|
+| `sync_jobs://changed` | the full `SyncJob[]` after a save or delete, sent to every window |
+| `sync://report` | `SyncReport`, once after `sync://progress` with `finished: true` |
+
+```ts
+interface SyncKindTotals { files: number; bytes: number; failed: number; pending: number }
+
+interface SyncReport {
+  plan_id: string;
+  direction: SyncDirection;
+  duration_ms: number;
+  cancelled: boolean;
+  upload: SyncKindTotals;          // local files copied to S3
+  download: SyncKindTotals;
+  copy: SyncKindTotals;            // s3_to_s3
+  delete_local: SyncKindTotals;
+  delete_remote: SyncKindTotals;
+  equal: SyncKindTotals;           // files and bytes only
+  unsyncable: number;              // rows the analysis could not plan
+  failed: number;                  // unsyncable plus rows whose attempt failed
+  failures: { rel_path: string; error: string }[]; // at most 100
+}
+```
+
+The report describes the final state of the plan (rows done by an earlier run count as
+done); `duration_ms` is the time of this run. `files` and `bytes` count done rows, `failed`
+rows whose last attempt failed and `pending` rows not attempted (a cancelled run).
+
+### Settings and storage
+
+No setting was added. Jobs are stored in `config.toml` as `[[sync_jobs]]` (omitted while
+empty, so older files load unchanged). The listing cache lives in `data_dir/sync-cache/`.

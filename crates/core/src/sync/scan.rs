@@ -96,6 +96,9 @@ pub(crate) struct Unmapped {
 pub struct LocalTree {
     pub(crate) entries: BTreeMap<String, LocalEntry>,
     pub(crate) unmapped: Vec<Unmapped>,
+    /// Folders without any entry, `/`-separated and without a trailing `/`, in scan
+    /// order; filled only with [`LocalScanOptions::collect_empty_dirs`].
+    pub(crate) empty_dirs: Vec<String>,
 }
 
 impl LocalTree {
@@ -153,6 +156,8 @@ pub struct LocalScanOptions<'a> {
     pub filter: Option<&'a Filter>,
     /// Open every file once to make sure it can be read; set when the plan may upload.
     pub check_readable: bool,
+    /// Also report folders that hold nothing at all ([`LocalTree::empty_dirs`]).
+    pub collect_empty_dirs: bool,
 }
 
 /// Scans `root` (which must be an existing folder; a symbolic link to a folder is
@@ -184,6 +189,7 @@ pub fn scan_local(root: &Path, options: &LocalScanOptions<'_>) -> Result<LocalTr
     }
     let mut tree = scanner.tree;
     tree.unmapped.sort_by(|a, b| a.display.cmp(&b.display));
+    tree.empty_dirs.sort();
     Ok(tree)
 }
 
@@ -264,6 +270,9 @@ impl Scanner<'_, '_> {
                     return Ok(());
                 }
             }
+        }
+        if children.is_empty() && !is_root && self.options.collect_empty_dirs {
+            self.tree.empty_dirs.push(rel_path.to_owned());
         }
         children.sort_by(|a, b| a.0.cmp(&b.0));
         for (name, entry) in children {
@@ -745,6 +754,7 @@ mod tests {
             &LocalScanOptions {
                 filter: None,
                 check_readable: true,
+                ..LocalScanOptions::default()
             },
         )
         .unwrap()
@@ -863,6 +873,7 @@ mod tests {
             &LocalScanOptions {
                 filter: Some(&filter),
                 check_readable: false,
+                ..LocalScanOptions::default()
             },
         )
         .unwrap();

@@ -285,7 +285,7 @@ impl TransferQueue {
             task.eta = None;
             let unfinished = !matches!(
                 task.state,
-                TransferState::Completed | TransferState::Cancelled
+                TransferState::Completed | TransferState::Cancelled | TransferState::Skipped
             );
             let seq = state.insert(task, resume);
             if cancel_pending && unfinished {
@@ -600,7 +600,9 @@ impl TransferQueue {
         let finished = st.seqs_with(|status| {
             matches!(
                 status,
-                Status::Idle(TransferState::Completed | TransferState::Cancelled)
+                Status::Idle(
+                    TransferState::Completed | TransferState::Cancelled | TransferState::Skipped
+                )
             )
         });
         let mut removed = Vec::with_capacity(finished.len());
@@ -771,6 +773,7 @@ fn state_name(state: TransferState) -> &'static str {
         TransferState::Completed => "completed",
         TransferState::Failed => "failed",
         TransferState::Cancelled => "cancelled",
+        TransferState::Skipped => "skipped",
     }
 }
 
@@ -1240,6 +1243,7 @@ impl Shared {
         seq: u64,
         job: u64,
         outcome: Option<Result<()>>,
+        skipped: Option<String>,
     ) -> AfterAttempt {
         let mut guard = self.lock();
         let st = &mut *guard;
@@ -1248,7 +1252,10 @@ impl Shared {
         };
         match (outcome, requested) {
             (Some(Ok(())), _) => {
-                self.finish_run(st, seq, TransferState::Completed, None);
+                match skipped {
+                    Some(reason) => self.finish_run(st, seq, TransferState::Skipped, Some(reason)),
+                    None => self.finish_run(st, seq, TransferState::Completed, None),
+                }
                 AfterAttempt::Finished
             }
             (_, Some(StopReason::Cancel)) => AfterAttempt::Cleanup,
@@ -1323,7 +1330,10 @@ impl Shared {
             std::mem::replace(&mut entry.activity, Activity::Idle),
             Activity::Running(_)
         );
-        if matches!(state, TransferState::Completed | TransferState::Cancelled) {
+        if matches!(
+            state,
+            TransferState::Completed | TransferState::Cancelled | TransferState::Skipped
+        ) {
             // A cancel that lost the race against completion is moot.
             entry.resume.clear();
             entry.cancel_pending = false;
@@ -1756,8 +1766,13 @@ impl Driver {
                 self.stop.clone(),
                 self.resume.clone(),
             );
+            let skip = context.skip_slot();
             let outcome = self.attempt(context, &mut meter).await;
-            let delay = match self.shared.after_attempt(self.seq, self.job, outcome) {
+            let skipped = skip.take();
+            let delay = match self
+                .shared
+                .after_attempt(self.seq, self.job, outcome, skipped)
+            {
                 AfterAttempt::Finished => return,
                 AfterAttempt::Cleanup => return self.cleanup().await,
                 AfterAttempt::Retry(delay) => delay,

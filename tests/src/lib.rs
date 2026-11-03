@@ -27,11 +27,13 @@
 
 mod bucketcfg;
 mod bucketrules;
+mod imds;
 mod objstore;
 mod raw;
 
 pub use bucketcfg::{BucketConfigMock, ConfigKind};
 pub use bucketrules::RulesMock;
+pub use imds::FakeImds;
 pub use objstore::{
     BUCKET_OWNER_ID, OWNER_ID, ObjectStore, StoredEncryption, StoredGrantee, StoredObject,
     canned_acl,

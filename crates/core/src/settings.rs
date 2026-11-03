@@ -174,6 +174,11 @@ pub struct DataIntegritySettings {
     pub checksum_algorithm: ChecksumAlgorithm,
     /// Validate response checksums on downloads. Default `true`.
     pub validate_downloads: bool,
+    /// Keep modification times: a downloaded file gets the time of the
+    /// object (the `mtime` user metadata an upload stored, else
+    /// `Last-Modified`), and an upload stores the local modification time in
+    /// the `mtime` user metadata. Default `true`.
+    pub preserve_mtime: bool,
 }
 
 impl Default for DataIntegritySettings {
@@ -181,6 +186,56 @@ impl Default for DataIntegritySettings {
         DataIntegritySettings {
             checksum_algorithm: ChecksumAlgorithm::Crc32,
             validate_downloads: true,
+            preserve_mtime: true,
+        }
+    }
+}
+
+/// What a transfer does when its destination already exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IfExists {
+    /// Ask for every conflict (the desktop app shows a dialog; the command
+    /// line asks on a terminal and otherwise refuses).
+    Ask,
+    /// Replace the destination. The default (the behaviour of version 0.1).
+    #[default]
+    Overwrite,
+    /// Keep the destination and report the item as skipped.
+    Skip,
+    /// Replace the destination only when the source is newer.
+    OverwriteIfNewer,
+    /// Keep both: the new item gets a free name (`name (1).ext`).
+    Rename,
+}
+
+impl IfExists {
+    /// The name used in JSON and in group markers.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IfExists::Ask => "ask",
+            IfExists::Overwrite => "overwrite",
+            IfExists::Skip => "skip",
+            IfExists::OverwriteIfNewer => "overwrite_if_newer",
+            IfExists::Rename => "rename",
+        }
+    }
+}
+
+impl std::str::FromStr for IfExists {
+    type Err = Error;
+
+    /// Accepts the JSON names plus the command-line spelling `newer`.
+    fn from_str(text: &str) -> Result<Self> {
+        match text {
+            "ask" => Ok(IfExists::Ask),
+            "overwrite" => Ok(IfExists::Overwrite),
+            "skip" => Ok(IfExists::Skip),
+            "newer" | "overwrite_if_newer" => Ok(IfExists::OverwriteIfNewer),
+            "rename" => Ok(IfExists::Rename),
+            other => Err(Error::Usage(format!(
+                "unknown overwrite policy '{other}'; use ask, overwrite, skip, newer or rename"
+            ))),
         }
     }
 }
@@ -295,6 +350,9 @@ pub struct TransferSettings {
     /// How often the queue retries a failed part or object, on top of the
     /// SDK's per-request retries. Default 3, range 0..=20.
     pub retry_attempts: u32,
+    /// What to do when a destination exists, unless an operation says
+    /// otherwise. Default `overwrite`.
+    pub if_exists: IfExists,
 }
 
 impl Default for TransferSettings {
@@ -306,6 +364,7 @@ impl Default for TransferSettings {
             part_size_mib: 8,
             bandwidth_limit_kibps: None,
             retry_attempts: 3,
+            if_exists: IfExists::Overwrite,
         }
     }
 }
@@ -457,7 +516,7 @@ mod tests {
                     "read_timeout_secs": 60,
                     "list_page_size": 1000
                 },
-                "data_integrity": { "checksum_algorithm": "crc32", "validate_downloads": true },
+                "data_integrity": { "checksum_algorithm": "crc32", "validate_downloads": true, "preserve_mtime": true },
                 "logging": { "level": "information", "file_logging": true, "max_file_mib": 10 },
                 "proxy": {
                     "enabled": false,
@@ -474,7 +533,8 @@ mod tests {
                     "multipart_threshold_mib": 8,
                     "part_size_mib": 8,
                     "bandwidth_limit_kibps": null,
-                    "retry_attempts": 3
+                    "retry_attempts": 3,
+                    "if_exists": "overwrite"
                 },
                 "shortener": { "provider": "none", "token_ref": null }
             })

@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2563EB">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-4F46E5">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-0B2545">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-0B2545">
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1E3A8A">
   <img alt="S3 compatible" src="https://img.shields.io/badge/S3-AWS%20%2B%20compatible-38BDF8">
 </p>
@@ -30,8 +30,8 @@
 </p>
 
 <p align="center">
-  <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-1500%2B-16A34A">
-  <img alt="UI tests" src="https://img.shields.io/badge/ui%20tests-450%2B-16A34A">
+  <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-1700%2B-16A34A">
+  <img alt="UI tests" src="https://img.shields.io/badge/ui%20tests-480%2B-16A34A">
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-16A34A">
   <img alt="unsafe forbidden" src="https://img.shields.io/badge/unsafe-forbidden-16A34A">
   <img alt="cargo-deny" src="https://img.shields.io/badge/cargo--deny-passing-16A34A">
@@ -88,7 +88,6 @@ credential store.
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
-- [Trademark](#trademark)
 - [Author](#author)
 
 ## Install
@@ -143,7 +142,7 @@ Check a download against `SHA256SUMS` from the release:
 
 | Feature | Details |
 |---|---|
-| Accounts | Several accounts in use at the same time. Each has a label, keys, region, custom endpoint, path-style and requester-pays settings. |
+| Accounts | Several accounts in use at the same time. Each has a label, region, custom endpoint, path-style and requester-pays settings, and gets its credentials from stored keys, an **AWS profile** (`~/.aws/config`), **AWS IAM Identity Center (SSO)**, an **assumed role**, or an **EC2/ECS instance role**. |
 | Secrets | Stored in the OS keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux). Never written to disk in plaintext. |
 | Master password | Optional; encrypts every stored secret. Unlock once per session, and change or remove it later. |
 | MFA | Temporary credentials (STS session tokens) from an MFA device code, kept in memory only. |
@@ -157,7 +156,7 @@ Check a download against `SHA256SUMS` from the release:
 | Feature | Details |
 |---|---|
 | Browsing | Bucket tree, folders, flat browsing, search, paging, bookmarks, several windows. |
-| Object operations | Upload and download files and folders. Copy, move, rename, delete, create folders, open, and open with another app. Copy or move files and whole folders to a chosen folder, and paste into a bucket. |
+| Object operations | Upload and download files and folders. Copy, move, rename, delete, create folders, open, and open with another app. Copy or move files and whole folders to a chosen folder, also **across accounts**, and paste into a bucket. **Edit in place**: each save is uploaded, with a check that nobody else changed the object. |
 | Metadata | HTTP headers, user metadata, tags, storage class, server-side encryption (SSE-S3, SSE-KMS, SSE-C), canned ACLs and website redirect. Batch editing, with a result per object. |
 | Versions | Version list with filters and delete markers. Restore or permanently delete a version, or download an old one. |
 | Preview | Images, text and JSON, with paging through large files. |
@@ -172,11 +171,11 @@ Check a download against `SHA256SUMS` from the release:
 
 | Feature | Details |
 |---|---|
-| Transfer queue | Configurable concurrency, pause, resume, cancel and retry, start or stop all, and views by state. The queue survives an app restart. |
+| Transfer queue | Configurable concurrency, pause, resume, cancel and retry, start or stop all, and views by state. The queue survives an app restart. An **overwrite policy** (overwrite, skip, overwrite if newer, rename, ask) applies when a destination exists, and file **modification times are kept**. |
 | Multipart | Multipart upload starts at 8 MiB, with 8 MiB parts by default. Parts grow so no upload needs more than 10,000, and up to 4 parts are in flight per task. Objects over 5 GiB are copied on the server with `UploadPartCopy`. |
 | Bandwidth | One cap shared by all transfers. |
 | Integrity | CRC32 request checksums by default (CRC32C, CRC64NVME, SHA-1 and SHA-256 available). Downloads are validated, and `Content-MD5` is sent where S3 requires it. |
-| Folder sync | Upload, download or both ways. A dry run shows one row per file (copy, delete, equal, failed) before anything changes. Execution is journaled and resumable, and reports failures per row instead of stopping. |
+| Folder sync | Upload, download, both ways or **bucket to bucket**. A dry run shows one row per file (copy, delete, equal, failed) before anything changes. Execution is journaled and resumable, and reports failures per row instead of stopping. **Saved sync jobs**, gitignore-style exclusion files, skip empty folders, skip duplicate content, a listing cache, parallel listing and a summary report. |
 
 </details>
 
@@ -391,8 +390,8 @@ bb export s3://my-bucket/ --format parquet --out listing.parquet
 
 | Group | Commands |
 |---|---|
-| Accounts | `account add`, `account list`, `account remove`, `account default` |
-| Buckets and objects | `ls`, `mb`, `rb`, `rm`, `cp`, `mv`, `sync`, `presign`, `restore-version` |
+| Accounts | `account add` (keys, `--sso`, `--assume-role`, `--instance-role`), `account import-aws`, `account sso-login`, `account list`, `account remove`, `account default`; `--profile NAME` |
+| Buckets and objects | `ls`, `mb`, `rb`, `rm`, `cp`, `mv` (`--if-exists`, `--from-account`, `--to-account`), `sync` (`--job`, `jobs`, `--summary`), `edit`, `presign`, `restore-version` |
 | Metadata | `tag`, `storage-class`, `sse`, `acl`, `lock`, `restore` |
 | Encryption | `encrypt`, `decrypt`, and `--encrypt` / `--decrypt` on `cp` and `mv` |
 | Services | `iam`, `cloudfront` |
@@ -482,7 +481,6 @@ their secrets are configured. Details: [`docs/packaging.md`](docs/packaging.md).
 
 - Mounting is read-only and ships only in builds with `--features mount`. The
   Windows (Dokan) adapter has not yet been run on a Windows machine.
-- Copy to and move to work within one account.
 - `bb sync` does not encrypt. Client-side encryption is available on `cp`,
   `mv`, `encrypt` and `decrypt`.
 - `bb presign --shorten` cannot read a stored shortener token while a master
@@ -552,7 +550,9 @@ similar) or MPL-2.0, which are compatible with GPL-3.0; their notices ship in
 ## Author
 
 BucketBridge is created and maintained by **Anup Shaw**
-([@anupshaw50](https://github.com/anupshaw50)).
+([GitHub @anupshaw50](https://github.com/anupshaw50) ·
+[LinkedIn](https://www.linkedin.com/in/anup-kumar-shaw/)).
+Feedback, ideas and collaboration requests are welcome on either.
 If it is useful to you, a star on GitHub helps others find it, and
 [sponsoring](https://github.com/sponsors/anupshaw50) supports further work.
 

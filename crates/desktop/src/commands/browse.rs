@@ -236,7 +236,8 @@ async fn download_for_open(
     let src = S3Uri::new(bucket, key)?;
     let s3 = core.session.s3_for(account_id).await?;
     let settings = core.session.settings().await?;
-    let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?;
+    let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?
+        .with_if_exists(bucketbridge_core::settings::IfExists::Overwrite);
 
     let root = open::open_root(&core.dirs);
     let name = open::local_name(key);
@@ -253,7 +254,7 @@ async fn download_for_open(
         .await;
     match downloaded {
         Ok(Outcome::Completed(_)) => Ok((src, dest)),
-        Ok(Outcome::Paused | Outcome::Cancelled) => {
+        Ok(Outcome::Paused | Outcome::Cancelled | Outcome::Skipped(_)) => {
             discard(dir).await;
             Err(Error::Cancelled)
         }

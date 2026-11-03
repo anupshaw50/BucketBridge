@@ -6,10 +6,12 @@ use futures::TryStreamExt;
 
 use super::TransferEngine;
 use super::control::{Hooks, Outcome};
+use super::policy::{ItemInfo, Placed, object_time};
 use crate::error::{Error, ErrorKind, Result, classify};
-use crate::model::{CopyOutcome, DeleteOutcome};
+use crate::model::{CopyOutcome, DeleteOutcome, TransferKind};
 use crate::ops::MAX_DELETE_BATCH;
 use crate::s3uri::{S3Uri, validate_key};
+use crate::settings::IfExists;
 
 /// Failed keys spelled out in a delete error; the rest are counted.
 const FAILURES_SHOWN: usize = 5;
@@ -58,12 +60,34 @@ impl TransferEngine {
         }
         let work = async {
             let head = self.s3.head_object(src.bucket(), src.key(), None).await?;
+            let mut target = dst.clone();
+            if self.options.if_exists != IfExists::Overwrite {
+                let info = ItemInfo {
+                    size: Some(head.size),
+                    modified: object_time(&head),
+                };
+                match self
+                    .place_remote(
+                        &self.s3,
+                        TransferKind::Copy,
+                        src.to_string(),
+                        info,
+                        dst,
+                        hooks,
+                    )
+                    .await?
+                {
+                    Placed::Go(placed) => target = placed,
+                    Placed::Skip(reason) => return Ok(Outcome::Skipped(reason)),
+                    Placed::Stop(reason) => return Ok(Outcome::stopped(reason)),
+                }
+            }
             hooks.progress.set_total(head.size);
             hooks.progress.set_done(0);
             let reported = AtomicU64::new(0);
-            let outcome = self
+            let mut outcome = self
                 .s3
-                .copy_object_with(src, dst, &self.options.copy, |copied| {
+                .copy_object_with(src, &target, &self.options.copy, |copied| {
                     let before = reported.fetch_max(copied, Ordering::AcqRel);
                     if copied > before {
                         hooks.progress.add_done(copied - before);
@@ -73,12 +97,15 @@ impl TransferEngine {
             // The source may have changed between the HEAD and the copy.
             hooks.progress.set_total(outcome.size);
             hooks.progress.set_done(outcome.size);
-            Ok::<_, Error>(outcome)
+            if target != *dst {
+                outcome.renamed_to = Some(target.key().to_owned());
+            }
+            Ok::<_, Error>(Outcome::Completed(outcome))
         };
         tokio::select! {
             biased;
             () = hooks.stop.stopped() => Ok(Outcome::stopped(hooks.stop.reason())),
-            copied = work => copied.map(Outcome::Completed),
+            copied = work => copied,
         }
     }
 
@@ -86,7 +113,7 @@ impl TransferEngine {
     /// marker: empty, or not there at all (a folder that exists only as a
     /// prefix is recreated as a marker). Data under the key makes it an
     /// ordinary object.
-    async fn is_folder_marker(&self, src: &S3Uri) -> Result<bool> {
+    pub(super) async fn is_folder_marker(&self, src: &S3Uri) -> Result<bool> {
         match self.s3.head_object(src.bucket(), src.key(), None).await {
             Ok(head) => Ok(head.size == 0),
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(true),
@@ -110,13 +137,19 @@ impl TransferEngine {
             Outcome::Completed(copied) => copied,
             Outcome::Paused => return Ok(Outcome::Paused),
             Outcome::Cancelled => return Ok(Outcome::Cancelled),
+            // Nothing was copied: the source stays where it is.
+            Outcome::Skipped(reason) => return Ok(Outcome::Skipped(reason)),
+        };
+        let landed = match &copied.renamed_to {
+            Some(key) => S3Uri::new(dst.bucket(), key.clone())?,
+            None => dst.clone(),
         };
         self.s3
             .delete_object(src.bucket(), src.key(), None)
             .await
             .map_err(|err| {
                 err.with_context(format!(
-                    "moving {src} to {dst}: the copy {dst} exists, but the source could not be deleted and is still there"
+                    "moving {src} to {landed}: the copy {landed} exists, but the source could not be deleted and is still there"
                 ))
             })?;
         Ok(Outcome::Completed(copied))

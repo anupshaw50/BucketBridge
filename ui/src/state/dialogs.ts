@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { CrashReport, ObjectEntry } from "../api/types";
+import type { CrashReport, ObjectEntry, SyncJob } from "../api/types";
 import type { SettingsPage } from "../lib/settings";
 
 export interface ConfirmOptions {
@@ -27,11 +27,21 @@ export type CloudFrontView = "distributions" | "invalidate" | "history" | "toggl
 export type DialogRequest =
   | { kind: "accounts" }
   | { kind: "add-account" }
+  | { kind: "import-aws" }
   | { kind: "edit-account"; accountId: string; /** Puts the cursor in the MFA device field. */ focus?: "mfa" }
   | { kind: "master-password" }
   | { kind: "settings"; /** Page shown first (default: general). */ page?: SettingsPage }
   | { kind: "about" }
-  | { kind: "sync"; /** Preselects this folder as the S3 side. */ at?: { bucket: string; prefix: string } }
+  | {
+      kind: "sync";
+      /** Preselects this folder as the S3 side. */
+      at?: { bucket: string; prefix: string };
+      /** Fills the form with this saved job; a job with an id is edited and saved back. */
+      job?: SyncJob;
+      /** Opens on the results of the plan in the sync state (a saved job that was just analysed). */
+      review?: boolean;
+    }
+  | { kind: "sync-jobs" }
   | { kind: "create-bucket"; accountId: string }
   | { kind: "delete-bucket"; accountId: string; bucket: string }
   | { kind: "bucket-properties"; accountId: string; bucket: string; /** Tab shown first (default: policy). */ tab?: BucketPropertiesTab }
@@ -74,6 +84,8 @@ export type DialogRequest =
     }
   | { kind: "open-with"; accountId: string; bucket: string; key: string }
   | { kind: "website-redirect"; accountId: string; bucket: string; key: string }
+  | { kind: "edit-sessions" }
+  | { kind: "edit-conflict"; sessionId: string }
   | { kind: "crash"; report: CrashReport }
   | { kind: "confirm"; options: ConfirmOptions; resolve: (confirmed: boolean) => void };
 
@@ -90,10 +102,12 @@ export interface DialogState {
 const SINGLETONS: ReadonlySet<DialogKind> = new Set([
   "accounts",
   "add-account",
+  "import-aws",
   "master-password",
   "settings",
   "about",
   "sync",
+  "sync-jobs",
   "versions",
   "cloudfront",
   "create-bucket",
@@ -108,6 +122,7 @@ const SINGLETONS: ReadonlySet<DialogKind> = new Set([
   "security-scan",
   "filters",
   "export",
+  "edit-sessions",
   "crash",
 ]);
 

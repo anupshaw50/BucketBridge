@@ -82,6 +82,7 @@ fn settings(limit_kibps: Option<u64>) -> TransferSettings {
         part_size_mib: 5,
         bandwidth_limit_kibps: limit_kibps,
         retry_attempts: 0,
+        ..TransferSettings::default()
     }
 }
 

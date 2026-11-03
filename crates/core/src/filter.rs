@@ -52,6 +52,7 @@ use regex_automata::meta::Regex;
 use regex_automata::util::syntax;
 
 use crate::error::{Error, Result};
+use crate::ignore::IgnoreRules;
 use crate::model::{FileMeta, FilterSpec, ObjectEntry};
 
 /// Storage class assumed for entries that do not report one, and for local files.
@@ -172,6 +173,10 @@ pub struct Filter {
     modified_before: Option<DateTime<Utc>>,
     /// Upper-cased, trimmed, never empty.
     storage_classes: Vec<String>,
+    /// Include globs of a saved sync job: when not empty, a path must match one.
+    include: Vec<Glob>,
+    /// Gitignore-style exclusion rules (see [`crate::ignore`]).
+    exclude: IgnoreRules,
 }
 
 impl Filter {
@@ -212,7 +217,19 @@ impl Filter {
             modified_after: spec.modified_after,
             modified_before: spec.modified_before,
             storage_classes,
+            include: Vec::new(),
+            exclude: IgnoreRules::default(),
         })
+    }
+
+    /// Adds include globs (a path must match one of them) and gitignore-style
+    /// exclusion rules to the path criteria. Both apply to files, on both sides of a
+    /// sync, together with the prefix and the glob.
+    #[must_use]
+    pub fn with_path_rules(mut self, include: Vec<Glob>, exclude: IgnoreRules) -> Self {
+        self.include = include;
+        self.exclude = exclude;
+        self
     }
 
     /// True when the filter accepts everything.
@@ -222,7 +239,10 @@ impl Filter {
 
     /// True when the filter has a prefix or a glob.
     pub fn has_path_criteria(&self) -> bool {
-        self.prefix.is_some() || self.glob.is_some()
+        self.prefix.is_some()
+            || self.glob.is_some()
+            || !self.include.is_empty()
+            || !self.exclude.is_empty()
     }
 
     /// True when the filter has size, date or storage-class criteria.
@@ -243,12 +263,17 @@ impl Filter {
                 .glob
                 .as_ref()
                 .is_none_or(|glob| glob.is_match(rel_path))
+            && (self.include.is_empty() || self.include.iter().any(|glob| glob.is_match(rel_path)))
+            && !self.exclude.is_excluded(rel_path)
     }
 
     /// Whether anything below the folder `dir_rel_path` (relative, without a trailing
     /// "/"; empty for the root) can satisfy the prefix criterion. Globs are not used for
     /// pruning, so with only a glob this is always true.
     pub fn may_match_below(&self, dir_rel_path: &str) -> bool {
+        if self.exclude.is_folder_excluded(dir_rel_path) {
+            return false;
+        }
         let Some(prefix) = self.prefix.as_deref() else {
             return true;
         };
@@ -850,5 +875,24 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::Usage);
         let err = IncludeExclude::new([(RuleKind::Exclude, "")]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Usage);
+    }
+
+    #[test]
+    fn path_rules_add_include_globs_and_exclusions() {
+        let filter = Filter::default().with_path_rules(
+            vec![Glob::new("**/*.rs").unwrap(), Glob::new("*.toml").unwrap()],
+            IgnoreRules::parse_text("target/\n!keep.rs\n*.gen.rs\n").unwrap(),
+        );
+        assert!(filter.has_path_criteria());
+        assert!(!filter.is_unrestricted());
+        assert!(filter.matches_path("src/main.rs"));
+        assert!(filter.matches_path("Cargo.toml"));
+        assert!(!filter.matches_path("README.md"));
+        assert!(!filter.matches_path("target/debug/x.rs"));
+        assert!(!filter.matches_path("src/a.gen.rs"));
+        assert!(filter.matches_path("src/keep.rs"));
+        assert!(!filter.may_match_below("target"));
+        assert!(!filter.may_match_below("a/target"));
+        assert!(filter.may_match_below("src"));
     }
 }

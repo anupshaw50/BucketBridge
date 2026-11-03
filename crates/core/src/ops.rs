@@ -153,6 +153,8 @@ pub struct S3 {
     read_timeout: Duration,
     resolve_regions: bool,
     regions: Arc<RegionCache>,
+    /// The custom endpoint URL of the account, when it has one.
+    endpoint: Option<String>,
 }
 
 impl S3 {
@@ -164,6 +166,20 @@ impl S3 {
         options: &ClientOptions,
     ) -> Result<Self> {
         let client = build_client(account, credentials, options)?;
+        let mut s3 = S3::from_client(client, account.request_payer, account.bucket_kind());
+        s3.read_timeout = options.read_timeout;
+        s3.endpoint = account.endpoint.clone();
+        Ok(s3)
+    }
+
+    /// Builds the client for `account` with a refreshing credentials
+    /// provider (see [`crate::client::build_client_with_provider`]).
+    pub fn with_provider(
+        account: &Account,
+        provider: aws_credential_types::provider::SharedCredentialsProvider,
+        options: &ClientOptions,
+    ) -> Result<Self> {
+        let client = crate::client::build_client_with_provider(account, provider, options)?;
         let mut s3 = S3::from_client(client, account.request_payer, account.bucket_kind());
         s3.read_timeout = options.read_timeout;
         Ok(s3)
@@ -185,6 +201,7 @@ impl S3 {
             read_timeout: ClientOptions::default().read_timeout,
             resolve_regions: bucket_kind != BucketKind::External,
             regions: Arc::default(),
+            endpoint: None,
         }
     }
 
@@ -276,6 +293,27 @@ impl S3 {
     /// pass it to `set_request_payer` on raw SDK calls.
     pub fn request_payer(&self) -> Option<RequestPayer> {
         self.request_payer.then_some(RequestPayer::Requester)
+    }
+
+    /// True when both handles talk to the same service endpoint (both AWS,
+    /// or the same custom endpoint URL). Only then can one account ask the
+    /// service to copy an object that another account's bucket holds.
+    pub fn same_endpoint(&self, other: &S3) -> bool {
+        let normal = |endpoint: &Option<String>| {
+            endpoint
+                .as_deref()
+                .map(|url| url.trim_end_matches('/').to_ascii_lowercase())
+        };
+        match (normal(&self.endpoint), normal(&other.endpoint)) {
+            (Some(a), Some(b)) => a == b,
+            // Without a custom endpoint both are AWS, unless the handle was
+            // wrapped around a client of unknown origin.
+            (None, None) => {
+                self.bucket_kind != BucketKind::External
+                    && other.bucket_kind != BucketKind::External
+            }
+            _ => false,
+        }
     }
 
     /// The badge reported in [`Bucket::kind`].
@@ -858,6 +896,7 @@ impl S3 {
                     .and_then(|r| r.e_tag())
                     .map(unquote),
                 parts: 0,
+                renamed_to: None,
             });
         }
         self.multipart_copy(
@@ -1391,6 +1430,7 @@ impl S3 {
                     size,
                     etag: done.e_tag().map(unquote),
                     parts: u32::try_from(part_count).unwrap_or(u32::MAX),
+                    renamed_to: None,
                 })
             }
             Err(err) => {

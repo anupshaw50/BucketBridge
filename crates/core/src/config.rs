@@ -89,6 +89,9 @@ pub struct AppConfig {
     /// empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub bookmarks: Vec<crate::bookmarks::Bookmark>,
+    /// Saved sync jobs (see [`crate::syncjobs`]). Left out of the file while empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sync_jobs: Vec<crate::syncjobs::SyncJob>,
 }
 
 impl Default for AppConfig {
@@ -104,6 +107,7 @@ impl Default for AppConfig {
             pinned_buckets: BTreeMap::new(),
             invalidation_path_sets: Vec::new(),
             bookmarks: Vec::new(),
+            sync_jobs: Vec::new(),
         }
     }
 }
@@ -582,6 +586,52 @@ mod tests {
         assert_eq!(config.settings.advanced.list_page_size, 1000);
         assert_eq!(config.accounts.len(), 1);
         assert_eq!(config.accounts[0].region, "us-east-1");
+        // Accounts saved before credential sources existed use static keys.
+        assert!(config.accounts[0].has_static_keys());
+    }
+
+    #[test]
+    fn credential_sources_survive_a_round_trip_through_the_file() {
+        let (_dir, store) = store();
+        let mut config = AppConfig::default();
+        config.accounts.push(Account {
+            id: "r".into(),
+            label: "Role".into(),
+            source: crate::model::CredentialSource::AssumeRole {
+                source_account_id: "a".into(),
+                role_arn: "arn:aws:iam::123456789012:role/R".into(),
+                session_name: "bucketbridge".into(),
+                duration_secs: 3600,
+                external_id: None,
+                mfa_serial: None,
+            },
+            ..Account::default()
+        });
+        config.accounts.push(Account {
+            id: "s".into(),
+            label: "Sso".into(),
+            source: crate::model::CredentialSource::Sso {
+                start_url: "https://example.awsapps.com/start".into(),
+                sso_region: "eu-west-1".into(),
+                account_id: "123456789012".into(),
+                role_name: "Admin".into(),
+                sso_session: None,
+            },
+            ..Account::default()
+        });
+        store
+            .update(|c| {
+                *c = config.clone();
+                Ok(())
+            })
+            .unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.accounts, config.accounts);
+        let text = fs::read_to_string(store.path()).unwrap();
+        assert!(
+            text.contains("assume_role") && !text.contains("secret_key"),
+            "{text}"
+        );
     }
 
     #[test]

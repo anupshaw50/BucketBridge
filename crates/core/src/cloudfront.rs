@@ -255,10 +255,6 @@ pub fn cloudfront_config(
     credentials: &Credentials,
     options: &ClientOptions,
 ) -> Result<aws_sdk_cloudfront::config::Builder> {
-    check_account(account)?;
-    if options.max_attempts == 0 {
-        return Err(Error::Usage("max_attempts must be at least 1".into()));
-    }
     let static_credentials = aws_sdk_cloudfront::config::Credentials::new(
         credentials.access_key_id.as_str(),
         credentials.secret_access_key.as_str(),
@@ -266,10 +262,28 @@ pub fn cloudfront_config(
         None,
         "bucketbridge-account",
     );
+    cloudfront_config_with_provider(
+        account,
+        aws_credential_types::provider::SharedCredentialsProvider::new(static_credentials),
+        options,
+    )
+}
+
+/// [`cloudfront_config`] signed by a refreshing credentials provider (see
+/// [`crate::creds`]).
+pub fn cloudfront_config_with_provider(
+    account: &Account,
+    provider: aws_credential_types::provider::SharedCredentialsProvider,
+    options: &ClientOptions,
+) -> Result<aws_sdk_cloudfront::config::Builder> {
+    check_account(account)?;
+    if options.max_attempts == 0 {
+        return Err(Error::Usage("max_attempts must be at least 1".into()));
+    }
     Ok(aws_sdk_cloudfront::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new(signing_region(account)))
-        .credentials_provider(static_credentials)
+        .credentials_provider(provider)
         .retry_config(RetryConfig::standard().with_max_attempts(options.max_attempts))
         .timeout_config(
             TimeoutConfig::builder()

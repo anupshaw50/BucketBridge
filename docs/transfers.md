@@ -31,10 +31,18 @@ built on. The JSON shapes and command semantics follow `docs/desktop-api.md`
                                                               (queued) <───┘
   cancel from queued, stopped, failed or running ──(cleanup)──> cancelled
                                    (cleanup fails) ──> failed, kept
-  clear_finished removes completed and cancelled tasks
+  clear_finished removes completed, cancelled and skipped tasks
+  runner Ok after mark_skipped ──> skipped
 ```
 
-`completed` and `cancelled` are terminal. Commands per state:
+`completed`, `cancelled` and `skipped` are terminal. A run that finds its
+destination in the way and keeps it (overwrite policy `skip`, or `overwrite_if_newer`
+with a source that is not newer) returns `Ok(())` after calling
+`TaskContext::mark_skipped(reason)`; the queue then ends the task `skipped`
+instead of `completed`, with the reason in `error`. A skipped task is never
+retried or resumed (select the item again to repeat it); `cancel_task` and the
+other commands answer `conflict` as for `completed`, `clear_finished` removes it.
+Commands per state:
 
 | Command | queued | running | stopped | failed | completed | cancelled |
 |---|---|---|---|---|---|---|
@@ -327,6 +335,15 @@ A runner (`TaskRunner`) is registered per `TransferKind` in `Runners`. It must:
   any failed task: `retry_task` runs its runner with that resume state, and
   `cancel_task` runs the cleanup with it. Both lists are validated first;
   either every task is added or none.
+
+## Overwrite questions
+
+Under the overwrite policy `ask` a running task can wait for the user without
+leaving `running`: it holds its slot, transfers nothing, and the question is
+listed by `ConflictBroker::pending` (`list_conflicts`) and announced as
+`transfer://conflict`. The answer comes with `answer_conflict`, optionally for
+the rest of the batch. See "Overwrite policy" in `docs/engines.md`. The
+policy and the other per-call options (`JobOptions`) travel in the group ID.
 
 ## S3 runners
 

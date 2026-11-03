@@ -14,7 +14,12 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         { "url": "https://github.com/anupshaw50/BucketBridge" },
-        { "url": "https://github.com/anupshaw50/BucketBridge/*" }
+        { "url": "https://github.com/anupshaw50/BucketBridge/*" },
+        { "url": "https://github.com/anupshaw50" },
+        { "url": "https://github.com/sponsors/anupshaw50" },
+        { "url": "https://www.linkedin.com/in/anup-kumar-shaw/" },
+        { "url": "https://anupshaw50.github.io/BucketBridge/" },
+        { "url": "https://anupshaw50.github.io/BucketBridge/*" }
       ]
     },
     "opener:allow-reveal-item-in-dir",

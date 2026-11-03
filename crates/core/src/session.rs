@@ -53,6 +53,7 @@ use crate::accounts::AccountManager;
 use crate::client::ClientOptions;
 use crate::cloudfront::{CloudFront, Distribution};
 use crate::config::{AppConfig, ConfigStore, Dirs};
+use crate::creds::CredsHooks;
 use crate::error::{Error, ErrorKind, Result};
 use crate::iam::{self, Iam};
 use crate::mfa::{self, MfaSessions};
@@ -63,6 +64,10 @@ use crate::ops::S3;
 use crate::proxy::HttpClientBuilder;
 use crate::secrets::{KdfCost, KeyringStore, SecretStore, SecretString};
 use crate::settings::{AdvancedSettings, DataIntegritySettings, ProxySettings, Settings};
+
+mod credentials;
+
+pub use credentials::{ProfileOptions, SsoLoginPoll, SsoLoginStart};
 
 /// Status updates buffered per subscriber; a slow subscriber skips the
 /// oldest ones.
@@ -105,6 +110,9 @@ pub struct SessionOptions {
     /// Endpoints of the URL shorteners; default: the providers' real ones.
     /// Tests point them at a local server.
     pub shortener_endpoints: Option<crate::shorten::Endpoints>,
+    /// Hooks of the credential sources other than static keys: where the
+    /// AWS files are, SSO and instance metadata test clients.
+    pub creds_hooks: CredsHooks,
 }
 
 impl Default for SessionOptions {
@@ -117,6 +125,7 @@ impl Default for SessionOptions {
             cloudfront_config_hook: None,
             iam_config_hook: None,
             shortener_endpoints: None,
+            creds_hooks: CredsHooks::default(),
         }
     }
 }
@@ -134,6 +143,7 @@ impl fmt::Debug for SessionOptions {
             )
             .field("iam_config_hook", &self.iam_config_hook.is_some())
             .field("shortener_endpoints", &self.shortener_endpoints)
+            .field("creds_hooks", &self.creds_hooks)
             .finish()
     }
 }
@@ -148,6 +158,8 @@ pub struct Session {
     cloudfront_config_hook: Option<CloudFrontConfigHook>,
     iam_config_hook: Option<IamConfigHook>,
     shortener_endpoints: crate::shorten::Endpoints,
+    creds_hooks: CredsHooks,
+    sso_logins: Mutex<credentials::SsoLogins>,
     clients: Mutex<Clients>,
     status: broadcast::Sender<SecurityStatus>,
     /// The status last announced; see [`Session::observe`].
@@ -182,6 +194,8 @@ struct CachedS3 {
 #[derive(Clone, PartialEq)]
 struct S3Key {
     account: Account,
+    /// The accounts an assumed role signs through, with their MFA sessions.
+    chain: Vec<(Account, Option<SystemTime>)>,
     advanced: AdvancedSettings,
     data_integrity: DataIntegritySettings,
     http_generation: u64,
@@ -231,6 +245,8 @@ impl Session {
             cloudfront_config_hook: options.cloudfront_config_hook,
             iam_config_hook: options.iam_config_hook,
             shortener_endpoints: options.shortener_endpoints.unwrap_or_default(),
+            creds_hooks: options.creds_hooks,
+            sso_logins: Mutex::new(credentials::SsoLogins::default()),
             clients: Mutex::new(Clients::default()),
             status,
             announced,
@@ -347,7 +363,8 @@ impl Session {
             || update.mfa_serial.is_some()
             || update.clear_mfa_serial
             || update.endpoint.is_some()
-            || update.clear_endpoint;
+            || update.clear_endpoint
+            || update.source.is_some();
         let manager = Arc::clone(&self.manager);
         let owned_id = id.to_owned();
         let account = self
@@ -486,19 +503,13 @@ impl Session {
         // Read before the credentials: anything that forgets MFA sessions
         // after this point (a lock, an account change) makes the login fail.
         let generation = self.mfa.generation();
-        let manager = Arc::clone(&self.manager);
-        let owned_id = account_id.to_owned();
-        let (account, credentials) = self
-            .managed(move || manager.account_credentials(&owned_id))
-            .await?;
         let http_client = self.http_client().await?;
-        let mut builder = mfa::sts_config(&account, &credentials)?.http_client(http_client);
-        drop(credentials);
-        if let Some(hook) = &self.sts_config_hook {
-            builder = hook(builder);
-        }
-        let client = aws_sdk_sts::Client::from_conf(builder.build());
-        let session = mfa::request_session(&account, &client, code, None).await?;
+        let (account, client, role) = self.mfa_login_client(account_id, http_client).await?;
+        let session = if role {
+            crate::creds::assume::request_role_session(&account, &client, code).await?
+        } else {
+            mfa::request_session(&account, &client, code, None).await?
+        };
         // The lock state and the account may have changed while STS answered.
         let (current, unlocked) = self.account_state(account_id).await?;
         if !unlocked {
@@ -529,21 +540,15 @@ impl Session {
         let account = account_in(&config, account_id)?;
         // Refuse before any secret is read.
         crate::cloudfront::check_account(&account)?;
-        let credentials = match account.mfa_serial {
-            Some(_) => self.mfa.active(&account)?.0,
-            None => {
-                let manager = Arc::clone(&self.manager);
-                let owned_id = account_id.to_owned();
-                self.managed(move || manager.account_credentials(&owned_id))
-                    .await?
-                    .1
-            }
-        };
         let http_client = self.http_client().await?;
+        let provider = self
+            .provider_for(&config, &account, &http_client, &mut Vec::new())
+            .await?;
         let mut options = ClientOptions::from_settings(&config.settings);
         options.http_client = Some(http_client.clone());
-        let mut builder = crate::cloudfront::cloudfront_config(&account, &credentials, &options)?
-            .http_client(http_client);
+        let mut builder =
+            crate::cloudfront::cloudfront_config_with_provider(&account, provider, &options)?
+                .http_client(http_client);
         if let Some(hook) = &self.cloudfront_config_hook {
             builder = hook(builder);
         }
@@ -647,14 +652,15 @@ impl Session {
         let account = account_in(&config, account_id)?;
         // A session issued for another state of the account (changed by
         // another process, for example) is dropped here.
-        let mfa_session = match account.mfa_serial {
-            Some(_) => Some(self.mfa.active(&account)?),
-            None => None,
+        let mfa_session = match account.needs_mfa_session() {
+            true => Some(self.mfa.active(&account)?),
+            false => None,
         };
         let mfa_until = mfa_session.as_ref().map(|(_, until)| *until);
         let (http_client, http_generation) =
             self.http_client_for(&config.settings.proxy, epoch).await?;
         let key = S3Key {
+            chain: self.source_chain(&config, &account),
             account,
             advanced: config.settings.advanced.clone(),
             data_integrity: config.settings.data_integrity.clone(),
@@ -664,20 +670,30 @@ impl Session {
         if let Some(s3) = self.cached_s3(account_id, &key) {
             return Ok(s3);
         }
-        let (key, credentials) = match mfa_session {
-            Some((credentials, _)) => (key, credentials),
-            None => {
+        let mut options = ClientOptions::from_settings(&config.settings);
+        options.http_client = Some(http_client.clone());
+        let (key, s3) = match mfa_session {
+            Some((credentials, _)) => {
+                let s3 = S3::new(&key.account, &credentials, &options)?;
+                (key, s3)
+            }
+            None if key.account.has_static_keys() => {
                 let manager = Arc::clone(&self.manager);
                 let owned_id = account_id.to_owned();
                 let (account, credentials) = self
                     .managed(move || manager.account_credentials(&owned_id))
                     .await?;
-                (S3Key { account, ..key }, credentials)
+                let s3 = S3::new(&account, &credentials, &options)?;
+                (S3Key { account, ..key }, s3)
+            }
+            None => {
+                let provider = self
+                    .provider_for(&config, &key.account, &http_client, &mut Vec::new())
+                    .await?;
+                let s3 = S3::with_provider(&key.account, provider, &options)?;
+                (key, s3)
             }
         };
-        let mut options = ClientOptions::from_settings(&config.settings);
-        options.http_client = Some(http_client);
-        let s3 = S3::new(&key.account, &credentials, &options)?;
         let mut clients = self.clients();
         if clients.epoch == epoch {
             clients.s3.insert(
@@ -705,20 +721,13 @@ impl Session {
         if !iam::iam_supported(&account) {
             return Err(Error::Usage(iam::NOT_AVAILABLE.to_owned()));
         }
-        let credentials = match account.mfa_serial {
-            Some(_) => self.mfa.active(&account)?.0,
-            None => {
-                let manager = Arc::clone(&self.manager);
-                let owned_id = account_id.to_owned();
-                self.managed(move || manager.account_credentials(&owned_id))
-                    .await?
-                    .1
-            }
-        };
         let epoch = self.clients().epoch;
         let (http_client, _) = self.http_client_for(&config.settings.proxy, epoch).await?;
+        let provider = self
+            .provider_for(&config, &account, &http_client, &mut Vec::new())
+            .await?;
         let options = ClientOptions::from_settings(&config.settings);
-        let mut builder = iam::iam_config(&account, &credentials, &options)?;
+        let mut builder = iam::iam_config_with_provider(&account, provider, &options)?;
         builder = builder.http_client(http_client);
         if let Some(hook) = &self.iam_config_hook {
             builder = hook(builder);
@@ -1008,6 +1017,7 @@ mod tests {
 
         fn input(&self, label: &str, mfa_serial: Option<&str>) -> AccountInput {
             AccountInput {
+                source: crate::model::CredentialSource::StaticKeys,
                 label: label.to_owned(),
                 access_key_id: ACCESS_KEY.to_owned(),
                 secret_access_key: SECRET.to_owned(),
@@ -1384,6 +1394,7 @@ mod tests {
 
         fn input(&self) -> AccountInput {
             AccountInput {
+                source: crate::model::CredentialSource::StaticKeys,
                 label: "Work".to_owned(),
                 access_key_id: ACCESS_KEY.to_owned(),
                 secret_access_key: SECRET.to_owned(),
@@ -1735,6 +1746,789 @@ mod tests {
         let error = store.get("a/secret/1").unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Io);
         assert!(error.to_string().contains("no Secret Service"));
+    }
+
+    /// Credential sources other than static keys (see [`crate::creds`]).
+    mod credential_sources {
+        use aws_sdk_sso::operation::get_role_credentials::GetRoleCredentialsOutput;
+        use aws_sdk_sso::operation::list_account_roles::ListAccountRolesOutput;
+        use aws_sdk_sso::operation::list_accounts::ListAccountsOutput;
+        use aws_sdk_sso::types::{AccountInfo, RoleCredentials, RoleInfo};
+        use aws_sdk_ssooidc::operation::create_token::{CreateTokenError, CreateTokenOutput};
+        use aws_sdk_ssooidc::operation::register_client::RegisterClientOutput;
+        use aws_sdk_ssooidc::operation::start_device_authorization::StartDeviceAuthorizationOutput;
+        use aws_sdk_sts::operation::assume_role::{AssumeRoleError, AssumeRoleOutput};
+
+        use super::*;
+        use crate::creds::sso::login::CLIENT_NAME;
+        use crate::creds::{AwsFiles, CredsHooks};
+        use crate::model::CredentialSource;
+
+        const ROLE_ARN: &str = "arn:aws:iam::123456789012:role/Writer";
+        const ROLE_KEY: &str = "ASIAROLESESSIONKEY";
+        const ROLE_SECRET: &str = "role-session-secret-value";
+
+        fn coded(code: &str) -> aws_smithy_types::error::ErrorMetadata {
+            aws_smithy_types::error::ErrorMetadata::builder()
+                .code(code)
+                .build()
+        }
+
+        fn assumed(key: &'static str) -> AssumeRoleOutput {
+            AssumeRoleOutput::builder()
+                .credentials(
+                    StsCredentials::builder()
+                        .access_key_id(key)
+                        .secret_access_key(ROLE_SECRET)
+                        .session_token("role-session-token")
+                        .expiration(DateTime::from_secs(4_102_444_800))
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+        }
+
+        fn assume_rule(key: &'static str) -> Rule {
+            mock!(aws_sdk_sts::Client::assume_role)
+                .match_requests(|input| {
+                    input.role_arn() == Some(ROLE_ARN)
+                        && input.role_session_name() == Some("bucketbridge")
+                        && input.duration_seconds() == Some(3600)
+                        && input.serial_number().is_none()
+                })
+                .then_output(move || assumed(key))
+        }
+
+        fn mfa_rules() -> (Rule, Rule) {
+            let good = mock!(aws_sdk_sts::Client::assume_role)
+                .match_requests(|input| {
+                    input.serial_number() == Some(SERIAL) && input.token_code() == Some("123456")
+                })
+                .then_output(|| assumed(ROLE_KEY));
+            let wrong = mock!(aws_sdk_sts::Client::assume_role)
+                .match_requests(|input| input.token_code() == Some("000000"))
+                .then_error(|| AssumeRoleError::generic(coded("AccessDenied")));
+            (good, wrong)
+        }
+
+        fn sts_with(rules: &[&Rule]) -> SessionOptions {
+            let rules: Vec<Rule> = rules.iter().map(|rule| (*rule).clone()).collect();
+            let hook: StsConfigHook = Arc::new(move |builder| {
+                let mut interceptor = MockResponseInterceptor::new().rule_mode(RuleMode::MatchAny);
+                for rule in &rules {
+                    interceptor = interceptor.with_rule(rule);
+                }
+                builder
+                    .interceptor(interceptor)
+                    .http_client(create_mock_http_client())
+            });
+            SessionOptions {
+                sts_config_hook: Some(hook),
+                ..options()
+            }
+        }
+
+        fn role_source(source_id: &str, mfa: Option<&str>) -> CredentialSource {
+            CredentialSource::AssumeRole {
+                source_account_id: source_id.to_owned(),
+                role_arn: ROLE_ARN.to_owned(),
+                session_name: "bucketbridge".to_owned(),
+                duration_secs: 3600,
+                external_id: None,
+                mfa_serial: mfa.map(str::to_owned),
+            }
+        }
+
+        /// A keyless account of `source` that sends its requests to the recorder.
+        fn keyless(recorder: &Recorder, label: &str, source: CredentialSource) -> AccountInput {
+            let mut input = recorder.input(label, None);
+            input.access_key_id = String::new();
+            input.secret_access_key = String::new();
+            input.source = source;
+            input
+        }
+
+        fn config_text(dir: &tempfile::TempDir) -> String {
+            std::fs::read_to_string(Dirs::under(dir.path()).config_file()).unwrap()
+        }
+
+        #[tokio::test]
+        async fn an_assumed_role_signs_with_the_role_session() {
+            let recorder = Recorder::start().await;
+            let rule = assume_rule(ROLE_KEY);
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, sts_with(&[&rule]));
+            let base = session
+                .add_account(recorder.input("Base", None))
+                .await
+                .unwrap();
+            let role = session
+                .add_account(keyless(&recorder, "Role", role_source(&base.id, None)))
+                .await
+                .unwrap();
+            // The role keeps no key of its own.
+            assert_eq!(role.access_key_id, "");
+            assert_eq!(role.secret_ref, "");
+            let s3 = session.s3_for(&role.id).await.unwrap();
+            let head = recorder.request_head(&s3).await;
+            assert!(signed_by(&head, ROLE_KEY), "{head}");
+            assert!(head.contains("x-amz-security-token"));
+            assert!(!signed_by(&head, ACCESS_KEY));
+            // The handle and the session are reused.
+            let again = session.s3_for(&role.id).await.unwrap();
+            recorder.request_head(&again).await;
+            assert_eq!(rule.num_calls(), 1);
+            let config = config_text(&dir);
+            assert!(!config.contains(ROLE_SECRET) && !config.contains(SECRET));
+            // Only the base account's two secrets are in the keychain.
+            assert_eq!(store.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn a_rotated_source_key_rebuilds_the_role() {
+            let recorder = Recorder::start().await;
+            let rule = assume_rule(ROLE_KEY);
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, sts_with(&[&rule]));
+            let base = session
+                .add_account(recorder.input("Base", None))
+                .await
+                .unwrap();
+            let role = session
+                .add_account(keyless(&recorder, "Role", role_source(&base.id, None)))
+                .await
+                .unwrap();
+            recorder
+                .request_head(&session.s3_for(&role.id).await.unwrap())
+                .await;
+            session
+                .update_account(
+                    &base.id,
+                    updating(|update| update.secret_access_key = Some(ROTATED.to_owned())),
+                )
+                .await
+                .unwrap();
+            recorder
+                .request_head(&session.s3_for(&role.id).await.unwrap())
+                .await;
+            assert_eq!(rule.num_calls(), 2);
+        }
+
+        #[tokio::test]
+        async fn a_source_in_use_cannot_be_removed() {
+            let recorder = Recorder::start().await;
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, options());
+            let base = session
+                .add_account(recorder.input("Base", None))
+                .await
+                .unwrap();
+            let role = session
+                .add_account(keyless(&recorder, "Role", role_source(&base.id, None)))
+                .await
+                .unwrap();
+            let error = session.remove_account(&base.id).await.unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Conflict);
+            assert!(error.to_string().contains("Role"));
+            session.remove_account(&role.id).await.unwrap();
+            session.remove_account(&base.id).await.unwrap();
+            assert!(store.is_empty());
+        }
+
+        #[tokio::test]
+        async fn a_role_needs_an_existing_source_and_valid_settings() {
+            let recorder = Recorder::start().await;
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, options());
+            let base = session
+                .add_account(recorder.input("Base", None))
+                .await
+                .unwrap();
+            let missing = session
+                .add_account(keyless(&recorder, "A", role_source("nope", None)))
+                .await
+                .unwrap_err();
+            assert_eq!(missing.kind(), ErrorKind::NotFound);
+            let bad_arn = CredentialSource::AssumeRole {
+                source_account_id: base.id.clone(),
+                role_arn: "not-an-arn".into(),
+                session_name: "bucketbridge".into(),
+                duration_secs: 3600,
+                external_id: None,
+                mfa_serial: None,
+            };
+            let error = session
+                .add_account(keyless(&recorder, "B", bad_arn))
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Usage);
+            for duration_secs in [899, 43_201] {
+                let source = CredentialSource::AssumeRole {
+                    source_account_id: base.id.clone(),
+                    role_arn: ROLE_ARN.into(),
+                    session_name: "bucketbridge".into(),
+                    duration_secs,
+                    external_id: None,
+                    mfa_serial: None,
+                };
+                let error = session
+                    .add_account(keyless(&recorder, "C", source))
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.kind(), ErrorKind::Usage, "{duration_secs}");
+            }
+            for duration_secs in [900, 43_200] {
+                let source = CredentialSource::AssumeRole {
+                    source_account_id: base.id.clone(),
+                    role_arn: ROLE_ARN.into(),
+                    session_name: "bucketbridge".into(),
+                    duration_secs,
+                    external_id: Some("ext-id".into()),
+                    mfa_serial: None,
+                };
+                session
+                    .add_account(keyless(&recorder, &format!("D{duration_secs}"), source))
+                    .await
+                    .unwrap();
+            }
+            // Keys cannot be given to a keyless account.
+            let mut with_key = keyless(&recorder, "E", role_source(&base.id, None));
+            with_key.secret_access_key = SECRET.to_owned();
+            assert_eq!(
+                session.add_account(with_key).await.unwrap_err().kind(),
+                ErrorKind::Usage
+            );
+        }
+
+        #[tokio::test]
+        async fn a_role_with_a_device_needs_a_code_and_the_session_ends() {
+            let recorder = Recorder::start().await;
+            let (good, wrong) = mfa_rules();
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, sts_with(&[&good, &wrong]));
+            let base = session
+                .add_account(recorder.input("Base", None))
+                .await
+                .unwrap();
+            let role = session
+                .add_account(keyless(
+                    &recorder,
+                    "Role",
+                    role_source(&base.id, Some(SERIAL)),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(role.mfa_serial.as_deref(), Some(SERIAL));
+            let error = session.s3_for(&role.id).await.unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::MfaRequired);
+            let error = session.mfa_login(&role.id, "000000").await.unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Auth, "{error}");
+            assert_eq!(
+                session.s3_for(&role.id).await.unwrap_err().kind(),
+                ErrorKind::MfaRequired
+            );
+            session.mfa_login(&role.id, "123456").await.unwrap();
+            let s3 = session.s3_for(&role.id).await.unwrap();
+            let head = recorder.request_head(&s3).await;
+            assert!(signed_by(&head, ROLE_KEY), "{head}");
+            // Changing the role's settings drops the session.
+            let updated = session
+                .update_account(
+                    &role.id,
+                    updating(|update| {
+                        update.source = Some(CredentialSource::AssumeRole {
+                            source_account_id: base.id.clone(),
+                            role_arn: ROLE_ARN.into(),
+                            session_name: "other-name".into(),
+                            duration_secs: 3600,
+                            external_id: None,
+                            mfa_serial: Some(SERIAL.into()),
+                        });
+                    }),
+                )
+                .await
+                .unwrap();
+            assert!(matches!(
+                updated.source,
+                CredentialSource::AssumeRole { ref session_name, .. } if session_name == "other-name"
+            ));
+            assert_eq!(
+                session.s3_for(&role.id).await.unwrap_err().kind(),
+                ErrorKind::MfaRequired
+            );
+            // A static account cannot change into another kind of source.
+            let error = session
+                .update_account(
+                    &base.id,
+                    updating(|update| update.source = Some(CredentialSource::InstanceRole)),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Usage);
+        }
+
+        #[tokio::test]
+        async fn a_locked_vault_comes_before_everything_else() {
+            let recorder = Recorder::start().await;
+            let (good, wrong) = mfa_rules();
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, sts_with(&[&good, &wrong]));
+            let base = session
+                .add_account(recorder.input("Base", None))
+                .await
+                .unwrap();
+            let role = session
+                .add_account(keyless(
+                    &recorder,
+                    "Role",
+                    role_source(&base.id, Some(SERIAL)),
+                ))
+                .await
+                .unwrap();
+            session
+                .set_master_password(None, Some(PASSWORD))
+                .await
+                .unwrap();
+            session.lock();
+            assert_eq!(
+                session.s3_for(&role.id).await.unwrap_err().kind(),
+                ErrorKind::Locked
+            );
+            session.unlock(PASSWORD).await.unwrap();
+            assert_eq!(
+                session.s3_for(&role.id).await.unwrap_err().kind(),
+                ErrorKind::MfaRequired
+            );
+        }
+
+        fn aws_files_in(dir: &tempfile::TempDir) -> AwsFiles {
+            let aws = dir.path().join("aws");
+            std::fs::create_dir_all(&aws).unwrap();
+            std::fs::write(
+                aws.join("credentials"),
+                "[dev]\naws_access_key_id = AKIAPROFILEKEY\naws_secret_access_key = profile-secret-value\n\n[other]\naws_access_key_id = AKIAOTHERKEY\naws_secret_access_key = other-secret-value\n",
+            )
+            .unwrap();
+            std::fs::write(
+                aws.join("config"),
+                "[profile dev]\nregion = eu-west-2\n\n[profile broken]\nregion = us-east-1\n",
+            )
+            .unwrap();
+            AwsFiles::in_dir(&aws)
+        }
+
+        fn with_files(files: AwsFiles) -> SessionOptions {
+            SessionOptions {
+                creds_hooks: CredsHooks {
+                    aws_files: Some(files),
+                    ..CredsHooks::default()
+                },
+                ..options()
+            }
+        }
+
+        #[tokio::test]
+        async fn an_aws_profile_account_signs_with_the_profile_and_stores_no_secret() {
+            let recorder = Recorder::start().await;
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, with_files(aws_files_in(&dir)));
+            let account = session
+                .add_account(keyless(
+                    &recorder,
+                    "Dev",
+                    CredentialSource::AwsProfile {
+                        profile: "dev".into(),
+                    },
+                ))
+                .await
+                .unwrap();
+            let s3 = session.s3_for(&account.id).await.unwrap();
+            let head = recorder.request_head(&s3).await;
+            assert!(signed_by(&head, "AKIAPROFILEKEY"), "{head}");
+            assert!(store.is_empty());
+            let config = config_text(&dir);
+            assert!(!config.contains("profile-secret-value") && !config.contains("AKIAPROFILEKEY"));
+        }
+
+        #[tokio::test]
+        async fn a_missing_profile_is_an_auth_error_when_used() {
+            let recorder = Recorder::start().await;
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, with_files(aws_files_in(&dir)));
+            let account = session
+                .add_account(keyless(
+                    &recorder,
+                    "Gone",
+                    CredentialSource::AwsProfile {
+                        profile: "gone".into(),
+                    },
+                ))
+                .await
+                .unwrap();
+            let s3 = session.s3_for(&account.id).await.unwrap();
+            let error = s3.list_buckets().await.unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Auth, "{error}");
+        }
+
+        #[tokio::test]
+        async fn importing_profiles_links_them_without_copying_secrets() {
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, with_files(aws_files_in(&dir)));
+            // A label that is taken already.
+            let recorder = Recorder::start().await;
+            session
+                .add_account(recorder.input("dev", None))
+                .await
+                .unwrap();
+            let listed = session.list_aws_profiles().await.unwrap();
+            let names: Vec<&str> = listed.iter().map(|e| e.profile.name.as_str()).collect();
+            assert_eq!(names, ["broken", "dev", "other"]);
+            assert!(!listed[0].profile.importable);
+            let secrets_before = store.len();
+            let outcome = session
+                .import_aws_profiles(&[
+                    "dev".to_owned(),
+                    "other".to_owned(),
+                    "broken".to_owned(),
+                    "nope".to_owned(),
+                    "dev".to_owned(),
+                ])
+                .await
+                .unwrap();
+            let labels: Vec<&str> = outcome.imported.iter().map(|a| a.label.as_str()).collect();
+            assert_eq!(labels, ["dev (AWS)", "other"]);
+            assert_eq!(outcome.imported[0].region, "eu-west-2");
+            assert_eq!(outcome.skipped.len(), 2);
+            assert_eq!(store.len(), secrets_before);
+            let config = config_text(&dir);
+            assert!(!config.contains("secret-value") && !config.contains("AKIAOTHERKEY"));
+            // Importing again links nothing new.
+            let again = session
+                .import_aws_profiles(&["dev".to_owned()])
+                .await
+                .unwrap();
+            assert!(again.imported.is_empty());
+            assert!(again.skipped[0].reason.contains("already"));
+            let listed = session.list_aws_profiles().await.unwrap();
+            assert!(listed[1].account_id.is_some());
+        }
+
+        #[tokio::test]
+        async fn a_profile_can_be_used_without_being_stored() {
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, with_files(aws_files_in(&dir)));
+            session
+                .s3_for_profile("dev", &ProfileOptions::default())
+                .await
+                .unwrap();
+            let error = session
+                .s3_for_profile("nope", &ProfileOptions::default())
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::NotFound);
+            assert!(session.list_accounts().await.unwrap().accounts.is_empty());
+        }
+
+        #[tokio::test]
+        async fn the_instance_role_signs_requests_and_the_probe_reports_it() {
+            let recorder = Recorder::start().await;
+            let imds = crate::creds::instance::testing::imds(Some("my-role"));
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(
+                &dir,
+                &store,
+                SessionOptions {
+                    creds_hooks: CredsHooks {
+                        imds_endpoint: Some(imds.url.clone()),
+                        ..CredsHooks::default()
+                    },
+                    ..options()
+                },
+            );
+            let found = session.probe_instance_role().await.unwrap();
+            assert_eq!(found.access_key_id, "ASIAINSTANCE");
+            let account = session
+                .add_account(keyless(&recorder, "Box", CredentialSource::InstanceRole))
+                .await
+                .unwrap();
+            let s3 = session.s3_for(&account.id).await.unwrap();
+            let head = recorder.request_head(&s3).await;
+            assert!(signed_by(&head, "ASIAINSTANCE"), "{head}");
+            assert!(store.is_empty());
+        }
+
+        #[tokio::test]
+        async fn the_probe_fails_clearly_off_ec2() {
+            let imds = crate::creds::instance::testing::imds(None);
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(MemoryStore::new());
+            let session = open(
+                &dir,
+                &store,
+                SessionOptions {
+                    creds_hooks: CredsHooks {
+                        imds_endpoint: Some(imds.url.clone()),
+                        ..CredsHooks::default()
+                    },
+                    ..options()
+                },
+            );
+            let error = session.probe_instance_role().await.unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Auth);
+            assert!(error.to_string().contains("not an EC2 instance"), "{error}");
+        }
+
+        const START_URL: &str = "https://example.awsapps.com/start";
+
+        fn sso_hooks(files: AwsFiles) -> SessionOptions {
+            let register = mock!(aws_sdk_ssooidc::Client::register_client)
+                .match_requests(|input| input.client_name() == Some(CLIENT_NAME))
+                .then_output(|| {
+                    RegisterClientOutput::builder()
+                        .client_id("client-1")
+                        .client_secret("client-secret-1")
+                        .client_secret_expires_at(4_102_444_800)
+                        .build()
+                });
+            let start =
+                mock!(aws_sdk_ssooidc::Client::start_device_authorization).then_output(|| {
+                    StartDeviceAuthorizationOutput::builder()
+                        .device_code("device-code-1")
+                        .user_code("WXYZ-1234")
+                        .verification_uri("https://device.example.com/")
+                        .verification_uri_complete(
+                            "https://device.example.com/?user_code=WXYZ-1234",
+                        )
+                        .expires_in(600)
+                        .interval(5)
+                        .build()
+                });
+            let token = mock!(aws_sdk_ssooidc::Client::create_token)
+                .sequence()
+                .error(|| CreateTokenError::generic(coded("AuthorizationPendingException")))
+                .output(|| {
+                    CreateTokenOutput::builder()
+                        .access_token("sso-access-token-1")
+                        .refresh_token("sso-refresh-token-1")
+                        .expires_in(28_800)
+                        .build()
+                })
+                .build();
+            let accounts = mock!(aws_sdk_sso::Client::list_accounts)
+                .match_requests(|input| input.access_token() == Some("sso-access-token-1"))
+                .then_output(|| {
+                    ListAccountsOutput::builder()
+                        .account_list(
+                            AccountInfo::builder()
+                                .account_id("123456789012")
+                                .account_name("Production")
+                                .build(),
+                        )
+                        .build()
+                });
+            let roles = mock!(aws_sdk_sso::Client::list_account_roles)
+                .match_requests(|input| input.account_id() == Some("123456789012"))
+                .then_output(|| {
+                    ListAccountRolesOutput::builder()
+                        .role_list(
+                            RoleInfo::builder()
+                                .role_name("Admin")
+                                .account_id("123456789012")
+                                .build(),
+                        )
+                        .build()
+                });
+            let credentials = mock!(aws_sdk_sso::Client::get_role_credentials)
+                .match_requests(|input| {
+                    input.role_name() == Some("Admin")
+                        && input.account_id() == Some("123456789012")
+                        && input.access_token() == Some("sso-access-token-1")
+                })
+                .then_output(|| {
+                    GetRoleCredentialsOutput::builder()
+                        .role_credentials(
+                            RoleCredentials::builder()
+                                .access_key_id("ASIASSOKEY")
+                                .secret_access_key("sso-role-secret")
+                                .session_token("sso-role-token")
+                                .expiration(4_102_444_800_000)
+                                .build(),
+                        )
+                        .build()
+                });
+            let oidc_rules = vec![register, start, token];
+            let sso_rules = vec![accounts, roles, credentials];
+            let oidc_hook: crate::creds::SsoOidcConfigHook = Arc::new(move |builder| {
+                let mut interceptor = MockResponseInterceptor::new().rule_mode(RuleMode::MatchAny);
+                for rule in &oidc_rules {
+                    interceptor = interceptor.with_rule(rule);
+                }
+                builder
+                    .interceptor(interceptor)
+                    .http_client(create_mock_http_client())
+            });
+            let sso_hook: crate::creds::SsoConfigHook = Arc::new(move |builder| {
+                let mut interceptor = MockResponseInterceptor::new().rule_mode(RuleMode::MatchAny);
+                for rule in &sso_rules {
+                    interceptor = interceptor.with_rule(rule);
+                }
+                builder
+                    .interceptor(interceptor)
+                    .http_client(create_mock_http_client())
+            });
+            SessionOptions {
+                creds_hooks: CredsHooks {
+                    aws_files: Some(files),
+                    sso_oidc: Some(oidc_hook),
+                    sso: Some(sso_hook),
+                    ..CredsHooks::default()
+                },
+                ..options()
+            }
+        }
+
+        #[tokio::test]
+        async fn sso_sign_in_to_signed_requests() {
+            let recorder = Recorder::start().await;
+            let dir = tempfile::tempdir().unwrap();
+            let files = AwsFiles::in_dir(&dir.path().join("aws"));
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, sso_hooks(files.clone()));
+
+            // Not signed in yet.
+            let status = session
+                .sso_status(START_URL, "eu-west-1", Some("corp"))
+                .await
+                .unwrap();
+            assert!(!status.signed_in);
+            let error = session
+                .sso_list_accounts(START_URL, "eu-west-1", Some("corp"))
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Auth);
+
+            let started = session
+                .sso_start_login(START_URL, "eu-west-1", Some("corp"))
+                .await
+                .unwrap();
+            assert_eq!(started.user_code, "WXYZ-1234");
+            assert_eq!(started.verification_uri, "https://device.example.com/");
+            assert_eq!(started.interval_secs, 5);
+            assert!(!format!("{started:?}").contains("device-code-1"));
+            let first = session.sso_poll_login(&started.login_id).await.unwrap();
+            assert_eq!(first, SsoLoginPoll::Pending { interval_secs: 5 });
+            let done = session.sso_poll_login(&started.login_id).await.unwrap();
+            assert!(matches!(done, SsoLoginPoll::Complete { .. }));
+            // The sign-in has ended.
+            assert_eq!(
+                session
+                    .sso_poll_login(&started.login_id)
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::NotFound
+            );
+
+            // The token is in the AWS CLI cache, and only there.
+            let key = crate::creds::sso::CacheKey::new(START_URL, Some("corp"));
+            let cache_file = key.path(files.sso_cache());
+            let cached = std::fs::read_to_string(&cache_file).unwrap();
+            assert!(cached.contains("sso-access-token-1"));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&cache_file).unwrap().permissions().mode();
+                assert_eq!(mode & 0o777, 0o600);
+            }
+            assert!(store.is_empty());
+            assert!(!config_text_if_any(&dir).contains("sso-access-token-1"));
+
+            let accounts = session
+                .sso_list_accounts(START_URL, "eu-west-1", Some("corp"))
+                .await
+                .unwrap();
+            assert_eq!(accounts[0].account_id, "123456789012");
+            let roles = session
+                .sso_list_roles(START_URL, "eu-west-1", Some("corp"), "123456789012")
+                .await
+                .unwrap();
+            assert_eq!(roles, ["Admin"]);
+
+            let account = session
+                .add_account(keyless(
+                    &recorder,
+                    "Prod",
+                    CredentialSource::Sso {
+                        start_url: START_URL.into(),
+                        sso_region: "eu-west-1".into(),
+                        account_id: "123456789012".into(),
+                        role_name: "Admin".into(),
+                        sso_session: Some("corp".into()),
+                    },
+                ))
+                .await
+                .unwrap();
+            let s3 = session.s3_for(&account.id).await.unwrap();
+            let head = recorder.request_head(&s3).await;
+            assert!(signed_by(&head, "ASIASSOKEY"), "{head}");
+            let config = config_text(&dir);
+            assert!(!config.contains("sso-access-token-1") && !config.contains("sso-role-secret"));
+
+            let status = session
+                .sso_status(START_URL, "eu-west-1", Some("corp"))
+                .await
+                .unwrap();
+            assert!(status.signed_in && status.can_refresh);
+            session
+                .sso_sign_out(START_URL, "eu-west-1", Some("corp"))
+                .await
+                .unwrap();
+            assert!(!cache_file.exists());
+        }
+
+        fn config_text_if_any(dir: &tempfile::TempDir) -> String {
+            std::fs::read_to_string(Dirs::under(dir.path()).config_file()).unwrap_or_default()
+        }
+
+        #[tokio::test]
+        async fn a_cancelled_sign_in_cannot_be_polled() {
+            let dir = tempfile::tempdir().unwrap();
+            let files = AwsFiles::in_dir(&dir.path().join("aws"));
+            let store = Arc::new(MemoryStore::new());
+            let session = open(&dir, &store, sso_hooks(files));
+            let started = session
+                .sso_start_login(START_URL, "eu-west-1", None)
+                .await
+                .unwrap();
+            session.sso_cancel_login(&started.login_id);
+            assert_eq!(
+                session
+                    .sso_poll_login(&started.login_id)
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::NotFound
+            );
+            assert_eq!(
+                session
+                    .sso_start_login("http://insecure.example.com", "eu-west-1", None)
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Usage
+            );
+        }
     }
 
     #[test]

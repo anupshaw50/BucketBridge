@@ -68,6 +68,7 @@ describe("bucket menu", () => {
       "Properties",
       "Sharing wizard…",
       "Folder sync…",
+      "Sync jobs…",
       "CloudFront",
       "Copy bucket name",
       "Copy https:// URL",
@@ -196,6 +197,7 @@ describe("folder menu", () => {
       "Move all files…",
       "Rename… (F2)",
       "Folder sync…",
+      "Sync jobs…",
       "Properties",
       "Versions…",
       "Search here",
@@ -265,6 +267,7 @@ describe("file menu", () => {
     expect(entriesOf("File menu")).toEqual([
       "Open (Enter)",
       "Open with…",
+      "Edit",
       "Preview (F3)",
       "Versions…",
       "Download…",
@@ -534,7 +537,7 @@ describe("keyboard use of an open menu", () => {
     await user.keyboard("{End}");
     expect(document.activeElement).toHaveAccessibleName("Delete…");
     // Paste is disabled (empty clipboard), so the arrow keys step over it.
-    await user.keyboard("{Home}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
+    await user.keyboard("{Home}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
     expect(document.activeElement).toHaveAccessibleName("Rename…");
   });
 

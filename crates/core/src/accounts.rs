@@ -84,7 +84,10 @@ use crate::client::{Credentials, validate_endpoint, validate_region};
 use crate::config::{AppConfig, CONFIG_VERSION, ConfigStore, new_uuid_v4, sync_dir};
 use crate::error::{Error, IoContext, Result};
 use crate::mfa::validate_mfa_serial;
-use crate::model::{Account, AccountInput, AccountList, AccountUpdate, SecurityStatus};
+use crate::model::{
+    Account, AccountInput, AccountList, AccountUpdate, CredentialSource, MAX_ROLE_DURATION_SECS,
+    MIN_ROLE_DURATION_SECS, SecurityStatus,
+};
 use crate::proxy::validate_proxy_settings;
 use crate::secrets::{
     KdfCost, PROXY_OWNER, PendingChange, SLOT_PROXY_PASSWORD, SLOT_SECRET, SLOT_SESSION_TOKEN,
@@ -247,18 +250,29 @@ impl AccountManager {
     /// and locked.
     pub fn add(&self, input: &AccountInput) -> Result<Account> {
         let label = check_label(&input.label)?;
-        check_access_key(&input.access_key_id)?;
-        check_secret("secret access key", &input.secret_access_key)?;
         let session_token = non_empty(input.session_token.as_deref());
-        if let Some(token) = session_token {
-            check_secret("session token", token)?;
+        if input.source.is_static() {
+            check_access_key(&input.access_key_id)?;
+            check_secret("secret access key", &input.secret_access_key)?;
+            if let Some(token) = session_token {
+                check_secret("session token", token)?;
+            }
+        } else if !input.access_key_id.trim().is_empty()
+            || !input.secret_access_key.is_empty()
+            || session_token.is_some()
+        {
+            return Err(Error::Usage(
+                "an account that gets its credentials from another source has no access key, \
+                 secret key or session token of its own"
+                    .into(),
+            ));
         }
         validate_region(&input.region)?;
         let endpoint = non_empty(input.endpoint.as_deref());
         if let Some(endpoint) = endpoint {
             validate_endpoint(endpoint)?;
         }
-        let mfa_serial = non_empty(input.mfa_serial.as_deref());
+        let mut mfa_serial = non_empty(input.mfa_serial.as_deref());
         if let Some(serial) = mfa_serial {
             validate_mfa_serial(serial)?;
         }
@@ -266,31 +280,59 @@ impl AccountManager {
         let _change = self.change_guard()?;
         let config = self.load()?;
         check_label_free(&config, label, None)?;
-        self.require_unlocked()?;
+        if input.source.is_static() {
+            self.require_unlocked()?;
+        } else {
+            check_source(&config, &input.source, None)?;
+            // The device of an assumed role is the role's; no other source
+            // can use one.
+            match (input.source.role_mfa_serial(), mfa_serial) {
+                (Some(_), _) => mfa_serial = input.source.role_mfa_serial(),
+                (None, Some(_)) => {
+                    return Err(Error::Usage(
+                        "an MFA device applies to static keys and to assumed roles only".into(),
+                    ));
+                }
+                (None, None) => {}
+            }
+        }
 
         let id = new_uuid_v4()?;
-        let secret_ref = SecretRef::first(&id, SLOT_SECRET)?;
-        let token_ref = session_token
-            .map(|_| SecretRef::first(&id, SLOT_SESSION_TOKEN))
-            .transpose()?;
+        let (secret_ref, token_ref) = if input.source.is_static() {
+            (
+                Some(SecretRef::first(&id, SLOT_SECRET)?),
+                session_token
+                    .map(|_| SecretRef::first(&id, SLOT_SESSION_TOKEN))
+                    .transpose()?,
+            )
+        } else {
+            (None, None)
+        };
         let account = Account {
             id,
             label: label.to_owned(),
             access_key_id: input.access_key_id.trim().to_owned(),
-            secret_ref: secret_ref.to_string(),
+            secret_ref: secret_ref
+                .as_ref()
+                .map(SecretRef::to_string)
+                .unwrap_or_default(),
             session_token_ref: token_ref.as_ref().map(SecretRef::to_string),
             region: input.region.clone(),
             endpoint: endpoint.map(str::to_owned),
             path_style: input.path_style,
             request_payer: input.request_payer,
             mfa_serial: mfa_serial.map(str::to_owned),
+            source: input.source.clone(),
         };
 
-        let mut changes = vec![SecretChange::Put {
-            reference: secret_ref,
-            replaces: None,
-            value: SecretString::from(input.secret_access_key.as_str()),
-        }];
+        let mut changes = Vec::new();
+        if let Some(reference) = secret_ref {
+            changes.push(SecretChange::Put {
+                reference,
+                replaces: None,
+                value: SecretString::from(input.secret_access_key.as_str()),
+            });
+        }
         if let (Some(reference), Some(token)) = (token_ref, session_token) {
             changes.push(SecretChange::Put {
                 reference,
@@ -299,21 +341,29 @@ impl AccountManager {
             });
         }
         let planned = planned_references(&changes);
-        self.apply_change(
-            |vault| vault.prepare_secret_changes(changes),
-            &planned,
-            |config, _| {
-                check_label_free(config, &account.label, None)?;
-                if config.accounts.iter().any(|a| a.id == account.id) {
-                    return Err(Error::Internal("generated a duplicate account id".into()));
-                }
-                config.accounts.push(account.clone());
-                if config.default_account_id.is_none() {
-                    config.default_account_id = Some(account.id.clone());
-                }
-                Ok(())
-            },
-        )?;
+        let insert = |config: &mut AppConfig| -> Result<()> {
+            check_label_free(config, &account.label, None)?;
+            if !account.source.is_static() {
+                check_source(config, &account.source, None)?;
+            }
+            if config.accounts.iter().any(|a| a.id == account.id) {
+                return Err(Error::Internal("generated a duplicate account id".into()));
+            }
+            config.accounts.push(account.clone());
+            if config.default_account_id.is_none() {
+                config.default_account_id = Some(account.id.clone());
+            }
+            Ok(())
+        };
+        if changes.is_empty() {
+            self.persist(insert)?;
+        } else {
+            self.apply_change(
+                |vault| vault.prepare_secret_changes(changes),
+                &planned,
+                |config, _| insert(config),
+            )?;
+        }
         Ok(account)
     }
 
@@ -354,6 +404,28 @@ impl AccountManager {
             updated.mfa_serial = None;
         } else if let Some(serial) = non_empty(update.mfa_serial.as_deref()) {
             updated.mfa_serial = Some(serial.to_owned());
+        }
+        if let Some(source) = &update.source {
+            if current.source.is_static()
+                || std::mem::discriminant(&current.source) != std::mem::discriminant(source)
+            {
+                return Err(Error::Usage(
+                    "the kind of credential source of an account cannot change".into(),
+                ));
+            }
+            check_source(&config, source, Some(id))?;
+            updated.source = source.clone();
+            updated.mfa_serial = source.role_mfa_serial().map(str::to_owned);
+        }
+        if !updated.source.is_static()
+            && (update.secret_access_key.is_some()
+                || update.session_token.is_some()
+                || update.access_key_id.is_some())
+        {
+            return Err(Error::Usage(
+                "an account that gets its credentials from another source has no keys to change"
+                    .into(),
+            ));
         }
 
         // A reference that is not this account's own (an edited config.toml)
@@ -442,10 +514,21 @@ impl AccountManager {
         let _change = self.change_guard()?;
         let config = self.config.load()?;
         let account = find_account(&config, id)?.clone();
+        if let Some(user) = config.accounts.iter().find(|other| {
+            matches!(&other.source, CredentialSource::AssumeRole { source_account_id, .. }
+                if source_account_id == id)
+        }) {
+            return Err(Error::Conflict(format!(
+                "account {:?} assumes a role through this account: remove it first",
+                user.label
+            )));
+        }
         // Only the account's own references are deleted: an edited reference
         // may point at another account's secret.
         let references: Vec<String> = [
-            account_ref(&account, &account.secret_ref, SLOT_SECRET).ok(),
+            account_ref(&account, &account.secret_ref, SLOT_SECRET)
+                .ok()
+                .filter(|_| account.has_static_keys()),
             account
                 .session_token_ref
                 .as_deref()
@@ -471,6 +554,8 @@ impl AccountManager {
             config
                 .bookmarks
                 .retain(|bookmark| bookmark.account_id != id);
+            // And its saved sync jobs.
+            config.sync_jobs.retain(|job| job.account_id != id);
             Ok(())
         });
         // Deletes the secrets now that nothing references them (or, if the
@@ -782,6 +867,13 @@ impl AccountManager {
     }
 
     fn read_credentials(&self, account: &Account) -> Result<Credentials> {
+        if !account.has_static_keys() {
+            return Err(Error::Usage(format!(
+                "account {:?} has no keys of its own: its credentials come from {}",
+                account.label,
+                source_name(&account.source)
+            )));
+        }
         let context = || format!("account {:?}", account.label);
         let secret = self
             .vault
@@ -1080,6 +1172,155 @@ fn find_account<'a>(config: &'a AppConfig, id: &str) -> Result<&'a Account> {
         .ok_or_else(|| account_not_found(id))
 }
 
+/// Validates a credential source other than static keys. `own_id` is the
+/// account being changed (it cannot be its own source).
+fn check_source(config: &AppConfig, source: &CredentialSource, own_id: Option<&str>) -> Result<()> {
+    match source {
+        CredentialSource::StaticKeys | CredentialSource::InstanceRole => Ok(()),
+        CredentialSource::AwsProfile { profile } => {
+            let name = profile.trim();
+            if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+                return Err(Error::Usage(
+                    "the AWS profile name must be 1 to 128 characters without control characters"
+                        .into(),
+                ));
+            }
+            Ok(())
+        }
+        CredentialSource::AssumeRole {
+            source_account_id,
+            role_arn,
+            session_name,
+            duration_secs,
+            external_id,
+            mfa_serial,
+        } => {
+            let Some(source_account) = config.accounts.iter().find(|a| a.id == *source_account_id)
+            else {
+                return Err(Error::NotFound(format!(
+                    "the source account {source_account_id:?} of the role does not exist"
+                )));
+            };
+            if own_id == Some(source_account_id.as_str()) {
+                return Err(Error::Usage(
+                    "an account cannot assume a role through itself".into(),
+                ));
+            }
+            // Following the chain of sources must come back to nothing.
+            let mut seen = vec![source_account.id.as_str()];
+            let mut next = source_account;
+            while let CredentialSource::AssumeRole {
+                source_account_id: parent,
+                ..
+            } = &next.source
+            {
+                let Some(parent_account) = config.accounts.iter().find(|a| a.id == *parent) else {
+                    break;
+                };
+                if seen.contains(&parent_account.id.as_str()) || own_id == Some(parent.as_str()) {
+                    return Err(Error::Usage(
+                        "the source accounts of the role form a loop".into(),
+                    ));
+                }
+                seen.push(parent_account.id.as_str());
+                next = parent_account;
+            }
+            check_role_arn(role_arn)?;
+            check_role_text("session name", session_name, 2, 64, "_+=,.@-")?;
+            if !(MIN_ROLE_DURATION_SECS..=MAX_ROLE_DURATION_SECS).contains(duration_secs) {
+                return Err(Error::Usage(format!(
+                    "the role session length must be {MIN_ROLE_DURATION_SECS} to \
+                     {MAX_ROLE_DURATION_SECS} seconds"
+                )));
+            }
+            if let Some(external_id) = external_id {
+                check_role_text("external id", external_id, 2, 1224, "_+=,.@:/-")?;
+            }
+            if let Some(serial) = mfa_serial {
+                validate_mfa_serial(serial)?;
+            }
+            Ok(())
+        }
+        CredentialSource::Sso {
+            start_url,
+            sso_region,
+            account_id,
+            role_name,
+            sso_session,
+        } => {
+            if !start_url.starts_with("https://") || start_url.len() < 12 {
+                return Err(Error::Usage(
+                    "the IAM Identity Center start URL must start with https://".into(),
+                ));
+            }
+            validate_region(sso_region)?;
+            if account_id.len() != 12 || !account_id.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(Error::Usage("the AWS account id must be 12 digits".into()));
+            }
+            if role_name.trim().is_empty() || role_name.len() > 64 {
+                return Err(Error::Usage(
+                    "the role name must be 1 to 64 characters".into(),
+                ));
+            }
+            if let Some(name) = sso_session
+                && (name.trim().is_empty() || name.len() > 128)
+            {
+                return Err(Error::Usage(
+                    "the sso-session name must be 1 to 128 characters".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Checks a role ARN: `arn:<partition>:iam::<12 digits>:role/<name>`.
+fn check_role_arn(arn: &str) -> Result<()> {
+    let parts: Vec<&str> = arn.splitn(6, ':').collect();
+    let valid = parts.len() == 6
+        && parts[0] == "arn"
+        && parts[1].starts_with("aws")
+        && parts[2] == "iam"
+        && parts[3].is_empty()
+        && parts[4].len() == 12
+        && parts[4].bytes().all(|b| b.is_ascii_digit())
+        && parts[5].starts_with("role/")
+        && parts[5].len() > "role/".len()
+        && arn.len() <= 2048
+        && arn.bytes().all(|b| b.is_ascii_graphic());
+    if valid {
+        Ok(())
+    } else {
+        Err(Error::Usage(
+            "the role ARN must look like arn:aws:iam::123456789012:role/Name".into(),
+        ))
+    }
+}
+
+fn check_role_text(what: &str, value: &str, min: usize, max: usize, extra: &str) -> Result<()> {
+    let valid_chars = value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
+    if (min..=max).contains(&value.len()) && valid_chars {
+        Ok(())
+    } else {
+        Err(Error::Usage(format!(
+            "the {what} must be {min} to {max} letters, digits or any of {extra}"
+        )))
+    }
+}
+
+/// Short phrase for error messages.
+fn source_name(source: &CredentialSource) -> &'static str {
+    match source {
+        CredentialSource::StaticKeys => "static keys",
+        CredentialSource::AwsProfile { .. } => "an AWS profile",
+        CredentialSource::AssumeRole { .. } => "an assumed role",
+        CredentialSource::Sso { .. } => "IAM Identity Center",
+        CredentialSource::InstanceRole => "the instance or container role",
+    }
+}
+
 fn check_label(label: &str) -> Result<&str> {
     let label = label.trim();
     if label.is_empty() {
@@ -1256,7 +1497,7 @@ fn shortener_ref(installation_id: Option<&str>, reference: &str) -> Result<Secre
 /// Every secret reference the configuration holds.
 fn referenced_strings(config: &AppConfig) -> BTreeSet<String> {
     let mut references = BTreeSet::new();
-    for account in &config.accounts {
+    for account in config.accounts.iter().filter(|a| a.has_static_keys()) {
         references.insert(account.secret_ref.clone());
         references.extend(account.session_token_ref.clone());
     }
@@ -1271,7 +1512,7 @@ fn referenced_strings(config: &AppConfig) -> BTreeSet<String> {
 /// out of the change unnoticed.
 fn checked_references(config: &AppConfig) -> Result<Vec<SecretRef>> {
     let mut references = BTreeSet::new();
-    for account in &config.accounts {
+    for account in config.accounts.iter().filter(|a| a.has_static_keys()) {
         references.insert(account_ref(account, &account.secret_ref, SLOT_SECRET)?);
         if let Some(reference) = &account.session_token_ref {
             references.insert(account_ref(account, reference, SLOT_SESSION_TOKEN)?);
@@ -1297,7 +1538,11 @@ fn remap_references(config: &mut AppConfig, pending: &PendingChange) -> Result<(
         *reference = new.to_string();
         Ok(())
     };
-    for account in &mut config.accounts {
+    for account in config
+        .accounts
+        .iter_mut()
+        .filter(|account| account.has_static_keys())
+    {
         let secret = account_ref(account, &account.secret_ref, SLOT_SECRET)?;
         remap(&mut account.secret_ref, secret)?;
         if let Some(reference) = account.session_token_ref.clone() {
@@ -1552,6 +1797,7 @@ mod tests {
 
     fn input(label: &str, secret: &str) -> AccountInput {
         AccountInput {
+            source: crate::model::CredentialSource::StaticKeys,
             label: label.to_owned(),
             access_key_id: "AKIAIOSFODNN7EXAMPLE".to_owned(),
             secret_access_key: secret.to_owned(),

@@ -67,6 +67,7 @@ fn settings() -> TransferSettings {
         part_size_mib: 5,
         bandwidth_limit_kibps: None,
         retry_attempts: 0,
+        ..TransferSettings::default()
     }
 }
 

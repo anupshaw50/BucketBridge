@@ -2,7 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import { errorText } from "../api/errors";
 import { runGuarded, type SessionPrompts } from "../api/guard";
-import type { SyncDirection, SyncPlan, SyncProgress, SyncRowEvent } from "../api/types";
+import type { SyncDirection, SyncJob, SyncOptions, SyncPlan, SyncProgress, SyncReport, SyncRowEvent } from "../api/types";
 import { type FrameScheduler, FrameTask } from "./scheduler";
 
 export interface SyncState {
@@ -13,6 +13,10 @@ export interface SyncState {
   running: boolean;
   cancelling: boolean;
   error: string | null;
+  /** Summary report of the last finished run of the shown plan. */
+  report: SyncReport | null;
+  /** Saved sync jobs. */
+  jobs: SyncJob[];
 }
 
 export interface AnalyzeRequest {
@@ -21,6 +25,10 @@ export interface AnalyzeRequest {
   s3Prefix: string;
   direction: SyncDirection;
   deleteExtra: boolean;
+  /** Filters, exclusion rules and analysis options. */
+  options?: SyncOptions;
+  /** Source of an s3_to_s3 sync. */
+  sourcePrefix?: string;
 }
 
 /** The plan shown in the sync wizard, its live rows and progress. */
@@ -44,6 +52,8 @@ export class SyncController {
       running: false,
       cancelling: false,
       error: null,
+      report: null,
+      jobs: [],
     }));
   }
 
@@ -54,7 +64,7 @@ export class SyncController {
   async analyze(request: AnalyzeRequest): Promise<boolean> {
     const id = ++this.analyzeRequest;
     this.dropPendingRows();
-    this.store.setState({ plan: null, progress: null, analyzing: true, running: false, error: null });
+    this.store.setState({ plan: null, progress: null, report: null, analyzing: true, running: false, error: null });
     try {
       const plan = await this.api.sync_analyze({
         account_id: request.accountId,
@@ -62,6 +72,8 @@ export class SyncController {
         s3_prefix: request.s3Prefix,
         direction: request.direction,
         delete: request.deleteExtra,
+        ...(request.options === undefined ? {} : { options: request.options }),
+        ...(request.sourcePrefix === undefined ? {} : { source_prefix: request.sourcePrefix }),
       });
       if (id !== this.analyzeRequest) {
         return false;
@@ -82,7 +94,7 @@ export class SyncController {
     if (plan === null || running) {
       return;
     }
-    this.store.setState({ running: true, cancelling: false, error: null, progress: null });
+    this.store.setState({ running: true, cancelling: false, error: null, progress: null, report: null });
     try {
       await runGuarded(() => this.api.sync_execute({ plan_id: plan.id }), plan.account_id, this.prompts);
     } catch (error) {
@@ -100,6 +112,57 @@ export class SyncController {
       await this.api.sync_cancel({ plan_id: plan.id });
     } catch (error) {
       this.store.setState({ cancelling: false, error: errorText(error) });
+    }
+  }
+
+  /** Loads the saved sync jobs. */
+  async loadJobs(): Promise<void> {
+    try {
+      this.setJobs(await this.api.list_sync_jobs());
+    } catch (error) {
+      this.store.setState({ error: errorText(error) });
+    }
+  }
+
+  setJobs(jobs: SyncJob[]): void {
+    this.store.setState({ jobs });
+  }
+
+  /** Creates (empty id) or replaces a job; rejects with the backend error. */
+  async saveJob(job: SyncJob): Promise<SyncJob> {
+    const saved = await this.api.save_sync_job({ job });
+    this.setJobs(await this.api.list_sync_jobs());
+    return saved;
+  }
+
+  /** Deletes a job; rejects with the backend error. */
+  async deleteJob(id: string): Promise<void> {
+    this.setJobs(await this.api.delete_sync_job({ id }));
+  }
+
+  /** Analyses a saved job and shows its plan, ready for review and Execute. Returns whether it worked. */
+  async runJob(id: string): Promise<boolean> {
+    const request = ++this.analyzeRequest;
+    this.dropPendingRows();
+    this.store.setState({ plan: null, progress: null, report: null, analyzing: true, running: false, error: null });
+    try {
+      const plan = await runGuardedJob(this.api, id);
+      if (request !== this.analyzeRequest) {
+        return false;
+      }
+      this.store.setState({ plan, analyzing: false });
+      return true;
+    } catch (error) {
+      if (request === this.analyzeRequest) {
+        this.store.setState({ analyzing: false, error: errorText(error) });
+      }
+      return false;
+    }
+  }
+
+  onReport(report: SyncReport): void {
+    if (this.state.plan?.id === report.plan_id) {
+      this.store.setState({ report });
     }
   }
 
@@ -160,11 +223,23 @@ export class SyncController {
   reset(): void {
     this.analyzeRequest += 1;
     this.dropPendingRows();
-    this.store.setState({ plan: null, progress: null, analyzing: false, running: false, cancelling: false, error: null });
+    this.store.setState({
+      plan: null,
+      progress: null,
+      report: null,
+      analyzing: false,
+      running: false,
+      cancelling: false,
+      error: null,
+    });
   }
 
   private dropPendingRows(): void {
     this.frame.cancel();
     this.pendingRows.clear();
   }
+}
+
+function runGuardedJob(api: Backend, id: string): Promise<SyncPlan> {
+  return api.run_sync_job({ id });
 }

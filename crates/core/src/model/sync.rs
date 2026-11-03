@@ -18,6 +18,9 @@ pub enum SyncDirection {
     Download,
     /// Both ways.
     Bidirectional,
+    /// One S3 prefix to another one (same or another bucket of the account), copied on
+    /// the server. See `SyncPlan::source_prefix`.
+    S3ToS3,
 }
 
 /// What a sync row does.
@@ -79,10 +82,16 @@ pub struct SyncPlan {
     pub id: String,
     /// Account the plan runs with.
     pub account_id: String,
-    /// Local folder.
+    /// Local folder; empty for an `s3_to_s3` plan.
     pub local_root: PathBuf,
-    /// S3 prefix, serialized as `"s3://bucket/prefix/"`.
+    /// S3 prefix, serialized as `"s3://bucket/prefix/"`. The destination of an
+    /// `s3_to_s3` plan.
     pub s3_prefix: S3Uri,
+    /// Source prefix of an `s3_to_s3` plan; `None` for every other direction. The
+    /// rows of such a plan describe the source object in `local_meta` (size and time)
+    /// and the destination object in `s3_meta`, and copy or delete on the `remote` side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_prefix: Option<S3Uri>,
     /// Direction.
     pub direction: SyncDirection,
     /// Whether extra files on the target side are deleted.
@@ -114,6 +123,10 @@ mod tests {
             json!("bidirectional")
         );
         assert_eq!(
+            serde_json::to_value(SyncDirection::S3ToS3).unwrap(),
+            json!("s3_to_s3")
+        );
+        assert_eq!(
             serde_json::to_value(SyncAction::Copy).unwrap(),
             json!("copy")
         );
@@ -141,6 +154,7 @@ mod tests {
             account_id: "a1".into(),
             local_root: PathBuf::from("/home/user/photos"),
             s3_prefix: S3Uri::parse("s3://bucket/photos/").unwrap(),
+            source_prefix: None,
             direction: SyncDirection::Upload,
             delete: false,
             created_at: at,

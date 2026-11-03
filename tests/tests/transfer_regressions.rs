@@ -499,6 +499,7 @@ async fn a_cancel_whose_cleanup_fails_keeps_the_upload_findable_and_can_be_repea
             part_size_mib: 5,
             bandwidth_limit_kibps: Some(4096),
             retry_attempts: 0,
+            ..TransferSettings::default()
         },
         runner.runners(),
         QueueOptions::default(),
@@ -660,6 +661,7 @@ async fn the_id_of_a_new_multipart_upload_is_saved_without_the_persist_delay() {
             // test looks at the file.
             bandwidth_limit_kibps: Some(256),
             retry_attempts: 0,
+            ..TransferSettings::default()
         },
         runner.runners(),
         QueueOptions {
@@ -1107,6 +1109,7 @@ async fn a_stop_ends_the_verification_of_a_resumed_download() {
         etag: "\"v1\"".into(),
         size: data.len() as u64,
         last_modified: None,
+        mtime: None,
         checksum: Some(ObjectChecksum {
             algorithm: ChecksumAlgorithm::Crc32,
             value: checksum_of(ChecksumAlgorithm::Crc32, &data).unwrap(),

@@ -1,11 +1,13 @@
-import { isFolderKey, pasteProblem } from "../../lib/s3keys";
+import { baseName, collidingNames, destinationKey, isFolderKey, pasteProblem, sameNameMessage } from "../../lib/s3keys";
 
 /** What the picker is doing with the sources. */
 export type TransferMode = "copy" | "move";
 
 /**
  * Why `keys` of `sourceBucket` cannot go to the chosen destination, or null.
- * A folder can never go into itself or one of its own subfolders.
+ * A folder can never go into itself or one of its own subfolders. With
+ * `sameAccount` false the destination bucket belongs to another account, so
+ * a bucket of the same name is another bucket and only name clashes matter.
  */
 export function destinationProblem(
   mode: TransferMode,
@@ -13,9 +15,17 @@ export function destinationProblem(
   keys: readonly string[],
   destinationBucket: string | null,
   destinationPrefix: string,
+  sameAccount = true,
 ): string | null {
   if (destinationBucket === null) {
     return "Choose a bucket first.";
+  }
+  if (!sameAccount) {
+    if (keys.length === 0) {
+      return "Nothing is selected.";
+    }
+    const [first] = collidingNames(keys.map((key) => destinationKey(key, destinationPrefix)));
+    return first === undefined ? null : sameNameMessage(baseName(first), mode === "move" ? "be moved" : "be copied");
   }
   if (sourceBucket === destinationBucket) {
     for (const key of keys) {

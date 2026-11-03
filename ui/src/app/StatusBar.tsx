@@ -1,4 +1,4 @@
-import { CloseButton, Group, Text, Tooltip } from "@mantine/core";
+import { CloseButton, Group, Text, Tooltip, UnstyledButton } from "@mantine/core";
 import { IconAlertCircle, IconInfoCircle, IconLock, IconLockOpen } from "@tabler/icons-react";
 import { formatCount, plural } from "../lib/format";
 import { useModel, useSlice } from "./context";
@@ -11,6 +11,8 @@ export function StatusBar() {
   const shown = useSlice(model.browser.store, (state) => state.visible.length);
   const bucket = useSlice(model.browser.store, (state) => state.listing.bucket);
   const counts = useSlice(model.transfers.store, (state) => state.counts);
+  const edits = useSlice(model.edits.store, (state) => state.sessions);
+  const needAttention = edits.filter((session) => session.state === "conflict" || session.state === "error").length;
   const security = useSlice(model.session.store, (state) => state.security);
   const account = useSlice(model.session.store, (state) =>
     state.accounts.find((item) => item.id === state.activeAccountId),
@@ -48,6 +50,18 @@ export function StatusBar() {
           <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
             {formatCount(counts.running)} running, {formatCount(counts.queued)} queued
           </Text>
+        ) : null}
+        {edits.length > 0 ? (
+          <UnstyledButton
+            aria-label={`Editing ${plural(edits.length, "object")}`}
+            title="Objects being edited"
+            onClick={() => model.dialogs.open({ kind: "edit-sessions" })}
+          >
+            <Text size="xs" c={needAttention > 0 ? "red" : "dimmed"} style={{ whiteSpace: "nowrap" }}>
+              Editing {formatCount(edits.length)}
+              {needAttention > 0 ? `, ${formatCount(needAttention)} need attention` : ""}
+            </Text>
+          </UnstyledButton>
         ) : null}
         {counts.failed > 0 ? (
           <Text size="xs" c="red" style={{ whiteSpace: "nowrap" }}>

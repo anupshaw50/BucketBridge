@@ -11,7 +11,9 @@ mod browse;
 mod bucketcfg;
 mod bucketrules;
 mod cloudfront;
+mod credentials;
 mod cse;
+mod edit;
 mod iam;
 pub(crate) mod mount;
 mod objectlock;
@@ -20,6 +22,7 @@ mod scan;
 mod security;
 mod share;
 mod sync;
+mod syncjobs;
 mod tools;
 mod transfer;
 mod versions;
@@ -123,6 +126,8 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         transfer::stop_all,
         transfer::cancel_all,
         transfer::clear_finished,
+        transfer::list_conflicts,
+        transfer::answer_conflict,
         transfer::pause_task,
         transfer::resume_task,
         transfer::cancel_task,
@@ -131,6 +136,10 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         sync::sync_execute,
         sync::sync_cancel,
         sync::sync_get,
+        syncjobs::list_sync_jobs,
+        syncjobs::save_sync_job,
+        syncjobs::delete_sync_job,
+        syncjobs::run_sync_job,
         versions::list_versions,
         versions::restore_version,
         versions::purge_versions,
@@ -206,6 +215,20 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         mount::mount_status,
         mount::mount_bucket,
         mount::unmount_bucket,
+        edit::start_edit,
+        edit::list_edits,
+        edit::stop_edit,
+        edit::resolve_edit_conflict,
+        credentials::list_aws_profiles,
+        credentials::import_aws_profiles,
+        credentials::probe_instance_role,
+        credentials::sso_start_login,
+        credentials::sso_poll_login,
+        credentials::sso_cancel_login,
+        credentials::sso_status,
+        credentials::sso_sign_out,
+        credentials::sso_list_accounts,
+        credentials::sso_list_roles,
     ]
 }
 

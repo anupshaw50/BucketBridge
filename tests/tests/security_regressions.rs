@@ -55,6 +55,7 @@ fn manager(dir: &tempfile::TempDir, store: &Arc<MemoryStore>) -> AccountManager 
 
 fn input(endpoint: Option<String>, mfa_serial: Option<&str>) -> AccountInput {
     AccountInput {
+        source: bucketbridge_core::model::CredentialSource::StaticKeys,
         label: "Work".to_owned(),
         access_key_id: "AKIAIOSFODNN7EXAMPLE".to_owned(),
         secret_access_key: SECRET.to_owned(),

@@ -65,6 +65,12 @@ pub trait Console: Send + Sync {
 
     /// Whether standard error is a terminal (progress is drawn only there).
     fn stderr_is_terminal(&self) -> bool;
+
+    /// Whether questions can be asked on the terminal (standard input and
+    /// standard error are both terminals). Used for `--if-exists ask`.
+    fn can_ask(&self) -> bool {
+        false
+    }
 }
 
 /// The console of this process: prompts go to the controlling terminal
@@ -80,6 +86,10 @@ impl Console for ProcessConsole {
 
     fn stderr_is_terminal(&self) -> bool {
         io::stderr().is_terminal()
+    }
+
+    fn can_ask(&self) -> bool {
+        io::stdin().is_terminal() && io::stderr().is_terminal()
     }
 }
 

@@ -25,6 +25,7 @@ const account: Account = {
   path_style: true,
   request_payer: false,
   mfa_serial: "arn:aws:iam::000000000000:mfa/dev",
+  source: { type: "static_keys" },
 };
 
 describe("account forms", () => {

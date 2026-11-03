@@ -1979,6 +1979,7 @@ async fn resumed_download_asks_for_the_rest_with_if_match_and_restarts_on_412() 
             etag: "\"v1\"".into(),
             size: 11,
             last_modified: None,
+            mtime: None,
             checksum: None,
             offset: 5,
         };

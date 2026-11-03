@@ -60,7 +60,8 @@ use aws_smithy_async::time::{SharedTimeSource, SystemTimeSource, TimeSource};
 
 use crate::client::{Credentials, validate_endpoint, validate_region};
 use crate::error::{Error, Result};
-use crate::model::Account;
+use crate::model::{Account, CredentialSource};
+use aws_credential_types::provider::SharedCredentialsProvider;
 
 /// How long before its expiry a session stops being used.
 pub const DEFAULT_EXPIRY_MARGIN: Duration = Duration::from_secs(5 * 60);
@@ -85,6 +86,7 @@ struct Binding {
     session_token_ref: Option<String>,
     endpoint: Option<String>,
     mfa_serial: Option<String>,
+    source: CredentialSource,
 }
 
 impl Binding {
@@ -95,6 +97,7 @@ impl Binding {
             session_token_ref: account.session_token_ref.clone(),
             endpoint: account.endpoint.clone(),
             mfa_serial: account.mfa_serial.clone(),
+            source: account.source.clone(),
         }
     }
 }
@@ -119,7 +122,7 @@ impl MfaSession {
         }
     }
 
-    fn issued_for(mut self, account: &Account) -> Self {
+    pub(crate) fn issued_for(mut self, account: &Account) -> Self {
         self.binding = Some(Binding::of(account));
         self
     }
@@ -194,7 +197,6 @@ pub fn sts_config(
     account: &Account,
     credentials: &Credentials,
 ) -> Result<aws_sdk_sts::config::Builder> {
-    let endpoint = sts_endpoint(account)?;
     let static_credentials = aws_sdk_sts::config::Credentials::new(
         credentials.access_key_id.as_str(),
         credentials.secret_access_key.as_str(),
@@ -202,6 +204,17 @@ pub fn sts_config(
         None,
         CREDENTIALS_PROVIDER_NAME,
     );
+    sts_config_with_provider(account, SharedCredentialsProvider::new(static_credentials))
+}
+
+/// [`sts_config`] signed by a credentials provider instead of fixed keys: an
+/// assumed role signs its `AssumeRole` call with the credentials of its source
+/// account, whatever kind of source that is.
+pub fn sts_config_with_provider(
+    account: &Account,
+    provider: SharedCredentialsProvider,
+) -> Result<aws_sdk_sts::config::Builder> {
+    let endpoint = sts_endpoint(account)?;
     let (region, url) = match endpoint {
         StsEndpoint::Aws { region } => (region, None),
         StsEndpoint::Custom { url, region } => (region, Some(url)),
@@ -209,7 +222,7 @@ pub fn sts_config(
     let mut builder = aws_sdk_sts::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new(region))
-        .credentials_provider(static_credentials)
+        .credentials_provider(provider)
         .retry_config(RetryConfig::disabled())
         .timeout_config(
             TimeoutConfig::builder()
@@ -516,7 +529,7 @@ impl fmt::Debug for MfaSessions {
     }
 }
 
-fn session_from_output(output: GetSessionTokenOutput) -> Result<MfaSession> {
+pub(crate) fn session_from_output(output: GetSessionTokenOutput) -> Result<MfaSession> {
     let issued = output.credentials.ok_or_else(no_credentials_returned)?;
     let expires_at = SystemTime::try_from(issued.expiration).map_err(|_| invalid_expiration())?;
     // Move the strings out instead of copying them.
@@ -528,7 +541,7 @@ fn session_from_output(output: GetSessionTokenOutput) -> Result<MfaSession> {
     Ok(MfaSession::new(credentials, expires_at))
 }
 
-fn check_code(code: &str) -> Result<()> {
+pub(crate) fn check_code(code: &str) -> Result<()> {
     if code.len() == 6 && code.bytes().all(|b| b.is_ascii_digit()) {
         Ok(())
     } else {
@@ -682,6 +695,7 @@ mod tests {
 
     fn account(id: &str, region: &str, endpoint: Option<&str>) -> Account {
         Account {
+            source: crate::model::CredentialSource::StaticKeys,
             id: id.to_owned(),
             label: format!("label {id}"),
             access_key_id: "AKIAIOSFODNN7EXAMPLE".to_owned(),

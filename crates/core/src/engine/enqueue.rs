@@ -19,6 +19,7 @@ use crate::cse::{Compression, CseMode, CsePasswords};
 use crate::secrets::SecretString;
 
 use super::expand::{ExpandFailure, Expansion, expand_delete, expand_upload};
+use super::job::JobOptions;
 use super::runner::rejected;
 use super::{TransferEngine, TransferOptions};
 use crate::error::Result;
@@ -37,7 +38,30 @@ pub async fn enqueue_upload(
     bucket: &str,
     prefix: &str,
 ) -> Result<Vec<TransferTask>> {
-    upload_in_batch(queue, Batch::new(account_id), local_paths, bucket, prefix).await
+    enqueue_upload_with(
+        queue,
+        account_id,
+        local_paths,
+        bucket,
+        prefix,
+        &JobOptions::default(),
+    )
+    .await
+}
+
+/// [`enqueue_upload`] with per-call options (overwrite policy, modification
+/// times). `options.dst_account` does not apply to uploads.
+pub async fn enqueue_upload_with(
+    queue: &TransferQueue,
+    account_id: &str,
+    local_paths: &[PathBuf],
+    bucket: &str,
+    prefix: &str,
+    options: &JobOptions,
+) -> Result<Vec<TransferTask>> {
+    options.validate()?;
+    let batch = Batch::with_options(account_id, options);
+    upload_in_batch(queue, batch, local_paths, bucket, prefix).await
 }
 
 /// `enqueue_upload` with client-side encryption: every file is compressed
@@ -124,7 +148,32 @@ pub async fn enqueue_download(
     keys: &[String],
     dest_dir: &Path,
 ) -> Result<Vec<TransferTask>> {
-    download_in_batch(queue, Batch::new(account_id), s3, bucket, keys, dest_dir).await
+    enqueue_download_with(
+        queue,
+        s3,
+        account_id,
+        bucket,
+        keys,
+        dest_dir,
+        &JobOptions::default(),
+    )
+    .await
+}
+
+/// [`enqueue_download`] with per-call options (overwrite policy, modification
+/// times). `options.dst_account` does not apply to downloads.
+pub async fn enqueue_download_with(
+    queue: &TransferQueue,
+    s3: &S3,
+    account_id: &str,
+    bucket: &str,
+    keys: &[String],
+    dest_dir: &Path,
+    options: &JobOptions,
+) -> Result<Vec<TransferTask>> {
+    options.validate()?;
+    let batch = Batch::with_options(account_id, options);
+    download_in_batch(queue, batch, s3, bucket, keys, dest_dir).await
 }
 
 /// `enqueue_download` with client-side decryption: objects that start with
@@ -205,13 +254,41 @@ pub async fn enqueue_copy(
     dst_bucket: &str,
     dst_prefix: &str,
 ) -> Result<Vec<TransferTask>> {
+    enqueue_copy_with(
+        queue,
+        s3,
+        account_id,
+        src_bucket,
+        keys,
+        dst_bucket,
+        dst_prefix,
+        &JobOptions::default(),
+    )
+    .await
+}
+
+/// [`enqueue_copy`] with per-call options: the overwrite policy, and
+/// `dst_account`, the account that owns the destination bucket (a copy
+/// between accounts; see `docs/engines.md`).
+#[allow(clippy::too_many_arguments)]
+pub async fn enqueue_copy_with(
+    queue: &TransferQueue,
+    s3: &S3,
+    account_id: &str,
+    src_bucket: &str,
+    keys: &[String],
+    dst_bucket: &str,
+    dst_prefix: &str,
+    options: &JobOptions,
+) -> Result<Vec<TransferTask>> {
+    options.validate()?;
     let engine = TransferEngine::new(s3.clone(), TransferOptions::default())?;
     let expansion = engine
         .expand_copy(src_bucket, keys, dst_bucket, dst_prefix)
         .await?;
     add_server_side(
         queue,
-        account_id,
+        Batch::with_options(account_id, options),
         TransferKind::Copy,
         expansion,
         (src_bucket, dst_bucket, dst_prefix),
@@ -229,13 +306,40 @@ pub async fn enqueue_move(
     dst_bucket: &str,
     dst_prefix: &str,
 ) -> Result<Vec<TransferTask>> {
+    enqueue_move_with(
+        queue,
+        s3,
+        account_id,
+        src_bucket,
+        keys,
+        dst_bucket,
+        dst_prefix,
+        &JobOptions::default(),
+    )
+    .await
+}
+
+/// [`enqueue_move`] with per-call options (see [`enqueue_copy_with`]). A move
+/// to another account deletes each source only after its copy was verified.
+#[allow(clippy::too_many_arguments)]
+pub async fn enqueue_move_with(
+    queue: &TransferQueue,
+    s3: &S3,
+    account_id: &str,
+    src_bucket: &str,
+    keys: &[String],
+    dst_bucket: &str,
+    dst_prefix: &str,
+    options: &JobOptions,
+) -> Result<Vec<TransferTask>> {
+    options.validate()?;
     let engine = TransferEngine::new(s3.clone(), TransferOptions::default())?;
     let expansion = engine
         .expand_move(src_bucket, keys, dst_bucket, dst_prefix)
         .await?;
     add_server_side(
         queue,
-        account_id,
+        Batch::with_options(account_id, options),
         TransferKind::Move,
         expansion,
         (src_bucket, dst_bucket, dst_prefix),
@@ -282,7 +386,7 @@ pub async fn enqueue_rename(
     };
     add_server_side(
         queue,
-        account_id,
+        Batch::new(account_id),
         TransferKind::Move,
         expansion,
         (bucket, bucket, ""),
@@ -293,7 +397,7 @@ pub async fn enqueue_rename(
 /// destination prefix)`.
 fn add_server_side(
     queue: &TransferQueue,
-    account_id: &str,
+    batch: Batch,
     kind: TransferKind,
     expansion: Expansion<super::CopyItem>,
     (src_bucket, dst_bucket, dst_prefix): (&str, &str, &str),
@@ -302,7 +406,7 @@ fn add_server_side(
         bucket: bucket.to_owned(),
         key: key.to_owned(),
     };
-    Batch::new(account_id).add(
+    batch.add(
         queue,
         expansion,
         |item| {
@@ -340,6 +444,14 @@ impl Batch {
         Batch {
             account_id: account_id.to_owned(),
             group_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    /// A batch whose group ID carries the per-call `options`.
+    fn with_options(account_id: &str, options: &JobOptions) -> Self {
+        Batch {
+            account_id: account_id.to_owned(),
+            group_id: options.group_id(uuid::Uuid::new_v4().to_string()),
         }
     }
 

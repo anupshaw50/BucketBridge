@@ -519,3 +519,94 @@ reordering, repeating, dropping or truncating chunks and editing the header fail
 authentication. The key check (a tag over an empty message) separates a wrong
 password from damaged data. The marker metadata holds no secret. See
 `crates/core/src/cse/format.rs`.
+
+## Credential sources (v0.2.0)
+
+An account's credentials come from its `source` (`model::CredentialSource`).
+`crates/core/src/creds` builds a refreshing credentials provider for every
+source except static keys, and the SDK clients of the account (S3, IAM,
+CloudFront) are built on that provider (`build_client_with_provider`) instead
+of fixed keys. The SDK asks the provider for credentials, keeps them until
+shortly before they expire and asks again. Static-key accounts are built
+exactly as before.
+
+| Source | Provider | What is stored, and where |
+|---|---|---|
+| `static_keys` | fixed credentials read from the secret store | access key id in `config.toml`; secret key and optional session token in the secret store (see [Secret store](#secret-store)) |
+| `aws_profile` | `aws-config` profile provider on the AWS files | the profile name in `config.toml`; keys stay in the AWS files, which BucketBridge never writes |
+| `assume_role` | `AssumeRoleCredentials`: STS `AssumeRole`, signed through the source account | role ARN, session name, duration, external id and MFA serial in `config.toml` (none is a secret); the session lives in memory |
+| `sso` | `SsoCredentials`: `GetRoleCredentials` with the cached portal token | start URL, region, account id, role name in `config.toml`; the portal token only in the AWS CLI cache file |
+| `instance_role` | `aws-config` IMDSv2 or container credentials provider | nothing; the credentials live in memory |
+
+Rules:
+
+- **No secret in `config.toml`.** The only secret-bearing field of an account
+  is `secret_ref`/`session_token_ref`, and accounts of other sources have none
+  (`secret_ref` is empty). The secret-store bookkeeping (journal, master
+  password re-encryption, rotation, purge) skips them. External ids are not
+  secrets (they only stop a confused deputy) and are stored.
+- **Order of failures in `Session::s3_for` is unchanged:** `locked`, then
+  `mfa_required`, then `not_found`. A role through an MFA-protected source
+  account asks for the source account's code too.
+- **Credentials are never logged.** The SDK `Credentials` type redacts itself
+  in `Debug`; the SSO token (`SsoToken`), the pending sign-in (`DeviceLogin`)
+  and the providers print no token, client secret or device code. Provider
+  failures keep their cause in the message ("not signed in ...", "the SSO
+  session expired: sign in again", "no instance or container role ...") and are
+  classified `auth`.
+- **Assumed roles.** Session name (2 to 64 of `A-Za-z0-9_+=,.@-`), duration
+  (900 to 43200 seconds), external id and role ARN are validated when the
+  account is saved. Without an MFA device the provider assumes the role again
+  once less than 5 minutes of the session is left. With one, the role's trust
+  policy needs a fresh code: `mfa_login` calls `AssumeRole` with the serial and
+  code and keeps the session like any MFA session (in memory, dropped on lock,
+  on a change of the account or of its source, and when it expires, after which
+  the account reports `mfa_required` again). A chain of roles is followed up to
+  5 deep; loops are refused when the account is saved and again when the client
+  is built. A source account cannot be removed while a role uses it. The STS
+  call is not retried when it carries an MFA code.
+- **AWS shared config.** The files are read with the official `aws-config`
+  parser: `~/.aws/config` and `~/.aws/credentials`, or `AWS_CONFIG_FILE` and
+  `AWS_SHARED_CREDENTIALS_FILE` (a leading `~/` is expanded). Importing creates
+  accounts that hold only the profile name. Listing never returns a key. The
+  profile provider supports what the AWS CLI does for a profile: static keys,
+  `role_arn` with `source_profile` or `credential_source`, `credential_process`
+  (the command runs with the user's own rights, as in the CLI), web identity and
+  IAM Identity Center profiles.
+- **Instance and container roles.** The container endpoint is used when
+  `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` or `AWS_CONTAINER_CREDENTIALS_FULL_URI`
+  is set, otherwise the instance metadata service with an IMDSv2 session token.
+  Nothing is stored. Requests to the metadata service go through the
+  application's HTTP client; the probe is bounded to 8 seconds.
+- **IAM Identity Center (SSO).**
+  - Sign-in is the OIDC device authorization flow: `RegisterClient` (public
+    client, scope `sso:account:access`, grant types device code and refresh
+    token), `StartDeviceAuthorization`, then `CreateToken` polls. The device
+    code and the client secret live in memory only, in a pending sign-in that is
+    forgotten after 20 minutes. `slow_down` lengthens the polling interval by 5
+    seconds.
+  - **Token cache shared with the AWS CLI.** The token is stored in
+    `~/.aws/sso/cache/<sha1>.json` in the AWS CLI's format (`startUrl`,
+    `region`, `accessToken`, `expiresAt`, `refreshToken`, `clientId`,
+    `clientSecret`, `registrationExpiresAt`). `<sha1>` is the hex SHA-1 of the
+    `sso-session` name when the profile or account has one, and of the start URL
+    otherwise, which are the AWS CLI's rules, so `aws sso login` and BucketBridge
+    use each other's sign-ins. The older `...UTC` timestamp form is read. Fields
+    BucketBridge does not know are kept when it rewrites a file.
+  - **The cache file is the only place a token is stored**: never in
+    `config.toml`, the keychain, a log or an IPC message. It is created with mode
+    0600 in a directory of mode 0700 (the directory is tightened when it lets
+    others in), written to a random temporary name opened with `create_new` and
+    renamed over the target, so a partial file is never seen. Signing out deletes
+    the file. On Windows the default access rights of the user profile apply.
+  - An access token is renewed with the refresh token 60 seconds before it
+    expires (when the sign-in issued one and the client registration is still
+    valid); otherwise the account fails with `auth` and the message asks to sign
+    in again. Role credentials are requested again 5 minutes before they expire.
+  - The SSO region decides the partition; GovCloud (`us-gov-*`) and China
+    (`cn-*`) regions use their own OIDC and portal endpoints through the SDK's
+    endpoint resolution.
+- **Dependencies.** `aws-config` (features `default-https-client`, `rt-tokio`,
+  `credentials-process`, `sso`), `aws-sdk-sso` and `aws-sdk-ssooidc` use the same
+  rustls/hyper 1 stack as the other SDK crates (`default-features = false`);
+  `cargo tree` finds no OpenSSL, native-tls or hyper 0.14.

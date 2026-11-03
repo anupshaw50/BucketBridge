@@ -1,12 +1,20 @@
-import { Anchor, Button, Code, Group, ScrollArea, Stack, Table, Text, Title } from "@mantine/core";
-import { IconBrandGithub, IconBook, IconBug, IconRefresh } from "@tabler/icons-react";
+import { Anchor, Button, Code, Divider, Group, ScrollArea, Stack, Table, Text, Title } from "@mantine/core";
+import { IconBook, IconBrandGithub, IconBrandLinkedin, IconBug, IconHeart, IconRefresh, IconUser, IconWorld } from "@tabler/icons-react";
+// The full GPL-3.0 text, bundled from the repository root at build time.
+import LICENSE_TEXT from "../../../../LICENSE?raw";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
 import { BrandLogo } from "../../components/BrandLogo";
 
 export const REPOSITORY_URL = "https://github.com/anupshaw50/BucketBridge";
+export const WEBSITE_URL = "https://anupshaw50.github.io/BucketBridge/";
+export const AUTHOR_NAME = "Anup Shaw";
+export const AUTHOR_HANDLE = "anupshaw50";
+export const AUTHOR_URL = "https://github.com/anupshaw50";
+export const LINKEDIN_URL = "https://www.linkedin.com/in/anup-kumar-shaw/";
+export const SPONSOR_URL = "https://github.com/sponsors/anupshaw50";
 
-const LICENSE_NOTICE = `BucketBridge
+const COPYRIGHT_NOTICE = `BucketBridge
 Copyright (C) 2026 Anup Shaw (anupshaw50)
 
 This program is free software: you can redistribute it and/or modify it under
@@ -25,7 +33,7 @@ this program (the LICENSE file next to it). If not, see
 export function AboutDialog({ onClose }: { onClose: () => void }) {
   const model = useModel();
   const info = useSlice(model.app, (state) => state.info);
-  // Links always use the project URL: the desktop shell only allows opening URLs below it.
+  // The desktop shell only opens the project, website and author URLs (capabilities/default.json).
   const repository = REPOSITORY_URL;
   const open = (url: string) => {
     model.platform.openUrl(url).catch((error: unknown) => model.status.error(error, { notify: "The link could not be opened" }));
@@ -63,6 +71,34 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
             Check for updates
           </Button>
         </Group>
+        <Divider label="Author" labelPosition="left" />
+        <Group justify="space-between" align="center" wrap="nowrap">
+          <Stack gap={0}>
+            <Text size="sm" fw={600}>
+              Created and maintained by {AUTHOR_NAME}
+            </Text>
+            <Text size="xs" c="dimmed">
+              @{AUTHOR_HANDLE} on GitHub · Copyright (C) 2026 {AUTHOR_NAME} ({AUTHOR_HANDLE})
+            </Text>
+          </Stack>
+        </Group>
+        <Group gap="xs">
+          <Button size="xs" variant="light" leftSection={<IconUser size={14} />} onClick={() => open(AUTHOR_URL)}>
+            {AUTHOR_NAME} on GitHub
+          </Button>
+          <Button size="xs" variant="light" leftSection={<IconBrandLinkedin size={14} />} onClick={() => open(LINKEDIN_URL)}>
+            LinkedIn
+          </Button>
+          <Button size="xs" variant="light" leftSection={<IconWorld size={14} />} onClick={() => open(WEBSITE_URL)}>
+            Website
+          </Button>
+          <Button size="xs" variant="light" color="pink" leftSection={<IconHeart size={14} />} onClick={() => open(SPONSOR_URL)}>
+            Sponsor
+          </Button>
+        </Group>
+        <Text size="xs" c="dimmed">
+          If BucketBridge is useful to you, a star on GitHub helps others find it.
+        </Text>
         <Text size="xs" c="dimmed">
           Repository:{" "}
           <Anchor component="button" type="button" size="xs" onClick={() => open(repository)}>
@@ -92,9 +128,15 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
         <Text size="sm" fw={600}>
           License
         </Text>
-        <ScrollArea h={180} type="auto">
-          <Code block fz="xs">
-            {LICENSE_NOTICE}
+        <Code block fz="xs">
+          {COPYRIGHT_NOTICE}
+        </Code>
+        <Text size="xs" c="dimmed">
+          Full text of the GNU General Public License, version 3:
+        </Text>
+        <ScrollArea h={220} type="auto">
+          <Code block fz="xs" aria-label="GNU General Public License version 3">
+            {LICENSE_TEXT}
           </Code>
         </ScrollArea>
         <Group justify="flex-end">

@@ -49,6 +49,9 @@ allow = [
     "MIT",
     "MIT-0",
     "Zlib",
+    # Public-domain dedication (no conditions at all): notify, the file watcher
+    # behind edit in place.
+    "CC0-1.0",
     # Unicode data licence: unicode-ident and the ICU4X crates under url/idna.
     "Unicode-3.0",
     # File-level copyleft, required by Tauri's HTML/CSS parser stack

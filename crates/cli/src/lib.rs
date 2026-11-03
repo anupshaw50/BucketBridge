@@ -20,6 +20,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod app;
+mod ask;
 mod cli;
 mod commands;
 mod context;
@@ -32,5 +33,5 @@ mod records;
 mod transfer;
 
 pub use app::{Exit, run};
-pub use context::Secrets;
+pub use context::{Secrets, SessionOptionsHook};
 pub use io::{Console, Env, Io, NoConsole, ProcessConsole};

@@ -1,8 +1,9 @@
-import { Anchor, Button, Group, Stack, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { Anchor, Button, Group, Select, Stack, Text, TextInput, UnstyledButton } from "@mantine/core";
 import { IconBucket, IconFolder, IconFolderPlus } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+import { useSlice } from "../../app/context";
 import { toBbError } from "../../api/errors";
-import type { Bucket } from "../../api/types";
+import type { Bucket, IfExists } from "../../api/types";
 import { useModel } from "../../app/context";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { plural } from "../../lib/format";
@@ -21,10 +22,28 @@ interface Listing {
   error: string | null;
 }
 
+/** "settings" keeps the overwrite policy of the settings. */
+type PolicyChoice = IfExists | "settings";
+
+const POLICY_OPTIONS: { value: PolicyChoice; label: string }[] = [
+  { value: "settings", label: "As set in Settings" },
+  { value: "overwrite", label: "Overwrite" },
+  { value: "ask", label: "Ask me" },
+  { value: "skip", label: "Skip" },
+  { value: "overwrite_if_newer", label: "Overwrite if newer" },
+  { value: "rename", label: "Rename (name (1).ext)" },
+];
+
+function isPolicyChoice(value: string | null): value is PolicyChoice {
+  return POLICY_OPTIONS.some((item) => item.value === value);
+}
+
 /**
- * Reusable destination picker: browse the buckets of the account and their
- * folders, create a folder, and choose where a copy or move goes. The copy
- * engine works inside one account, so the account is fixed to the source's.
+ * Reusable destination picker: browse the buckets of an account and their
+ * folders, create a folder, and choose where a copy or move goes. The
+ * destination account starts as the source's and can be another one: the
+ * objects are then copied by the service when it can, and streamed through
+ * this computer otherwise.
  */
 export function DestinationPicker({
   mode,
@@ -40,7 +59,11 @@ export function DestinationPicker({
   onClose: () => void;
 }) {
   const model = useModel();
-  const account = model.session.store.getState().accounts.find((item) => item.id === accountId);
+  const accounts = useSlice(model.session.store, (state) => state.accounts);
+  const [dstAccountId, setDstAccountId] = useState(accountId);
+  const [policy, setPolicy] = useState<PolicyChoice>("settings");
+  const account = accounts.find((item) => item.id === dstAccountId);
+  const sameAccount = dstAccountId === accountId;
   const [bucket, setBucket] = useState<string | null>(sourceBucket);
   const [prefix, setPrefix] = useState("");
   const [listing, setListing] = useState<Listing | null>(null);
@@ -50,14 +73,14 @@ export function DestinationPicker({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
-  const at = `${bucket ?? ""}\n${prefix}\n${reload}`;
+  const at = `${dstAccountId}\n${bucket ?? ""}\n${prefix}\n${reload}`;
 
   useEffect(() => {
     let current = true;
     const load = async () => {
       try {
         if (bucket === null) {
-          const buckets = await model.api.list_buckets({ account_id: accountId });
+          const buckets = await model.api.list_buckets({ account_id: dstAccountId });
           if (current) {
             setListing({ at, buckets, folders: [], error: null });
           }
@@ -67,7 +90,7 @@ export function DestinationPicker({
         let token: string | null = null;
         for (let page = 0; page < MAX_PAGES; page += 1) {
           const result = await model.api.list_objects({
-            account_id: accountId,
+            account_id: dstAccountId,
             bucket,
             prefix,
             flat: false,
@@ -92,10 +115,10 @@ export function DestinationPicker({
     return () => {
       current = false;
     };
-  }, [model, accountId, bucket, prefix, at]);
+  }, [model, dstAccountId, bucket, prefix, at]);
 
   const ready = listing !== null && listing.at === at;
-  const problem = destinationProblem(mode, sourceBucket, keys, bucket, prefix);
+  const problem = destinationProblem(mode, sourceBucket, keys, bucket, prefix, sameAccount);
   const verb = mode === "copy" ? "Copy" : "Move";
   const go = (nextBucket: string | null, nextPrefix: string) => {
     setBucket(nextBucket);
@@ -121,7 +144,7 @@ export function DestinationPicker({
     }
     try {
       const key = childKey(prefix, name, true);
-      await model.api.create_folder({ account_id: accountId, bucket, key });
+      await model.api.create_folder({ account_id: dstAccountId, bucket, key });
       model.status.info(`Folder ${key} created.`);
       go(bucket, key);
     } catch (raw) {
@@ -140,6 +163,8 @@ export function DestinationPicker({
       keys,
       dst_bucket: bucket,
       dst_prefix: prefix,
+      dst_account_id: sameAccount ? null : dstAccountId,
+      if_exists: policy === "settings" ? null : policy,
     });
     setBusy(false);
     if (ok) {
@@ -168,9 +193,34 @@ export function DestinationPicker({
         )
       }
     >
-      <Text size="sm" c="dimmed">
-        Account: {account?.label ?? accountId}
-      </Text>
+      {accounts.length > 1 ? (
+        <Select
+          label="Destination account"
+          data={accounts.map((item) => ({ value: item.id, label: item.label }))}
+          value={dstAccountId}
+          allowDeselect={false}
+          onChange={(value) => {
+            if (value !== null) {
+              setDstAccountId(value);
+              setBucket(null);
+              setPrefix("");
+              setCreating(false);
+              setError(null);
+            }
+          }}
+          comboboxProps={{ withinPortal: false }}
+        />
+      ) : (
+        <Text size="sm" c="dimmed">
+          Account: {account?.label ?? dstAccountId}
+        </Text>
+      )}
+      {sameAccount ? null : (
+        <Text size="xs" c="dimmed">
+          Between accounts the service copies the objects when it can; otherwise they go through this computer.
+          {mode === "move" ? " Each source is deleted only after its copy was checked." : ""}
+        </Text>
+      )}
       <Group gap={4} wrap="wrap" aria-label="Destination path">
         <Anchor component="button" type="button" size="sm" onClick={() => go(null, "")}>
           Buckets
@@ -256,6 +306,18 @@ export function DestinationPicker({
       <Text size="sm" style={{ overflowWrap: "anywhere" }}>
         Destination: {bucket === null ? "none chosen" : s3Uri(bucket, prefix)}
       </Text>
+      <Select
+        label="If an item already exists there"
+        data={POLICY_OPTIONS}
+        value={policy}
+        allowDeselect={false}
+        onChange={(value) => {
+          if (isPolicyChoice(value)) {
+            setPolicy(value);
+          }
+        }}
+        comboboxProps={{ withinPortal: false }}
+      />
       {problem !== null && bucket !== null ? (
         <Text size="sm" c="red" role="alert">
           {problem}

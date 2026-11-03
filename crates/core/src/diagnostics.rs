@@ -290,6 +290,7 @@ pub async fn probe_input(
         validate_bucket_name(bucket)?;
     }
     let account = Account {
+        source: crate::model::CredentialSource::StaticKeys,
         id: "unsaved".to_owned(),
         label: input.label.clone(),
         access_key_id: input.access_key_id.clone(),

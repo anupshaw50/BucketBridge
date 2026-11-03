@@ -350,6 +350,7 @@ fn bb_with(service: &Service) -> (InProcess, Secrets) {
         store: bb.store.clone(),
         kdf_cost: InProcess::KDF,
         iam_config_hook: None,
+        options_hook: None,
         cloudfront_config_hook: Some(Arc::new(move |builder| {
             let mut interceptor = MockResponseInterceptor::new().rule_mode(RuleMode::MatchAny);
             for rule in rules.iter() {

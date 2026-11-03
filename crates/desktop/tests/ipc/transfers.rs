@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use bucketbridge_core::ErrorKind;
 use bucketbridge_core::secrets::MemoryStore;
 use bucketbridge_core::settings::ChecksumAlgorithm;
-use bucketbridge_desktop::{Core, LOG_ENTRY, TRANSFER_REMOVED, TRANSFER_UPDATE};
+use bucketbridge_desktop::{Core, LOG_ENTRY, TRANSFER_CONFLICT, TRANSFER_REMOVED, TRANSFER_UPDATE};
 use serde_json::{Value, json};
 
 use crate::harness::*;
@@ -1358,4 +1358,143 @@ fn a_queue_file_that_cannot_be_saved_is_reported_in_the_event_log() {
     assert_eq!(logged.as_array().unwrap().len(), 1);
     // The queue keeps working in memory.
     assert_eq!(h.tasks().len(), 1);
+}
+
+#[test]
+fn the_overwrite_policy_skips_asks_and_renames() {
+    let server = start_s3();
+    let h = Harness::new();
+    let id = h.add_account(&server, "Main");
+    let bucket = block_on(server.new_bucket());
+    block_on(server.put(&bucket, "a.txt", b"old".to_vec()));
+    let local = tempfile::tempdir().unwrap();
+    let path = write(&local.path().join("a.txt"), b"new".to_vec());
+
+    // The defaults: overwrite, and keep modification times.
+    let settings = h.ok("get_settings", json!({}));
+    assert_eq!(settings["transfer"]["if_exists"], "overwrite");
+    assert_eq!(settings["data_integrity"]["preserve_mtime"], true);
+
+    let upload = |extra: Value| {
+        let mut args = json!({
+            "account_id": id,
+            "local_paths": [path],
+            "bucket": bucket,
+            "prefix": "",
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            args[key] = value.clone();
+        }
+        h.ok("enqueue_upload", args)[0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    // A per-call override: the task ends skipped, with the reason.
+    let skipped = upload(json!({ "if_exists": "skip" }));
+    let task = h.wait_state(&skipped, "skipped");
+    assert!(task["error"].as_str().unwrap().contains("already exists"));
+    assert_eq!(block_on(server.get(&bucket, "a.txt")), b"old");
+
+    // `ask`: the task waits, the question is announced and listed, and the
+    // answer decides.
+    let conflicts = h.events(TRANSFER_CONFLICT);
+    let asking = upload(json!({ "if_exists": "ask" }));
+    let asked = next(&conflicts);
+    assert_eq!(asked["type"], "asked");
+    assert_eq!(asked["task_id"], asking);
+    assert_eq!(
+        asked["conflict"]["destination"],
+        format!("s3://{bucket}/a.txt")
+    );
+    let listed = h.ok("list_conflicts", json!({}));
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(h.task(&asking)["state"], "running");
+    h.ok(
+        "answer_conflict",
+        json!({ "task_id": asking, "choice": "rename", "apply_to_batch": false }),
+    );
+    assert_eq!(next(&conflicts)["type"], "resolved");
+    h.wait_state(&asking, "completed");
+    assert_eq!(block_on(server.get(&bucket, "a (1).txt")), b"new");
+    assert_eq!(block_on(server.get(&bucket, "a.txt")), b"old");
+    assert_eq!(
+        h.code(
+            "answer_conflict",
+            json!({ "task_id": asking, "choice": "skip", "apply_to_batch": false })
+        ),
+        "not_found"
+    );
+
+    // The setting is the default of calls that name no policy.
+    h.set_setting("transfer", "if_exists", json!("skip"));
+    let by_setting = upload(json!({}));
+    h.wait_state(&by_setting, "skipped");
+    h.set_setting("transfer", "if_exists", json!("rename"));
+    let renamed = upload(json!({}));
+    h.wait_state(&renamed, "completed");
+    assert_eq!(block_on(server.get(&bucket, "a (2).txt")), b"new");
+}
+
+#[test]
+fn copies_and_moves_can_name_another_destination_account() {
+    let (first, second) = (start_s3(), start_s3());
+    let h = Harness::new();
+    let one = h.add_account(&first, "First");
+    let two = h.add_account(&second, "Second");
+    let src = block_on(first.new_bucket());
+    let dst = block_on(second.new_bucket());
+    block_on(first.put(&src, "d/a.txt", b"A".to_vec()));
+    block_on(first.put(&src, "d/b.txt", b"B".to_vec()));
+
+    let tasks = h.ok(
+        "enqueue_copy",
+        json!({
+            "account_id": one,
+            "src_bucket": src,
+            "keys": ["d/"],
+            "dst_bucket": dst,
+            "dst_prefix": "in/",
+            "dst_account_id": two,
+        }),
+    );
+    for task in tasks.as_array().unwrap() {
+        h.wait_state(task["id"].as_str().unwrap(), "completed");
+    }
+    assert_eq!(block_on(second.get(&dst, "in/d/a.txt")), b"A");
+    assert!(block_on(first.exists(&src, "d/a.txt")));
+
+    let tasks = h.ok(
+        "enqueue_move",
+        json!({
+            "account_id": one,
+            "src_bucket": src,
+            "keys": ["d/"],
+            "dst_bucket": dst,
+            "dst_prefix": "moved/",
+            "dst_account_id": two,
+        }),
+    );
+    for task in tasks.as_array().unwrap() {
+        h.wait_state(task["id"].as_str().unwrap(), "completed");
+    }
+    assert_eq!(block_on(second.get(&dst, "moved/d/b.txt")), b"B");
+    assert!(!block_on(first.exists(&src, "d/b.txt")));
+
+    // An unknown destination account rejects the command.
+    assert_eq!(
+        h.code(
+            "enqueue_copy",
+            json!({
+                "account_id": one,
+                "src_bucket": src,
+                "keys": ["x"],
+                "dst_bucket": dst,
+                "dst_prefix": "",
+                "dst_account_id": "no-such-account",
+            }),
+        ),
+        "not_found"
+    );
 }

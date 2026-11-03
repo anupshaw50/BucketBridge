@@ -6,7 +6,7 @@ export const DEFAULT_SETTINGS: Settings = {
   general: { confirm_delete: true, default_download_dir: null, open_with_recent: [] },
   interface: { theme: "system", flat_browsing: false, show_transfer_panel: true, show_log_panel: false },
   advanced: { max_attempts: 5, connect_timeout_secs: 10, read_timeout_secs: 60, list_page_size: 1000 },
-  data_integrity: { checksum_algorithm: "crc32", validate_downloads: true },
+  data_integrity: { checksum_algorithm: "crc32", validate_downloads: true, preserve_mtime: true },
   logging: { level: "information", file_logging: true, max_file_mib: 10 },
   proxy: {
     enabled: false,
@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
     part_size_mib: 8,
     bandwidth_limit_kibps: null,
     retry_attempts: 3,
+    if_exists: "overwrite",
   },
   shortener: { provider: "none", token_ref: null },
 };

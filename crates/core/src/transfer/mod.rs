@@ -37,7 +37,8 @@ pub use queue::{FailedTask, NewTask, QueueEvent, QueueOptions, TransferQueue};
 pub use rate::{RateEstimator, eta_secs};
 pub use retry::{Backoff, RandomSource, RetryPolicy, SplitMix64, is_retryable};
 pub use runner::{
-    Progress, ResumeState, Runners, StopController, StopReason, StopSignal, TaskContext, TaskRunner,
+    Progress, ResumeState, Runners, SkipSlot, StopController, StopReason, StopSignal, TaskContext,
+    TaskRunner,
 };
 
 use crate::error::{Error, ErrorKind};

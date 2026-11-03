@@ -248,6 +248,10 @@ pub struct CopyOutcome {
     pub etag: Option<String>,
     /// Number of parts for a multipart copy; 0 for a single-request copy.
     pub parts: u32,
+    /// The key the copy was stored under when the destination existed and
+    /// the overwrite policy renamed it (`name (1).ext`); `None` otherwise.
+    #[serde(default)]
+    pub renamed_to: Option<String>,
 }
 
 #[cfg(test)]

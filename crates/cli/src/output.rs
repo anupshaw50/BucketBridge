@@ -125,6 +125,18 @@ impl Output {
         }
     }
 
+    /// An item that was skipped on purpose (an existing destination kept by
+    /// the overwrite policy): a record on stdout with `--json`, a `bb: ...`
+    /// line on stderr otherwise. Never hidden by `--quiet`: nothing is
+    /// skipped silently.
+    pub fn skipped_item<T: Serialize>(
+        &mut self,
+        record: &T,
+        human: impl FnOnce() -> String,
+    ) -> Result<(), Failure> {
+        self.item_failed(record, human)
+    }
+
     /// A note for the person at the terminal, on standard error (for example
     /// how to resume an interrupted command). Never hidden by `--quiet`;
     /// left out with `--json`, where standard error carries only the final

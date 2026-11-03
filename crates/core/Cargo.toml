@@ -16,9 +16,15 @@ mount = ["dep:fuser", "dep:dokan", "dep:dokan-sys", "dep:winapi", "dep:widestrin
 [dependencies]
 aes-gcm.workspace = true
 argon2.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
+aws-runtime.workspace = true
+aws-types.workspace = true
 aws-sdk-cloudfront.workspace = true
 aws-sdk-iam.workspace = true
 aws-sdk-s3.workspace = true
+aws-sdk-sso.workspace = true
+aws-sdk-ssooidc.workspace = true
 aws-sdk-sts.workspace = true
 aws-smithy-async.workspace = true
 aws-smithy-checksums.workspace = true
@@ -36,6 +42,7 @@ flate2.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 globset.workspace = true
+hex.workspace = true
 http.workspace = true
 http-body.workspace = true
 # The proxy-aware HTTP client (src/proxy.rs) uses hyper's client side.
@@ -44,6 +51,7 @@ hyper-rustls.workspace = true
 hyper-util = { workspace = true, features = ["client-legacy", "client-proxy", "http1", "http2"] }
 keyring-core.workspace = true
 md-5.workspace = true
+notify.workspace = true
 parquet.workspace = true
 percent-encoding.workspace = true
 regex-automata.workspace = true
@@ -52,6 +60,7 @@ rustls.workspace = true
 rustls-native-certs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
