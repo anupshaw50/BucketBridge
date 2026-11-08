@@ -2,6 +2,7 @@ import { Button, Group, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import type { LoggingTarget } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { ActionError, SectionGate, type TabProps } from "./common";
 import { useAction } from "./useAction";
 
@@ -23,7 +24,7 @@ function LoggingEditor({
   const [touched, setTouched] = useState(false);
   const action = useAction();
 
-  const targetProblem = enabled && touched && targetBucket.trim().length === 0 ? "Enter the bucket that receives the logs." : null;
+  const targetProblem = enabled && touched && targetBucket.trim().length === 0 ? tr("Enter the bucket that receives the logs.") : null;
   const sameTarget =
     logging !== null && logging.target_bucket === targetBucket.trim() && logging.target_prefix === prefix;
   const changed = enabled ? !sameTarget : logging !== null;
@@ -33,7 +34,7 @@ function LoggingEditor({
       setTouched(true);
       if (!enabled) {
         await model.api.disable_bucket_logging({ account_id: accountId, bucket });
-        model.status.info(`Access logging of ${bucket} was turned off.`);
+        model.status.info(tr("Access logging of {bucket} was turned off.", { bucket }));
       } else {
         if (targetBucket.trim().length === 0) {
           return;
@@ -43,7 +44,7 @@ function LoggingEditor({
           bucket,
           target: { target_bucket: targetBucket.trim(), target_prefix: prefix },
         });
-        model.status.info(`Access logging of ${bucket} was saved.`);
+        model.status.info(tr("Access logging of {bucket} was saved.", { bucket }));
       }
       await reload();
     });
@@ -51,18 +52,18 @@ function LoggingEditor({
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        Server access logging delivers a log of the requests made to this bucket as objects in another bucket.
+        {tr("Server access logging delivers a log of the requests made to this bucket as objects in another bucket.")}
       </Text>
       <Switch
-        label="Log requests made to this bucket"
+        label={tr("Log requests made to this bucket")}
         checked={enabled}
         onChange={(event) => setEnabled(event.currentTarget.checked)}
       />
       {enabled ? (
         <>
           <TextInput
-            label="Target bucket"
-            description="It must be in the same region and allow S3 to deliver logs."
+            label={tr("Target bucket")}
+            description={tr("It must be in the same region and allow S3 to deliver logs.")}
             value={targetBucket}
             onChange={(event) => setTargetBucket(event.currentTarget.value)}
             onBlur={() => setTouched(true)}
@@ -71,8 +72,8 @@ function LoggingEditor({
             autoComplete="off"
           />
           <TextInput
-            label="Log prefix"
-            description="Added in front of the name of every log object, for example logs/."
+            label={tr("Log prefix")}
+            description={tr("Added in front of the name of every log object, for example logs/.")}
             value={prefix}
             onChange={(event) => setPrefix(event.currentTarget.value)}
             spellCheck={false}
@@ -83,7 +84,7 @@ function LoggingEditor({
       <ActionError message={action.error} />
       <Group gap="xs">
         <Button loading={action.busy} disabled={!changed} onClick={() => void save()}>
-          Save
+          {tr("Save")}
         </Button>
       </Group>
     </Stack>

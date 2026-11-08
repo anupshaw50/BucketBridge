@@ -2,6 +2,7 @@ import { Badge, Button, Group, Radio, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 import type { BucketVersioning, VersioningStatus } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { ActionError, SectionGate, type TabProps } from "./common";
 import { useAction } from "./useAction";
 
@@ -39,26 +40,26 @@ function VersioningEditor({
         return;
       }
       await model.api.put_bucket_versioning({ account_id: accountId, bucket, status: choice });
-      model.status.info(`Versioning of ${bucket} is now ${choice}.`);
+      model.status.info(tr("Versioning of {bucket} is now {choice}.", { bucket, choice: tr(choice) }));
       await reload();
     });
 
   return (
     <Stack gap="sm">
-      <Text size="sm">{STATUS_TEXT[versioning.status]}</Text>
+      <Text size="sm">{tr(STATUS_TEXT[versioning.status])}</Text>
       <Group gap="xs">
         <Text size="sm" fw={500}>
-          MFA delete
+          {tr("MFA delete")}
         </Text>
         <Badge variant="light" color={versioning.mfa_delete ? "teal" : "gray"}>
-          {versioning.mfa_delete ? "Enabled" : "Disabled"}
+          {versioning.mfa_delete ? tr("Enabled") : tr("Disabled")}
         </Badge>
         <Text size="xs" c="dimmed">
-          Shown for information; it cannot be changed here.
+          {tr("Shown for information; it cannot be changed here.")}
         </Text>
       </Group>
       <Radio.Group
-        label="Versioning"
+        label={tr("Versioning")}
         value={choice ?? ""}
         onChange={(value) => {
           if (isChoice(value)) {
@@ -67,18 +68,18 @@ function VersioningEditor({
         }}
       >
         <Stack gap={6} mt={6}>
-          <Radio value="enabled" label="Enabled" description="Keep every version of every object." />
+          <Radio value="enabled" label={tr("Enabled")} description={tr("Keep every version of every object.")} />
           <Radio
             value="suspended"
-            label="Suspended"
-            description="Stop creating new versions. Versioning cannot be switched off completely once it was enabled."
+            label={tr("Suspended")}
+            description={tr("Stop creating new versions. Versioning cannot be switched off completely once it was enabled.")}
           />
         </Stack>
       </Radio.Group>
       <ActionError message={action.error} />
       <Group gap="xs">
         <Button loading={action.busy} disabled={choice === null || choice === current} onClick={() => void save()}>
-          Save
+          {tr("Save")}
         </Button>
       </Group>
     </Stack>

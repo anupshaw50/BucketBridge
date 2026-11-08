@@ -3,6 +3,7 @@ import { IconAlertCircle } from "@tabler/icons-react";
 import { useState } from "react";
 import type { WebsiteConfig } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { MAX_ROUTING_RULES, websiteProblems } from "../../lib/website";
 import { ActionError, SectionGate, type TabProps } from "./common";
 import { useAction } from "./useAction";
@@ -44,7 +45,7 @@ function ProtocolSelect({
   return (
     <Select
       label={label}
-      data={PROTOCOLS}
+      data={PROTOCOLS.map(({ value, label: text }) => ({ value, label: tr(text) }))}
       value={value}
       allowDeselect={false}
       comboboxProps={{ withinPortal: false }}
@@ -75,28 +76,28 @@ function RuleEditor({
     autoComplete: "off",
   });
   return (
-    <Paper withBorder p="sm" role="group" aria-label={`Routing rule ${number}`}>
+    <Paper withBorder p="sm" role="group" aria-label={tr("Routing rule {number}", { number })}>
       <Stack gap="xs">
         <Group justify="space-between">
           <Text size="sm" fw={600}>
-            Routing rule {number}
+            {tr("Routing rule {number}", { number })}
           </Text>
           <Button size="compact-xs" variant="subtle" color="red" onClick={onRemove}>
-            Remove rule
+            {tr("Remove rule")}
           </Button>
         </Group>
         <SimpleGrid cols={2} spacing="xs">
-          <TextInput label="If the key starts with" placeholder="docs/" {...text("keyPrefix")} />
-          <TextInput label="If the error code is" placeholder="404" {...text("errorCode")} />
+          <TextInput label={tr("If the key starts with")} placeholder="docs/" {...text("keyPrefix")} />
+          <TextInput label={tr("If the error code is")} placeholder="404" {...text("errorCode")} />
           <ProtocolSelect
-            label="Redirect protocol"
+            label={tr("Redirect protocol")}
             value={rule.protocol}
             onChange={(protocol) => onChange({ ...rule, protocol })}
           />
-          <TextInput label="Redirect to host" placeholder="www.example.com" {...text("host")} />
-          <TextInput label="Replace the key prefix with" placeholder="documents/" {...text("replacePrefix")} />
-          <TextInput label="Replace the whole key with" placeholder="error-page.html" {...text("replaceKey")} />
-          <TextInput label="Redirect code" placeholder="301" {...text("redirectCode")} />
+          <TextInput label={tr("Redirect to host")} placeholder="www.example.com" {...text("host")} />
+          <TextInput label={tr("Replace the key prefix with")} placeholder="documents/" {...text("replacePrefix")} />
+          <TextInput label={tr("Replace the whole key with")} placeholder="error-page.html" {...text("replaceKey")} />
+          <TextInput label={tr("Redirect code")} placeholder="301" {...text("redirectCode")} />
         </SimpleGrid>
       </Stack>
     </Paper>
@@ -142,14 +143,14 @@ function WebsiteEditor({
         return;
       }
       await model.api.put_bucket_website({ account_id: accountId, bucket, website: wanted });
-      model.status.info(`The website configuration of ${bucket} was saved.`);
+      model.status.info(tr("The website configuration of {bucket} was saved.", { bucket }));
       await reload();
     });
   const disable = async () => {
     const confirmed = await model.dialogs.confirm({
-      title: "Disable website hosting",
-      message: `Website hosting of ${bucket} is turned off. Its website endpoint stops serving pages, and the routing rules are deleted.\n\nThe objects in the bucket are not changed.`,
-      confirmLabel: "Disable hosting",
+      title: tr("Disable website hosting"),
+      message: tr("Website hosting of {bucket} is turned off. Its website endpoint stops serving pages, and the routing rules are deleted.\n\nThe objects in the bucket are not changed.", { bucket }),
+      confirmLabel: tr("Disable hosting"),
       danger: true,
     });
     if (!confirmed) {
@@ -157,7 +158,7 @@ function WebsiteEditor({
     }
     await action.run(async () => {
       await model.api.delete_bucket_website({ account_id: accountId, bucket });
-      model.status.info(`Website hosting of ${bucket} was turned off.`);
+      model.status.info(tr("Website hosting of {bucket} was turned off.", { bucket }));
       await reload();
     });
   };
@@ -166,13 +167,13 @@ function WebsiteEditor({
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
         {website === null
-          ? "This bucket does not serve a website."
+          ? tr("This bucket does not serve a website.")
           : website.type === "hosting"
-            ? "This bucket serves a static website."
-            : "This bucket redirects every request to another host."}
+            ? tr("This bucket serves a static website.")
+            : tr("This bucket redirects every request to another host.")}
       </Text>
       <SegmentedControl<WebsiteMode>
-        aria-label="Website mode"
+        aria-label={tr("Website mode")}
         value={draft.mode}
         onChange={(value) => {
           if (isMode(value)) {
@@ -180,25 +181,25 @@ function WebsiteEditor({
           }
         }}
         data={[
-          { value: "off", label: "Off" },
-          { value: "hosting", label: "Host a static website" },
-          { value: "redirect", label: "Redirect all requests" },
+          { value: "off", label: tr("Off") },
+          { value: "hosting", label: tr("Host a static website") },
+          { value: "redirect", label: tr("Redirect all requests") },
         ]}
       />
       {draft.mode === "hosting" ? (
         <>
           <Group grow align="flex-start">
             <TextInput
-              label="Index document"
-              description="Served for requests to a folder."
+              label={tr("Index document")}
+              description={tr("Served for requests to a folder.")}
               value={draft.index}
               onChange={(event) => change({ index: event.currentTarget.value })}
               spellCheck={false}
               autoComplete="off"
             />
             <TextInput
-              label="Error document"
-              description="Optional. Served when a request fails."
+              label={tr("Error document")}
+              description={tr("Optional. Served when a request fails.")}
               placeholder="error.html"
               value={draft.error}
               onChange={(event) => change({ error: event.currentTarget.value })}
@@ -207,11 +208,11 @@ function WebsiteEditor({
             />
           </Group>
           <Text size="sm" fw={500}>
-            Routing rules
+            {tr("Routing rules")}
           </Text>
           {draft.rules.length === 0 ? (
             <Text size="sm" c="dimmed">
-              No routing rules. A rule redirects requests that match its condition.
+              {tr("No routing rules. A rule redirects requests that match its condition.")}
             </Text>
           ) : null}
           {draft.rules.map((rule, index) => (
@@ -230,7 +231,7 @@ function WebsiteEditor({
               disabled={draft.rules.length >= MAX_ROUTING_RULES}
               onClick={() => change({ rules: [...draft.rules, newRule()] })}
             >
-              Add routing rule
+              {tr("Add routing rule")}
             </Button>
           </Group>
         </>
@@ -238,8 +239,8 @@ function WebsiteEditor({
       {draft.mode === "redirect" ? (
         <Group grow align="flex-start">
           <TextInput
-            label="Host name"
-            description="Every request goes to this host."
+            label={tr("Host name")}
+            description={tr("Every request goes to this host.")}
             placeholder="www.example.com"
             value={draft.redirectHost}
             onChange={(event) => change({ redirectHost: event.currentTarget.value })}
@@ -247,14 +248,14 @@ function WebsiteEditor({
             autoComplete="off"
           />
           <ProtocolSelect
-            label="Protocol"
+            label={tr("Protocol")}
             value={draft.redirectProtocol}
             onChange={(redirectProtocol) => change({ redirectProtocol })}
           />
         </Group>
       ) : null}
       {attempted && problems.length > 0 ? (
-        <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title="Check the website settings">
+        <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title={tr("Check the website settings")}>
           <List size="sm" spacing={2}>
             {problems.map((problem) => (
               <List.Item key={problem} style={{ overflowWrap: "anywhere" }}>
@@ -268,11 +269,11 @@ function WebsiteEditor({
       <Group gap="xs">
         {draft.mode === "off" ? (
           <Button color="red" loading={action.busy} disabled={website === null} onClick={() => void disable()}>
-            Disable website hosting
+            {tr("Disable website hosting")}
           </Button>
         ) : (
           <Button loading={action.busy} disabled={sameWebsite(wanted, website)} onClick={() => void save()}>
-            Save website settings
+            {tr("Save website settings")}
           </Button>
         )}
       </Group>

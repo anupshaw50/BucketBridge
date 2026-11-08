@@ -1,3 +1,4 @@
+import { tr } from "../i18n";
 import type { BbError, BbErrorCode } from "./types";
 
 export const BB_ERROR_CODES: readonly BbErrorCode[] = [
@@ -37,24 +38,29 @@ export class BackendError extends Error implements BbError {
   }
 }
 
-const FALLBACK_MESSAGES: Record<BbErrorCode, string> = {
-  usage: "The request was not valid.",
-  auth: "Access was denied. Check the account credentials.",
-  locked: "Stored secrets are locked. Unlock them with the master password.",
-  mfa_required: "This account needs a multi-factor authentication code.",
-  not_found: "The item no longer exists.",
-  conflict: "The operation conflicts with existing data.",
-  remote: "The storage service or the network reported an error.",
-  io: "A local file system operation failed.",
-  cancelled: "The operation was cancelled.",
-  internal: "An unexpected internal error occurred.",
+/**
+ * Text of an error code when the backend sent no message of its own. The
+ * entries are functions so that the sentence is taken in the language the
+ * interface shows at that moment (`tr` reads it).
+ */
+const FALLBACK_MESSAGES: Record<BbErrorCode, () => string> = {
+  usage: () => tr("The request was not valid."),
+  auth: () => tr("Access was denied. Check the account credentials."),
+  locked: () => tr("Stored secrets are locked. Unlock them with the master password."),
+  mfa_required: () => tr("This account needs a multi-factor authentication code."),
+  not_found: () => tr("The item no longer exists."),
+  conflict: () => tr("The operation conflicts with existing data."),
+  remote: () => tr("The storage service or the network reported an error."),
+  io: () => tr("A local file system operation failed."),
+  cancelled: () => tr("The operation was cancelled."),
+  internal: () => tr("An unexpected internal error occurred."),
 };
 
 function messageOrFallback(code: BbErrorCode, message: unknown): string {
   if (typeof message === "string" && message.trim() !== "") {
     return message;
   }
-  return FALLBACK_MESSAGES[code];
+  return FALLBACK_MESSAGES[code]();
 }
 
 function fromRecord(value: Record<string, unknown>): BackendError | null {
@@ -107,7 +113,7 @@ export function toBbError(error: unknown): BackendError {
       return normalised;
     }
   }
-  return new BackendError("internal", FALLBACK_MESSAGES.internal);
+  return new BackendError("internal", FALLBACK_MESSAGES.internal());
 }
 
 /** Text suitable for the status bar or a notification. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account } from "../api/types";
+import { tr } from "../i18n";
 import {
   credentialsLabel,
   draftFromAccount,
@@ -135,16 +136,16 @@ describe("other sources", () => {
 
   it("describes where each account's credentials come from", () => {
     expect(credentialsLabel(base)).toBe("KEY");
-    expect(credentialsLabel(role, [base, role])).toBe("Role Writer through Base");
-    expect(credentialsLabel(role)).toBe("Role Writer");
-    expect(credentialsLabel({ ...base, source: { type: "aws_profile", profile: "dev" } })).toBe("AWS profile dev");
-    expect(credentialsLabel({ ...base, source: { type: "instance_role" } })).toBe("Instance or container role");
+    expect(credentialsLabel(role, [base, role])).toBe(tr("Role {name} through {via}", { name: "Writer", via: "Base" }));
+    expect(credentialsLabel(role)).toBe(tr("Role {name}", { name: "Writer" }));
+    expect(credentialsLabel({ ...base, source: { type: "aws_profile", profile: "dev" } })).toBe(tr("AWS profile {profile}", { profile: "dev" }));
+    expect(credentialsLabel({ ...base, source: { type: "instance_role" } })).toBe(tr("Instance or container role"));
     expect(
       credentialsLabel({
         ...base,
         source: { type: "sso", start_url: "https://x", sso_region: "r", account_id: "123456789012", role_name: "Admin" },
       }),
-    ).toBe("SSO Admin in 123456789012");
+    ).toBe(tr("SSO {role} in {account}", { role: "Admin", account: "123456789012" }));
   });
 
   it("keeps a linked profile read-only", () => {

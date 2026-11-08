@@ -1,12 +1,17 @@
 import type { ArchiveState } from "../../api/types";
+import { tr } from "../../i18n";
 
 /** Text for the restore state of an archived object. */
 export function restoreText(state: ArchiveState): string {
   if (state.restore === null) {
-    return state.archived ? `Archived (${state.storage_class}), not restored.` : `Not archived (${state.storage_class}).`;
+    return state.archived
+      ? tr("Archived ({class}), not restored.", { class: state.storage_class })
+      : tr("Not archived ({class}).", { class: state.storage_class });
   }
   if (state.restore.in_progress) {
-    return "A restore is in progress.";
+    return tr("A restore is in progress.");
   }
-  return `Restored${state.restore.expires === null ? "" : ` until ${state.restore.expires}`}.`;
+  return state.restore.expires === null
+    ? tr("Restored.")
+    : tr("Restored until {time}.", { time: state.restore.expires });
 }

@@ -3,6 +3,7 @@ import { IconLock, IconShieldLock } from "@tabler/icons-react";
 import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 
 function UnlockDialog() {
@@ -16,11 +17,11 @@ function UnlockDialog() {
     try {
       await model.raw.unlock({ password });
       await model.session.refreshSecurity().catch(() => null);
-      model.status.info("Secrets unlocked.");
+      model.status.info(tr("Secrets unlocked."));
       model.prompts.finishUnlock(true);
     } catch (raw) {
       const failure = toBbError(raw);
-      setError(failure.code === "auth" ? "The master password is not correct. Try again." : failure.message);
+      setError(failure.code === "auth" ? tr("The master password is not correct. Try again.") : failure.message);
       setPassword("");
     } finally {
       setBusy(false);
@@ -32,10 +33,10 @@ function UnlockDialog() {
       title={
         <>
           <IconLock size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} aria-hidden />
-          Unlock secrets
+          {tr("Unlock secrets")}
         </>
       }
-      okLabel="Unlock"
+      okLabel={tr("Unlock")}
       onOk={() => void submit()}
       onCancel={() => model.prompts.finishUnlock(false)}
       okDisabled={password.length === 0}
@@ -43,9 +44,9 @@ function UnlockDialog() {
       error={error}
       size="sm"
     >
-      <Text size="sm">Stored credentials are protected by a master password. Enter it to use your accounts.</Text>
+      <Text size="sm">{tr("Stored credentials are protected by a master password. Enter it to use your accounts.")}</Text>
       <PasswordInput
-        label="Master password"
+        label={tr("Master password")}
         value={password}
         onChange={(event) => setPassword(event.currentTarget.value)}
         autoComplete="current-password"
@@ -67,7 +68,11 @@ function MfaDialog({ accountId }: { accountId: string }) {
     setError(null);
     try {
       await model.api.mfa_login({ account_id: accountId, code });
-      model.status.info(`MFA session started for ${account?.label ?? "the account"}.`);
+      model.status.info(
+        account
+          ? tr("MFA session started for {label}.", { label: account.label })
+          : tr("MFA session started for the account."),
+      );
       model.prompts.finishMfa(true);
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -82,10 +87,10 @@ function MfaDialog({ accountId }: { accountId: string }) {
       title={
         <>
           <IconShieldLock size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} aria-hidden />
-          Multi-factor authentication
+          {tr("Multi-factor authentication")}
         </>
       }
-      okLabel="Verify"
+      okLabel={tr("Verify")}
       onOk={() => void submit()}
       onCancel={() => model.prompts.finishMfa(false)}
       okDisabled={!valid}
@@ -96,16 +101,18 @@ function MfaDialog({ accountId }: { accountId: string }) {
       <Text size="sm">
         {account ? (
           <>
-            <strong>{account.label}</strong> requires a code from its MFA device
-            {account.mfa_serial ? ` (${account.mfa_serial})` : ""}.
+            <strong>{account.label}</strong>{" "}
+            {account.mfa_serial
+              ? tr("requires a code from its MFA device ({serial}).", { serial: account.mfa_serial })
+              : tr("requires a code from its MFA device.")}
           </>
         ) : (
-          "This account requires a code from its MFA device."
+          tr("This account requires a code from its MFA device.")
         )}
       </Text>
       <TextInput
-        label="MFA code"
-        description="Six digits"
+        label={tr("MFA code")}
+        description={tr("Six digits")}
         value={code}
         onChange={(event) => setCode(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
         inputMode="numeric"

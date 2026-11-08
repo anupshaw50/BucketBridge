@@ -1,6 +1,7 @@
 import { Badge, Button, Group, Stack, Table, Text } from "@mantine/core";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import type { EditState } from "../../api/types";
 import { editStateLabel } from "../../lib/edit";
 
@@ -19,15 +20,15 @@ export function EditingDialog({ onClose }: { onClose: () => void }) {
   const sessions = useSlice(model.edits.store, (state) => state.sessions);
 
   return (
-    <AppModal opened onClose={onClose} title="Editing" size="lg">
+    <AppModal opened onClose={onClose} title={tr("Editing")} size="lg">
       <Stack gap="sm">
         <Text size="sm" c="dimmed">
-          Each save of the local copy is uploaded to the object. Stop editing to upload a pending save and remove the copy.
+          {tr("Each save of the local copy is uploaded to the object. Stop editing to upload a pending save and remove the copy.")}
         </Text>
         {sessions.length === 0 ? (
-          <Text size="sm">No objects are being edited.</Text>
+          <Text size="sm">{tr("No objects are being edited.")}</Text>
         ) : (
-          <Table aria-label="Objects being edited" verticalSpacing="xs">
+          <Table aria-label={tr("Objects being edited")} verticalSpacing="xs">
             <Table.Tbody>
               {sessions.map((session) => (
                 <Table.Tr key={session.id}>
@@ -55,21 +56,21 @@ export function EditingDialog({ onClose }: { onClose: () => void }) {
                           variant="default"
                           onClick={() => model.dialogs.open({ kind: "edit-conflict", sessionId: session.id })}
                         >
-                          Resolve…
+                          {tr("Resolve…")}
                         </Button>
                       ) : null}
                       {session.state === "error" ? (
                         <Button size="compact-sm" variant="default" onClick={() => void model.edits.resolve(session.id, "retry")}>
-                          Retry
+                          {tr("Retry")}
                         </Button>
                       ) : null}
                       <Button
                         size="compact-sm"
                         variant="default"
-                        aria-label={`Stop editing ${session.key}`}
+                        aria-label={tr("Stop editing {key}", { key: session.key })}
                         onClick={() => void model.edits.stop(session.id)}
                       >
-                        Stop
+                        {tr("Stop")}
                       </Button>
                     </Group>
                   </Table.Td>
@@ -80,7 +81,7 @@ export function EditingDialog({ onClose }: { onClose: () => void }) {
         )}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

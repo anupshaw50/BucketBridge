@@ -1,4 +1,4 @@
-import { t } from "../../i18n";
+import { t, tr } from "../../i18n";
 import { isFolderEntry } from "../../lib/objects";
 import { bucketUrl } from "../../lib/bucketUrl";
 import { s3Uri } from "../../lib/s3keys";
@@ -114,9 +114,9 @@ export { bucketUrl };
 async function copyToClipboard(model: AppModel, text: string, what: string): Promise<void> {
   try {
     await model.platform.copyText(text);
-    model.status.info(`${what} copied.`);
+    model.status.info(tr("{what} copied.", { what: tr(what) }));
   } catch (error) {
-    model.status.error(error, { notify: "Copying failed" });
+    model.status.error(error, { notify: tr("Copying failed") });
   }
 }
 
@@ -185,7 +185,7 @@ const LIVE: Record<LiveActionId, ActionDef> = {
   },
   "clipboard.paste": {
     many: true,
-    blockedTitle: "Paste not started",
+    blockedTitle: tr("Paste not started"),
     disabled: (ctx) => pasteBlockerFor(ctx.clipboard, pasteLocation(ctx)),
     run: (ctx) => paste(ctx.model, ctx.place ?? undefined),
   },
@@ -592,9 +592,9 @@ const PLANNED_DEFS: Partial<Record<PlannedActionId, ActionDef>> = {
       }
       try {
         const url = await ctx.model.api.open_bucket_in_browser({ account_id: ctx.accountId, bucket: bucket.name, region: bucket.region });
-        ctx.model.status.info(`Opened ${url} in the browser.`);
+        ctx.model.status.info(tr("Opened {url} in the browser.", { url }));
       } catch (error) {
-        ctx.model.status.error(error, { notify: "The bucket could not be opened in the browser" });
+        ctx.model.status.error(error, { notify: tr("The bucket could not be opened in the browser") });
       }
     },
   },

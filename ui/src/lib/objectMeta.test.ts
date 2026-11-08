@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { tr } from "../i18n";
 import {
   generateCustomerKey,
   headerChange,
@@ -27,21 +28,21 @@ describe("tags", () => {
     ] as const) {
       expect(validateTag(key, value), `${key}=${value}`).toBeNull();
     }
-    expect(validateTag("", "v")).toMatch(/cannot be empty/);
-    expect(validateTag("aws:stack", "v")).toMatch(/aws:/);
-    expect(validateTag("AWS:Stack", "v")).toMatch(/aws:/);
-    expect(validateTag("bad,key", "v")).toMatch(/letters, digits/);
-    expect(validateTag("k", "semi;colon")).toMatch(/tag value/);
-    expect(validateTag("k".repeat(129), "v")).toMatch(/128/);
-    expect(validateTag("k", "v".repeat(257))).toMatch(/256/);
+    expect(validateTag("", "v")).toBe(tr("A tag key cannot be empty."));
+    expect(validateTag("aws:stack", "v")).toBe(tr("Tag keys cannot start with \"aws:\"."));
+    expect(validateTag("AWS:Stack", "v")).toBe(tr("Tag keys cannot start with \"aws:\"."));
+    expect(validateTag("bad,key", "v")).toBe(tr("The {name} may contain letters, digits, spaces and + - = . _ : / @ only.", { name: tr("tag key") }));
+    expect(validateTag("k", "semi;colon")).toBe(tr("The {name} may contain letters, digits, spaces and + - = . _ : / @ only.", { name: tr("tag value") }));
+    expect(validateTag("k".repeat(129), "v")).toBe(tr("The {name} is longer than {n} characters.", { name: tr("tag key"), n: 128 }));
+    expect(validateTag("k", "v".repeat(257))).toBe(tr("The {name} is longer than {n} characters.", { name: tr("tag value"), n: 256 }));
     expect(validateTag("k".repeat(128), "v".repeat(256))).toBeNull();
   });
 
   it("checks lists: duplicates and the limit of ten", () => {
     const ten = Array.from({ length: 10 }, (_, index) => ({ key: `k${index}`, value: "v" }));
     expect(validateTagRows(ten)).toBeNull();
-    expect(validateTagRows([...ten, { key: "k10", value: "v" }])).toMatch(/at most 10/);
-    expect(validateTagRows([{ key: "a", value: "1" }, { key: "a", value: "2" }])).toMatch(/twice/);
+    expect(validateTagRows([...ten, { key: "k10", value: "v" }])).toBe(tr("An object can have at most {n} tags.", { n: 10 }));
+    expect(validateTagRows([{ key: "a", value: "1" }, { key: "a", value: "2" }])).toBe(tr("The tag \"{key}\" appears twice.", { key: "a" }));
     expect(validateTagRows([{ key: "a", value: "no;" }])).not.toBeNull();
   });
 });
@@ -49,10 +50,10 @@ describe("tags", () => {
 describe("headers and user metadata", () => {
   it("allows printable ASCII only", () => {
     expect(validateHeaderValue("Cache-Control", "public, max-age=3600")).toBeNull();
-    expect(validateHeaderValue("Cache-Control", "")).toMatch(/empty/);
-    expect(validateHeaderValue("Cache-Control", "line\nbreak")).toMatch(/ASCII/);
-    expect(validateHeaderValue("Cache-Control", "café")).toMatch(/ASCII/);
-    expect(validateHeaderValue("Cache-Control", "a".repeat(2049))).toMatch(/2048/);
+    expect(validateHeaderValue("Cache-Control", "")).toBe(tr("{name} is empty; remove the header instead.", { name: "Cache-Control" }));
+    expect(validateHeaderValue("Cache-Control", "line\nbreak")).toBe(tr("{name} can contain printable ASCII characters only.", { name: "Cache-Control" }));
+    expect(validateHeaderValue("Cache-Control", "café")).toBe(tr("{name} can contain printable ASCII characters only.", { name: "Cache-Control" }));
+    expect(validateHeaderValue("Cache-Control", "a".repeat(2049))).toBe(tr("{name} is longer than {n} bytes.", { name: "Cache-Control", n: 2048 }));
   });
 
   it("checks media types and metadata keys", () => {
@@ -72,8 +73,12 @@ describe("headers and user metadata", () => {
     expect(metaBytes({ ab: "cde" })).toBe(5);
     expect(metaBytes({ k: "é" })).toBe(3);
     expect(validateMetaRows([{ key: "a", value: "x".repeat(1000) }, { key: "b", value: "y".repeat(1046) }])).toBeNull();
-    expect(validateMetaRows([{ key: "a", value: "x".repeat(1000) }, { key: "b", value: "y".repeat(1047) }])).toMatch(/2049 bytes/);
-    expect(validateMetaRows([{ key: "Owner", value: "a" }, { key: "owner", value: "b" }])).toMatch(/twice/);
+    expect(validateMetaRows([{ key: "a", value: "x".repeat(1000) }, { key: "b", value: "y".repeat(1047) }])).toBe(
+      tr("User metadata is {size} bytes; S3 allows at most {max} for all keys and values together.", { size: 2049, max: 2048 }),
+    );
+    expect(validateMetaRows([{ key: "Owner", value: "a" }, { key: "owner", value: "b" }])).toBe(
+      tr("The metadata key \"{key}\" appears twice (keys are not case sensitive).", { key: "owner" }),
+    );
     expect(validateMetaRows([{ key: "bad key", value: "a" }])).not.toBeNull();
   });
 });
@@ -125,7 +130,8 @@ describe("customer keys", () => {
       expect(normalizeCustomerKey(bad), bad).toBeNull();
     }
     expect(validateCustomerKey("hunter2")).not.toContain("hunter2");
-    expect(validateCustomerKey("")).toMatch(/Enter/);
+    expect(validateCustomerKey("")).toBe(tr("Enter the key."));
+    expect(validateCustomerKey("secret")).toBe(tr("The key must be 32 bytes: 64 hexadecimal digits, or 44 base64 characters."));
     expect(validateCustomerKey(BASE64)).toBeNull();
   });
 

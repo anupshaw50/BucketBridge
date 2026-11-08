@@ -2,6 +2,7 @@ import { Button, Group, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import type { EditResolution } from "../../api/types";
 import { copyKey } from "../../lib/edit";
 
@@ -32,11 +33,11 @@ export function EditConflictDialog({ sessionId, onClose }: { sessionId: string; 
   const choose = async (resolution: EditResolution) => {
     if (resolution === "overwrite") {
       const confirmed = await model.dialogs.confirm({
-        title: "Overwrite the object",
+        title: tr("Overwrite the object"),
         message: deleted
-          ? `${name} was deleted. Upload your version and create it again?`
-          : `Replace the current ${name} with your version? The change made on the server is lost.`,
-        confirmLabel: "Overwrite",
+          ? tr("{name} was deleted. Upload your version and create it again?", { name })
+          : tr("Replace the current {name} with your version? The change made on the server is lost.", { name }),
+        confirmLabel: tr("Overwrite"),
         danger: true,
       });
       if (!confirmed) {
@@ -45,9 +46,9 @@ export function EditConflictDialog({ sessionId, onClose }: { sessionId: string; 
     }
     if (resolution === "discard") {
       const confirmed = await model.dialogs.confirm({
-        title: "Discard your changes",
-        message: `Drop your saved changes to ${name} and stop editing? The local copy is deleted.`,
-        confirmLabel: "Discard",
+        title: tr("Discard your changes"),
+        message: tr("Drop your saved changes to {name} and stop editing? The local copy is deleted.", { name }),
+        confirmLabel: tr("Discard"),
         danger: true,
       });
       if (!confirmed) {
@@ -61,44 +62,44 @@ export function EditConflictDialog({ sessionId, onClose }: { sessionId: string; 
       return;
     }
     if (resolution === "save_copy" && resolved.copy_key !== null) {
-      model.status.info(`Saved your version as ${resolved.copy_key}.`);
+      model.status.info(tr("Saved your version as {key}.", { key: resolved.copy_key }));
     } else if (resolution === "overwrite") {
-      model.status.info(`Uploaded your version of ${session.key}.`);
+      model.status.info(tr("Uploaded your version of {key}.", { key: session.key }));
     } else if (resolution === "discard") {
-      model.status.info(`Discarded your changes to ${session.key}.`);
+      model.status.info(tr("Discarded your changes to {key}.", { key: session.key }));
     }
     onClose();
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Edit conflict" size="md" closeOnClickOutside={!busy}>
+    <AppModal opened onClose={onClose} title={tr("Edit conflict")} size="md" closeOnClickOutside={!busy}>
       <Stack gap="sm">
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {deleted
-            ? `${name} was deleted on the server after you opened it.`
-            : `${name} was changed on the server after you opened it.`}{" "}
-          Your last save was not uploaded.
+            ? tr("{name} was deleted on the server after you opened it.", { name })
+            : tr("{name} was changed on the server after you opened it.", { name })}{" "}
+          {tr("Your last save was not uploaded.")}
         </Text>
         <Stack gap="xs">
           <Button variant="default" disabled={busy} onClick={() => void choose("save_copy")}>
-            Save as a copy
+            {tr("Save as a copy")}
           </Button>
           <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
-            Uploads your version as {copyKey(session.key)} and stops editing. The object stays as it is.
+            {tr("Uploads your version as {key} and stops editing. The object stays as it is.", { key: copyKey(session.key) })}
           </Text>
           <Button variant="default" color="red" disabled={busy} onClick={() => void choose("overwrite")}>
-            Overwrite
+            {tr("Overwrite")}
           </Button>
           <Text size="xs" c="dimmed">
-            {deleted ? "Creates the object again from your version." : "Replaces the object on the server with your version."}
+            {deleted ? tr("Creates the object again from your version.") : tr("Replaces the object on the server with your version.")}
           </Text>
           <Button variant="default" disabled={busy} onClick={() => void choose("discard")}>
-            Discard my changes
+            {tr("Discard my changes")}
           </Button>
         </Stack>
         <Group justify="flex-end">
           <Button variant="subtle" disabled={busy} onClick={onClose}>
-            Decide later
+            {tr("Decide later")}
           </Button>
         </Group>
       </Stack>

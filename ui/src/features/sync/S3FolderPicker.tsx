@@ -5,6 +5,7 @@ import { toBbError } from "../../api/errors";
 import { useModel } from "../../app/context";
 import { isFolderEntry } from "../../lib/objects";
 import { baseName, displaySegment, parentPrefix, s3Uri } from "../../lib/s3keys";
+import { tr } from "../../i18n";
 
 interface FolderPage {
   /** Location the page belongs to; a mismatch with the current location means loading. */
@@ -88,18 +89,18 @@ export function S3FolderPicker({ accountId, bucket, prefix, onChange }: S3Folder
   return (
     <Stack gap={6}>
       <Group gap="xs" wrap="nowrap">
-        <Tooltip label="Parent folder">
+        <Tooltip label={tr("Parent folder")}>
           <ActionIcon
             variant="default"
             size="sm"
-            aria-label="S3 parent folder"
+            aria-label={tr("S3 parent folder")}
             disabled={prefix === ""}
             onClick={() => onChange(parentPrefix(prefix))}
           >
             <IconArrowUp size={14} />
           </ActionIcon>
         </Tooltip>
-        <Text size="sm" ff="monospace" style={{ overflowWrap: "anywhere" }} aria-label="Selected S3 folder">
+        <Text size="sm" ff="monospace" style={{ overflowWrap: "anywhere" }} aria-label={tr("Selected S3 folder")}>
           {s3Uri(bucket, prefix)}
         </Text>
       </Group>
@@ -108,7 +109,7 @@ export function S3FolderPicker({ accountId, bucket, prefix, onChange }: S3Folder
           <Group p="xs" gap="xs">
             <Loader size={14} />
             <Text size="xs" c="dimmed">
-              Loading folders...
+              {tr("Loading folders...")}
             </Text>
           </Group>
         ) : current.error !== null ? (
@@ -116,10 +117,10 @@ export function S3FolderPicker({ accountId, bucket, prefix, onChange }: S3Folder
             {current.error}
           </Text>
         ) : (
-          <Stack gap={0} role="list" aria-label="Subfolders">
+          <Stack gap={0} role="list" aria-label={tr("Subfolders")}>
             {current.folders.length === 0 ? (
               <Text size="xs" c="dimmed" p="xs">
-                No subfolders.
+                {tr("No subfolders.")}
               </Text>
             ) : null}
             {current.folders.map((folder) => (
@@ -138,7 +139,7 @@ export function S3FolderPicker({ accountId, bucket, prefix, onChange }: S3Folder
             ))}
             {current.nextToken !== null ? (
               <Button size="compact-xs" variant="subtle" loading={loadingMore} onClick={() => void loadMore()} m={4}>
-                Load more folders
+                {tr("Load more folders")}
               </Button>
             ) : null}
           </Stack>

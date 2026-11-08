@@ -1,6 +1,7 @@
 import { ActionIcon, Badge, CloseButton, Menu, Tooltip } from "@mantine/core";
 import { IconCheck, IconFilter, IconFilterOff } from "@tabler/icons-react";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { describeFilter } from "../../lib/filters";
 import { filesPaneContext } from "../menus/context";
 import { runAction } from "../menus/registry";
@@ -14,11 +15,11 @@ export function FilterMenu({ disabled }: { disabled: boolean }) {
   return (
     <Menu position="bottom-start" withinPortal onOpen={() => void model.filters.reload()}>
       <Menu.Target>
-        <Tooltip label="Saved filters" openDelay={300}>
+        <Tooltip label={tr("Saved filters")} openDelay={300}>
           <ActionIcon
             variant={active === null ? "subtle" : "light"}
             size="md"
-            aria-label="Apply a saved filter"
+            aria-label={tr("Apply a saved filter")}
             disabled={disabled}
           >
             <IconFilter size={17} />
@@ -26,9 +27,9 @@ export function FilterMenu({ disabled }: { disabled: boolean }) {
         </Tooltip>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Label>Saved filters</Menu.Label>
-        {loadError !== null ? <Menu.Item disabled>The filters could not be loaded</Menu.Item> : null}
-        {loadError === null && saved.length === 0 ? <Menu.Item disabled>No saved filters yet</Menu.Item> : null}
+        <Menu.Label>{tr("Saved filters")}</Menu.Label>
+        {loadError !== null ? <Menu.Item disabled>{tr("The filters could not be loaded")}</Menu.Item> : null}
+        {loadError === null && saved.length === 0 ? <Menu.Item disabled>{tr("No saved filters yet")}</Menu.Item> : null}
         {saved.map((filter) => {
           const applied = active?.name.toLowerCase() === filter.name.toLowerCase();
           return (
@@ -36,7 +37,7 @@ export function FilterMenu({ disabled }: { disabled: boolean }) {
               key={filter.name}
               leftSection={applied ? <IconCheck size={14} /> : <span style={{ width: 14 }} />}
               onClick={() => model.filters.apply(filter.name)}
-              aria-label={applied ? `${filter.name} (applied)` : filter.name}
+              aria-label={applied ? tr("{name} (applied)", { name: filter.name }) : filter.name}
               title={describeFilter(filter.filter)}
             >
               {filter.name}
@@ -49,9 +50,9 @@ export function FilterMenu({ disabled }: { disabled: boolean }) {
           disabled={active === null}
           onClick={() => model.filters.clearActive()}
         >
-          Clear saved filter
+          {tr("Clear saved filter")}
         </Menu.Item>
-        <Menu.Item onClick={() => runAction("list.filter", filesPaneContext(model, []))}>Manage filters...</Menu.Item>
+        <Menu.Item onClick={() => runAction("list.filter", filesPaneContext(model, []))}>{tr("Manage filters...")}</Menu.Item>
       </Menu.Dropdown>
     </Menu>
   );
@@ -71,9 +72,9 @@ export function ActiveFilterChip() {
         size="lg"
         tt="none"
         maw={280}
-        rightSection={<CloseButton size="xs" aria-label="Clear saved filter" onClick={() => model.filters.clearActive()} />}
+        rightSection={<CloseButton size="xs" aria-label={tr("Clear saved filter")} onClick={() => model.filters.clearActive()} />}
       >
-        Filter: {filter.name}
+        {tr("Filter: {name}", { name: filter.name })}
       </Badge>
     </Tooltip>
   );

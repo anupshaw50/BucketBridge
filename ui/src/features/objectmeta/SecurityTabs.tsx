@@ -3,6 +3,7 @@ import { IconAlertCircle } from "@tabler/icons-react";
 import { useState } from "react";
 import type { EncryptionChange, Sse } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import {
   CANNED_ACLS,
@@ -43,24 +44,29 @@ export function StorageClassTab({ ctx }: { ctx: TabContext }) {
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        S3 changes the class by copying the object onto itself. Headers, user metadata, tags, encryption and the ACL are
-        kept; the object gets a new modification time, and on a versioned bucket a new version.
+        {tr(
+          "S3 changes the class by copying the object onto itself. Headers, user metadata, tags, encryption and the ACL are kept; the object gets a new modification time, and on a versioned bucket a new version.",
+        )}
       </Text>
       {archived ? (
         <Alert color="yellow" icon={<IconAlertCircle size={16} />} role="alert" py="xs">
-          This object is archived ({current}) and has not been restored. Restore it before changing its storage class.
+          {tr("This object is archived ({class}) and has not been restored. Restore it before changing its storage class.", {
+            class: current ?? "",
+          })}
         </Alert>
       ) : null}
       {details !== null && details.restore !== null ? (
         <Text size="sm">
           {details.restore.in_progress
-            ? "A restore is in progress."
-            : `A restored copy is available${details.restore.expires ? ` until ${formatDateTime(details.restore.expires)}` : ""}.`}
+            ? tr("A restore is in progress.")
+            : details.restore.expires
+              ? tr("A restored copy is available until {time}.", { time: formatDateTime(details.restore.expires) })
+              : tr("A restored copy is available.")}
         </Text>
       ) : null}
       <Select
-        label="Storage class"
-        placeholder={ctx.batch ? "Choose a class" : undefined}
+        label={tr("Storage class")}
+        placeholder={ctx.batch ? tr("Choose a class") : undefined}
         data={STORAGE_CLASSES.map((item) => ({ value: item.value, label: `${item.value}: ${item.label}` }))}
         value={value}
         onChange={setValue}
@@ -81,13 +87,17 @@ export function StorageClassTab({ ctx }: { ctx: TabContext }) {
 function describeSse(sse: Sse): string {
   switch (sse.type) {
     case "none":
-      return "Not reported (the bucket's default applies).";
+      return tr("Not reported (the bucket's default applies).");
     case "s3":
-      return "SSE-S3: keys managed by S3.";
-    case "kms":
-      return `SSE-KMS${sse.key_id ? `, key ${sse.key_id}` : ", AWS managed key"}${sse.bucket_key ? ", with an S3 Bucket Key" : ""}.`;
+      return tr("SSE-S3: keys managed by S3.");
+    case "kms": {
+      const keyPart = sse.key_id ? tr(", key {id}", { id: sse.key_id }) : tr(", AWS managed key");
+      return sse.bucket_key
+        ? tr("SSE-KMS{key}, with an S3 Bucket Key.", { key: keyPart })
+        : tr("SSE-KMS{key}.", { key: keyPart });
+    }
     case "c":
-      return `SSE-C: encrypted with a customer-provided key (MD5 ${sse.key_md5}).`;
+      return tr("SSE-C: encrypted with a customer-provided key (MD5 {md5}).", { md5: sse.key_md5 });
   }
 }
 
@@ -106,7 +116,7 @@ export function EncryptionTab({ ctx }: { ctx: TabContext }) {
   const [keyId, setKeyId] = useState("");
   const [bucketKey, setBucketKey] = useState(false);
   const [newKey, setNewKey] = useState("");
-  const keyIdProblem = kind === "kms" && /\s/.test(keyId.trim()) ? "A KMS key has no spaces." : null;
+  const keyIdProblem = kind === "kms" && /\s/.test(keyId.trim()) ? tr("A KMS key has no spaces.") : null;
   const newKeyProblem = kind === "c" ? validateCustomerKey(newKey) : null;
   let change: EncryptionChange;
   if (kind === "s3") {
@@ -133,24 +143,25 @@ export function EncryptionTab({ ctx }: { ctx: TabContext }) {
   const copyKey = async () => {
     try {
       await model.platform.copyText(newKey, { sensitive: true });
-      model.status.info("The new key was copied. Keep it safe: it is the only way to read the objects again.");
+      model.status.info(tr("The new key was copied. Keep it safe: it is the only way to read the objects again."));
     } catch (error) {
-      model.status.error(error, { notify: "Could not copy to the clipboard" });
+      model.status.error(error, { notify: tr("Could not copy to the clipboard") });
     }
   };
   return (
     <Stack gap="sm">
       {current !== null ? (
         <Text size="sm">
-          <strong>Current encryption:</strong> {describeSse(current)}
+          <strong>{tr("Current encryption:")}</strong> {describeSse(current)}
         </Text>
       ) : null}
       <Text size="sm" c="dimmed">
-        S3 re-encrypts by copying the object onto itself; headers, user metadata, tags, the storage class and the ACL are
-        kept. Encryption cannot be removed, only changed.
+        {tr(
+          "S3 re-encrypts by copying the object onto itself; headers, user metadata, tags, the storage class and the ACL are kept. Encryption cannot be removed, only changed.",
+        )}
       </Text>
       <SegmentedControl
-        aria-label="Encryption type"
+        aria-label={tr("Encryption type")}
         value={kind}
         onChange={(next) => {
           if (isKind(next)) {
@@ -166,22 +177,26 @@ export function EncryptionTab({ ctx }: { ctx: TabContext }) {
       {kind === "kms" ? (
         <>
           <TextInput
-            label="KMS key"
-            description="Key ID, key ARN, alias name or alias ARN. Leave empty for the AWS managed key (aws/s3)."
+            label={tr("KMS key")}
+            description={tr("Key ID, key ARN, alias name or alias ARN. Leave empty for the AWS managed key (aws/s3).")}
             value={keyId}
             onChange={(event) => setKeyId(event.currentTarget.value)}
             error={keyIdProblem}
             autoComplete="off"
             spellCheck={false}
           />
-          <Switch label="Use an S3 Bucket Key (fewer requests to KMS)" checked={bucketKey} onChange={(event) => setBucketKey(event.currentTarget.checked)} />
+          <Switch
+            label={tr("Use an S3 Bucket Key (fewer requests to KMS)")}
+            checked={bucketKey}
+            onChange={(event) => setBucketKey(event.currentTarget.checked)}
+          />
         </>
       ) : null}
       {kind === "c" ? (
         <Stack gap={6}>
           <PasswordInput
-            label="New customer key"
-            description="32 bytes: 64 hexadecimal digits, or 44 base64 characters. It is sent with the request and never stored."
+            label={tr("New customer key")}
+            description={tr("32 bytes: 64 hexadecimal digits, or 44 base64 characters. It is sent with the request and never stored.")}
             value={newKey}
             onChange={(event) => setNewKey(event.currentTarget.value)}
             error={newKey.length > 0 ? newKeyProblem : null}
@@ -189,14 +204,14 @@ export function EncryptionTab({ ctx }: { ctx: TabContext }) {
           />
           <Group gap="xs">
             <Button size="xs" variant="default" onClick={generate}>
-              Generate key
+              {tr("Generate key")}
             </Button>
             <Button size="xs" variant="default" disabled={newKeyProblem !== null} onClick={() => void copyKey()}>
-              Copy key
+              {tr("Copy key")}
             </Button>
           </Group>
           <Text size="xs" c="dimmed">
-            Keep the key safe. Without it the object cannot be read, copied or changed, and BucketBridge cannot recover it.
+            {tr("Keep the key safe. Without it the object cannot be read, copied or changed, and BucketBridge cannot recover it.")}
           </Text>
         </Stack>
       ) : null}
@@ -230,20 +245,20 @@ export function PermissionsTab({ ctx }: { ctx: TabContext }) {
   return (
     <Stack gap="sm">
       {aclError !== null ? (
-        <Alert color="yellow" icon={<IconAlertCircle size={16} />} title="The ACL could not be read" role="alert">
+        <Alert color="yellow" icon={<IconAlertCircle size={16} />} title={tr("The ACL could not be read")} role="alert">
           {aclError.message}
         </Alert>
       ) : null}
       {acl !== null ? (
         <Stack gap={4}>
           <Text size="sm">
-            <strong>Current ACL:</strong> {acl.canned ?? "custom grants"}
+            <strong>{tr("Current ACL:")}</strong> {acl.canned ?? tr("custom grants")}
           </Text>
-          <Table withTableBorder verticalSpacing={2} fz="xs" aria-label="Grants">
+          <Table withTableBorder verticalSpacing={2} fz="xs" aria-label={tr("Grants")}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Grantee</Table.Th>
-                <Table.Th>Permission</Table.Th>
+                <Table.Th>{tr("Grantee")}</Table.Th>
+                <Table.Th>{tr("Permission")}</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -260,12 +275,13 @@ export function PermissionsTab({ ctx }: { ctx: TabContext }) {
         </Stack>
       ) : null}
       <Text size="sm" c="dimmed">
-        Buckets with ACLs disabled (Object Ownership: BucketOwnerEnforced) reject changes here; use the bucket policy
-        there. Public ACLs can also be blocked by the bucket's Block Public Access settings.
+        {tr(
+          "Buckets with ACLs disabled (Object Ownership: BucketOwnerEnforced) reject changes here; use the bucket policy there. Public ACLs can also be blocked by the bucket's Block Public Access settings.",
+        )}
       </Text>
       <Select
-        label="Canned ACL"
-        placeholder={ctx.batch || acl?.canned === null ? "Choose an ACL" : undefined}
+        label={tr("Canned ACL")}
+        placeholder={ctx.batch || acl?.canned === null ? tr("Choose an ACL") : undefined}
         data={CANNED_ACLS.map((item) => ({ value: item.value, label: item.label }))}
         value={value}
         onChange={setValue}

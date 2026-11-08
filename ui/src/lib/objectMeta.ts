@@ -3,6 +3,7 @@
 // rules, and the real backend re-checks everything.
 
 import type { CannedAcl, HeaderChange, StorageClass } from "../api/types";
+import { tr } from "../i18n";
 
 export const MAX_TAGS = 10;
 export const MAX_TAG_KEY_CHARS = 128;
@@ -11,23 +12,23 @@ export const MAX_USER_META_BYTES = 2048;
 export const MAX_HEADER_VALUE_BYTES = 2048;
 
 export const STORAGE_CLASSES: readonly { value: StorageClass; label: string }[] = [
-  { value: "STANDARD", label: "Standard" },
-  { value: "STANDARD_IA", label: "Standard-IA (infrequent access)" },
-  { value: "ONEZONE_IA", label: "One Zone-IA" },
-  { value: "GLACIER_IR", label: "Glacier Instant Retrieval" },
-  { value: "GLACIER", label: "Glacier Flexible Retrieval (archive)" },
-  { value: "DEEP_ARCHIVE", label: "Glacier Deep Archive (archive)" },
-  { value: "INTELLIGENT_TIERING", label: "Intelligent-Tiering" },
-  { value: "REDUCED_REDUNDANCY", label: "Reduced redundancy (legacy)" },
+  { value: "STANDARD", label: tr("Standard") },
+  { value: "STANDARD_IA", label: tr("Standard-IA (infrequent access)") },
+  { value: "ONEZONE_IA", label: tr("One Zone-IA") },
+  { value: "GLACIER_IR", label: tr("Glacier Instant Retrieval") },
+  { value: "GLACIER", label: tr("Glacier Flexible Retrieval (archive)") },
+  { value: "DEEP_ARCHIVE", label: tr("Glacier Deep Archive (archive)") },
+  { value: "INTELLIGENT_TIERING", label: tr("Intelligent-Tiering") },
+  { value: "REDUCED_REDUNDANCY", label: tr("Reduced redundancy (legacy)") },
 ];
 
 export const CANNED_ACLS: readonly { value: CannedAcl; label: string }[] = [
-  { value: "private", label: "Private" },
-  { value: "public-read", label: "Public read" },
-  { value: "public-read-write", label: "Public read and write" },
-  { value: "authenticated-read", label: "Authenticated read (any AWS account)" },
-  { value: "bucket-owner-read", label: "Bucket owner read" },
-  { value: "bucket-owner-full-control", label: "Bucket owner full control" },
+  { value: "private", label: tr("Private") },
+  { value: "public-read", label: tr("Public read") },
+  { value: "public-read-write", label: tr("Public read and write") },
+  { value: "authenticated-read", label: tr("Authenticated read (any AWS account)") },
+  { value: "bucket-owner-read", label: tr("Bucket owner read") },
+  { value: "bucket-owner-full-control", label: tr("Bucket owner full control") },
 ];
 
 export function isStorageClass(value: string | null): value is StorageClass {
@@ -50,12 +51,14 @@ export interface Row {
 
 const TAG_TEXT = /^[\p{L}\p{N} +\-=._:/@]*$/u;
 
-function tagTextError(what: string, text: string, max: number): string | null {
+/** A tag key or a tag value against the S3 rules; `what` selects the message wording. */
+function tagTextError(what: "key" | "value", text: string, max: number): string | null {
+  const name = what === "key" ? tr("tag key") : tr("tag value");
   if ([...text].length > max) {
-    return `The ${what} is longer than ${max} characters.`;
+    return tr("The {name} is longer than {n} characters.", { name, n: max });
   }
   if (!TAG_TEXT.test(text)) {
-    return `The ${what} may contain letters, digits, spaces and + - = . _ : / @ only.`;
+    return tr("The {name} may contain letters, digits, spaces and + - = . _ : / @ only.", { name });
   }
   return null;
 }
@@ -63,12 +66,12 @@ function tagTextError(what: string, text: string, max: number): string | null {
 /** One tag against the S3 rules; `null` when it is valid. */
 export function validateTag(key: string, value: string): string | null {
   if (key.length === 0) {
-    return "A tag key cannot be empty.";
+    return tr("A tag key cannot be empty.");
   }
   if (key.toLowerCase().startsWith("aws:")) {
-    return 'Tag keys cannot start with "aws:".';
+    return tr("Tag keys cannot start with \"aws:\".");
   }
-  return tagTextError("tag key", key, MAX_TAG_KEY_CHARS) ?? tagTextError("tag value", value, MAX_TAG_VALUE_CHARS);
+  return tagTextError("key", key, MAX_TAG_KEY_CHARS) ?? tagTextError("value", value, MAX_TAG_VALUE_CHARS);
 }
 
 /** A list of tags: each valid, no duplicate keys, at most 10. */
@@ -80,12 +83,12 @@ export function validateTagRows(rows: readonly Row[]): string | null {
       return problem;
     }
     if (seen.has(row.key)) {
-      return `The tag "${row.key}" appears twice.`;
+      return tr("The tag \"{key}\" appears twice.", { key: row.key });
     }
     seen.add(row.key);
   }
   if (rows.length > MAX_TAGS) {
-    return `An object can have at most ${MAX_TAGS} tags.`;
+    return tr("An object can have at most {n} tags.", { n: MAX_TAGS });
   }
   return null;
 }
@@ -93,13 +96,13 @@ export function validateTagRows(rows: readonly Row[]): string | null {
 /** Visible ASCII only (S3 headers are US-ASCII), no control characters. */
 export function validateHeaderValue(name: string, value: string): string | null {
   if (value.trim().length === 0) {
-    return `${name} is empty; remove the header instead.`;
+    return tr("{name} is empty; remove the header instead.", { name });
   }
   if (new TextEncoder().encode(value).length > MAX_HEADER_VALUE_BYTES) {
-    return `${name} is longer than ${MAX_HEADER_VALUE_BYTES} bytes.`;
+    return tr("{name} is longer than {n} bytes.", { name, n: MAX_HEADER_VALUE_BYTES });
   }
   if (!/^[\x20-\x7e]*$/.test(value)) {
-    return `${name} can contain printable ASCII characters only.`;
+    return tr("{name} can contain printable ASCII characters only.", { name });
   }
   return null;
 }
@@ -110,17 +113,17 @@ export function validateMediaType(value: string): string | null {
   const media = (value.split(";")[0] ?? "").trim();
   const [type, subtype, ...rest] = media.split("/");
   if (type === undefined || subtype === undefined || rest.length > 0 || !TOKEN.test(type) || !TOKEN.test(subtype)) {
-    return "Content-Type must look like type/subtype, for example text/plain; charset=utf-8.";
+    return tr("Content-Type must look like type/subtype, for example text/plain; charset=utf-8.");
   }
   return null;
 }
 
 export function validateMetaKey(key: string): string | null {
   if (key.length === 0) {
-    return "A metadata key cannot be empty.";
+    return tr("A metadata key cannot be empty.");
   }
   if (!TOKEN.test(key)) {
-    return `The metadata key "${key}" may contain letters, digits and ! # $ % & ' * + - . ^ _ \` | ~ only.`;
+    return tr("The metadata key \"{key}\" may contain letters, digits and ! # $ % & ' * + - . ^ _ ` | ~ only.", { key });
   }
   return null;
 }
@@ -145,19 +148,19 @@ export function recordToRows(record: Readonly<Record<string, string>>): Row[] {
 export function validateMetaRows(rows: readonly Row[]): string | null {
   const seen = new Set<string>();
   for (const row of rows) {
-    const problem = validateMetaKey(row.key) ?? validateHeaderValue(`The value of "${row.key}"`, row.value);
+    const problem = validateMetaKey(row.key) ?? validateHeaderValue(tr("The value of \"{key}\"", { key: row.key }), row.value);
     if (problem !== null) {
       return problem;
     }
     const lower = row.key.toLowerCase();
     if (seen.has(lower)) {
-      return `The metadata key "${row.key}" appears twice (keys are not case sensitive).`;
+      return tr("The metadata key \"{key}\" appears twice (keys are not case sensitive).", { key: row.key });
     }
     seen.add(lower);
   }
   const size = metaBytes(rowsToRecord(rows, true));
   if (size > MAX_USER_META_BYTES) {
-    return `User metadata is ${size} bytes; S3 allows at most ${MAX_USER_META_BYTES} for all keys and values together.`;
+    return tr("User metadata is {size} bytes; S3 allows at most {max} for all keys and values together.", { size, max: MAX_USER_META_BYTES });
   }
   return null;
 }
@@ -214,10 +217,10 @@ export function normalizeCustomerKey(text: string): string | null {
 
 export function validateCustomerKey(text: string): string | null {
   if (text.trim().length === 0) {
-    return "Enter the key.";
+    return tr("Enter the key.");
   }
   return normalizeCustomerKey(text) === null
-    ? "The key must be 32 bytes: 64 hexadecimal digits, or 44 base64 characters."
+    ? tr("The key must be 32 bytes: 64 hexadecimal digits, or 44 base64 characters.")
     : null;
 }
 

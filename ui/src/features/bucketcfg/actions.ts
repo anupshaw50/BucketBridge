@@ -1,5 +1,6 @@
 import type { BucketPropertiesTab } from "../../state/dialogs";
 import type { AppModel } from "../../state/model";
+import { tr } from "../../i18n";
 
 /** Opens the properties of a bucket (default: the one open in the object browser) on a tab. */
 export function showBucketProperties(
@@ -27,18 +28,18 @@ export function showAddExternalBucket(model: AppModel): void {
  */
 export async function removeExternalBucket(model: AppModel, accountId: string, name: string): Promise<void> {
   const confirmed = await model.dialogs.confirm({
-    title: "Remove external bucket",
-    message: `Remove ${name} from the bucket list of this account?\n\nThe bucket itself is not changed, and you can add it again later.`,
-    confirmLabel: "Remove",
+    title: tr("Remove external bucket"),
+    message: tr("Remove {name} from the bucket list of this account?\n\nThe bucket itself is not changed, and you can add it again later.", { name }),
+    confirmLabel: tr("Remove"),
   });
   if (!confirmed) {
     return;
   }
   try {
     await model.api.remove_external_bucket({ account_id: accountId, name });
-    model.status.info(`External bucket ${name} removed.`);
+    model.status.info(tr("External bucket {name} removed.", { name }));
   } catch (error) {
-    model.status.error(error, { notify: "The external bucket could not be removed" });
+    model.status.error(error, { notify: tr("The external bucket could not be removed") });
   }
   if (model.browser.state.listing.bucket === name) {
     await model.browser.switchAccount(accountId);

@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import { BackendError, errorText } from "../api/errors";
 import type { Settings, ThemeSetting } from "../api/types";
+import { tr } from "../i18n";
 import { cloneSettings, DEFAULT_SETTINGS, hasErrors, validateSettings } from "../lib/settings";
 
 export interface SettingsState {
@@ -90,7 +91,7 @@ export class SettingsController {
   private async saveNow(next: Settings): Promise<void> {
     const errors = validateSettings(next);
     if (hasErrors(errors)) {
-      const first = Object.values(errors)[0] ?? "The settings are not valid.";
+      const first = Object.values(errors)[0] ?? tr("The settings are not valid.");
       throw new BackendError("usage", first);
     }
     const copy = cloneSettings(next);

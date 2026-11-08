@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { AccountInput, DiagnosticStatus, DiagnosticStep, DiagnosticsReport } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { formatMillis, formatReport, STATUS_LABELS, STEP_LABELS, verdict } from "../../lib/diagnostics";
 
 /** What a diagnostics run probes: a stored account, or an account the user is still typing (never stored). */
@@ -50,7 +51,7 @@ function StepRow({ step }: { step: DiagnosticStep }) {
       </div>
       <Stack gap={0} align="flex-end">
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-          {step.status === "skip" ? "skipped" : formatMillis(step.elapsed_ms)}
+          {step.status === "skip" ? tr("skipped") : formatMillis(step.elapsed_ms)}
         </Text>
         <Text size="xs" c="dimmed" ff="monospace">
           {step.code}
@@ -64,7 +65,7 @@ function StepRow({ step }: { step: DiagnosticStep }) {
  * Runs the diagnostics of one account step by step and shows the report: a verdict, one row per
  * step with its timing and explanation, and a button that copies the report as text.
  */
-export function DiagnosticsPanel({ target, bucket, runLabel = "Run diagnostics", disabled = false }: DiagnosticsPanelProps) {
+export function DiagnosticsPanel({ target, bucket, runLabel = tr("Run diagnostics"), disabled = false }: DiagnosticsPanelProps) {
   const model = useModel();
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<DiagnosticsReport | null>(null);
@@ -103,9 +104,9 @@ export function DiagnosticsPanel({ target, bucket, runLabel = "Run diagnostics",
     try {
       await model.platform.copyText(formatReport(report));
       setCopied(true);
-      model.status.info("Diagnostics report copied to the clipboard.");
+      model.status.info(tr("Diagnostics report copied to the clipboard."));
     } catch (raw) {
-      model.status.error(raw, { notify: "The report could not be copied" });
+      model.status.error(raw, { notify: tr("The report could not be copied") });
     }
   };
 
@@ -119,7 +120,7 @@ export function DiagnosticsPanel({ target, bucket, runLabel = "Run diagnostics",
           disabled={disabled}
           onClick={() => void run()}
         >
-          {report === null ? runLabel : "Run again"}
+          {report === null ? runLabel : tr("Run again")}
         </Button>
         {report !== null ? (
           <Button
@@ -128,14 +129,14 @@ export function DiagnosticsPanel({ target, bucket, runLabel = "Run diagnostics",
             leftSection={copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
             onClick={() => void copy()}
           >
-            {copied ? "Copied" : "Copy report"}
+            {copied ? tr("Copied") : tr("Copy report")}
           </Button>
         ) : null}
       </Group>
       {running ? (
         <Group gap="xs" aria-live="polite">
           <Loader size="sm" />
-          <Text size="sm">Running diagnostics...</Text>
+          <Text size="sm">{tr("Running diagnostics...")}</Text>
         </Group>
       ) : null}
       {error !== null ? (
@@ -152,11 +153,15 @@ export function DiagnosticsPanel({ target, bucket, runLabel = "Run diagnostics",
             py="xs"
           >
             <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-              {report.target} ({report.region}
-              {report.bucket === null ? "" : `, bucket ${report.bucket}`}), {formatMillis(report.elapsed_ms)} in total.
+              {tr("{target} ({region}{extras}), {time} in total.", {
+                target: report.target,
+                region: report.region,
+                extras: report.bucket === null ? "" : tr(", bucket {bucket}", { bucket: report.bucket }),
+                time: formatMillis(report.elapsed_ms),
+              })}
             </Text>
           </Alert>
-          <ol className="bb-diag-steps" aria-label="Diagnostic steps">
+          <ol className="bb-diag-steps" aria-label={tr("Diagnostic steps")}>
             {report.steps.map((step) => (
               <StepRow key={step.id} step={step} />
             ))}

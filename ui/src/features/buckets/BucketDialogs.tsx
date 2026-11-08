@@ -3,6 +3,7 @@ import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import { useModel, useSlice } from "../../app/context";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
+import { tr } from "../../i18n";
 import { validateBucketName, validateRegion } from "../../lib/validation";
 
 /** Creates a bucket; the name follows the S3 naming rules, the region is optional. */
@@ -29,7 +30,7 @@ export function CreateBucketDialog({ accountId, onClose }: { accountId: string; 
         name,
         region: region.trim().length > 0 ? region.trim() : null,
       });
-      model.status.info(`Bucket ${name} created.`);
+      model.status.info(tr("Bucket {name} created.", { name }));
       onClose();
       await model.browser.loadBuckets(accountId);
       if (model.session.store.getState().activeAccountId === accountId) {
@@ -44,16 +45,16 @@ export function CreateBucketDialog({ accountId, onClose }: { accountId: string; 
   return (
     <OkCancelDialog
       opened
-      title="New bucket"
-      okLabel="Create bucket"
+      title={tr("New bucket")}
+      okLabel={tr("Create bucket")}
       onOk={() => void submit()}
       onCancel={onClose}
       busy={busy}
       error={error}
     >
       <TextInput
-        label="Bucket name"
-        description="3 to 63 characters: lowercase letters, digits, dots and hyphens."
+        label={tr("Bucket name")}
+        description={tr("3 to 63 characters: lowercase letters, digits, dots and hyphens.")}
         value={name}
         onChange={(event) => setName(event.currentTarget.value.trim())}
         error={nameError}
@@ -63,8 +64,10 @@ export function CreateBucketDialog({ accountId, onClose }: { accountId: string; 
         data-autofocus
       />
       <TextInput
-        label="Region (optional)"
-        description={`Leave empty to use the account region${account ? ` (${account.region})` : ""}.`}
+        label={tr("Region (optional)")}
+        description={tr("Leave empty to use the account region{details}.", {
+          details: account ? ` (${account.region})` : "",
+        })}
         placeholder={account?.region}
         value={region}
         onChange={(event) => setRegion(event.currentTarget.value)}
@@ -94,7 +97,7 @@ export function DeleteBucketDialog({
     setError(null);
     try {
       await model.api.delete_bucket({ account_id: accountId, name: bucket });
-      model.status.info(`Bucket ${bucket} deleted.`);
+      model.status.info(tr("Bucket {name} deleted.", { name: bucket }));
       onClose();
       if (model.browser.state.listing.bucket === bucket) {
         await model.browser.switchAccount(accountId);
@@ -105,7 +108,7 @@ export function DeleteBucketDialog({
       const failure = toBbError(raw);
       setError(
         failure.code === "conflict"
-          ? `${failure.message} Delete all objects in the bucket first, then try again.`
+          ? `${failure.message} ${tr("Delete all objects in the bucket first, then try again.")}`
           : failure.message,
       );
     } finally {
@@ -115,8 +118,8 @@ export function DeleteBucketDialog({
   return (
     <OkCancelDialog
       opened
-      title="Delete bucket"
-      okLabel="Delete bucket"
+      title={tr("Delete bucket")}
+      okLabel={tr("Delete bucket")}
       danger
       okDisabled={typed !== bucket}
       onOk={() => void submit()}
@@ -125,13 +128,13 @@ export function DeleteBucketDialog({
       error={error}
     >
       <Text size="sm">
-        The bucket <strong style={{ overflowWrap: "anywhere" }}>{bucket}</strong> is deleted permanently. Only empty
-        buckets can be deleted.
+        {tr("The bucket")} <strong style={{ overflowWrap: "anywhere" }}>{bucket}</strong>{" "}
+        {tr("is deleted permanently. Only empty buckets can be deleted.")}
       </Text>
       <TextInput
         label={
           <>
-            Type <strong>{bucket}</strong> to confirm
+            {tr("Type")} <strong>{bucket}</strong> {tr("to confirm")}
           </>
         }
         value={typed}

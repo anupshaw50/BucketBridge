@@ -25,7 +25,8 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
 import { useModel, useSlice } from "../../app/context";
-import { formatCount, plural } from "../../lib/format";
+import { formatCount } from "../../lib/format";
+import { tr } from "../../i18n";
 import { breadcrumbs, displaySegment } from "../../lib/s3keys";
 import { ActiveFilterChip } from "../tools/FilterControls";
 import { SEARCH_INPUT_ID, uploadFiles, uploadFolder } from "./actions";
@@ -48,18 +49,18 @@ function LocationBar() {
   return (
     <Group className="bb-location" gap="xs" wrap="nowrap" justify="space-between">
       <Group gap={6} wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
-        <Tooltip label="Parent folder (Backspace)">
+        <Tooltip label={tr("Parent folder (Backspace)")}>
           <ActionIcon
             variant="subtle"
             size="sm"
-            aria-label="Parent folder"
+            aria-label={tr("Parent folder")}
             disabled={prefix === ""}
             onClick={() => model.browser.goUp()}
           >
             <IconArrowUp size={16} />
           </ActionIcon>
         </Tooltip>
-        <nav aria-label="Location" style={{ minWidth: 0, overflow: "hidden" }}>
+        <nav aria-label={tr("Location")} style={{ minWidth: 0, overflow: "hidden" }}>
           <Breadcrumbs separatorMargin={4} styles={{ root: { flexWrap: "nowrap" } }}>
             {[
               <Anchor
@@ -93,24 +94,26 @@ function LocationBar() {
         </nav>
         {flat ? (
           <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-            (flat view)
+            {tr("(flat view)")}
           </Text>
         ) : null}
-        {refreshing ? <Loader size={14} aria-label="Refreshing" /> : null}
+        {refreshing ? <Loader size={14} aria-label={tr("Refreshing")} /> : null}
       </Group>
       <Group gap="xs" wrap="nowrap">
         <ActiveFilterChip />
         <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }} aria-live="polite">
           {search.trim().length > 0 || filtered
-            ? `${formatCount(shown)} of ${formatCount(loaded)} loaded`
-            : plural(loaded, "item")}
+            ? tr("Loaded {shown} of {loaded}", { shown: formatCount(shown), loaded: formatCount(loaded) })
+            : loaded === 1
+              ? tr("1 item")
+              : tr("{n} items", { n: formatCount(loaded) })}
         </Text>
         <TextInput
           id={SEARCH_INPUT_ID}
           size="xs"
           w={220}
-          placeholder="Filter loaded items"
-          aria-label="Filter loaded items"
+          placeholder={tr("Filter loaded items")}
+          aria-label={tr("Filter loaded items")}
           leftSection={<IconSearch size={14} />}
           value={search}
           onChange={(event) => model.browser.setSearch(event.currentTarget.value)}
@@ -122,7 +125,7 @@ function LocationBar() {
           }}
           rightSection={
             search.length > 0 ? (
-              <CloseButton size="sm" aria-label="Clear filter" onClick={() => model.browser.setSearch("")} />
+              <CloseButton size="sm" aria-label={tr("Clear filter")} onClick={() => model.browser.setSearch("")} />
             ) : null
           }
         />
@@ -134,7 +137,7 @@ function LocationBar() {
 function ListSkeleton() {
   return (
     <>
-      <span className="bb-visually-hidden">Loading objects</span>
+      <span className="bb-visually-hidden">{tr("Loading objects")}</span>
       <Stack gap={6} p="sm" aria-hidden>
         {Array.from({ length: 10 }, (_, index) => (
           <Skeleton key={index} height={OBJECT_ROW_HEIGHT - 8} radius="sm" width={`${90 - (index % 4) * 12}%`} />
@@ -166,18 +169,18 @@ function ListError() {
   };
   return (
     <Stack p="md">
-      <Alert color="red" icon={<IconAlertCircle size={16} />} title="The folder could not be listed" role="alert">
+      <Alert color="red" icon={<IconAlertCircle size={16} />} title={tr("The folder could not be listed")} role="alert">
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {listing.error}
         </Text>
         <Group gap="xs" mt="sm">
           {listing.errorCode === "locked" ? (
             <Button size="xs" leftSection={<IconLock size={14} />} onClick={() => void unlockAndRetry()}>
-              Unlock
+              {tr("Unlock")}
             </Button>
           ) : null}
           <Button ref={retryRef} size="xs" variant="default" onClick={retry}>
-            Try again
+            {tr("Try again")}
           </Button>
         </Group>
       </Alert>
@@ -190,17 +193,17 @@ function EmptyFolder() {
   return (
     <EmptyState
       icon={<IconFolderOpen size={28} />}
-      title="This folder is empty"
-      description="Upload files or a folder, or paste items you copied."
+      title={tr("This folder is empty")}
+      description={tr("Upload files or a folder, or paste items you copied.")}
       size="sm"
       py="xl"
     >
       <Group gap="xs" justify="center" mt="sm">
         <Button size="xs" leftSection={<IconUpload size={14} />} onClick={() => void uploadFiles(model)}>
-          Upload files
+          {tr("Upload files")}
         </Button>
         <Button size="xs" variant="default" onClick={() => void uploadFolder(model)}>
-          Upload folder
+          {tr("Upload folder")}
         </Button>
       </Group>
     </EmptyState>
@@ -224,7 +227,7 @@ function LoadMoreBar() {
         </Text>
       ) : (
         <Text size="xs" c="dimmed">
-          More items are available in this folder.
+          {tr("More items are available in this folder.")}
         </Text>
       )}
       <Button
@@ -234,7 +237,7 @@ function LoadMoreBar() {
         disabled={refreshing}
         onClick={() => void model.browser.loadMore()}
       >
-        {moreError !== null ? "Try again" : "Load more"}
+        {moreError !== null ? tr("Try again") : tr("Load more")}
       </Button>
     </Group>
   );
@@ -253,8 +256,8 @@ export function ObjectBrowser() {
     return (
       <EmptyState
         icon={<IconBucket size={28} />}
-        title="No bucket open"
-        description="Choose a bucket on the left to see its contents."
+        title={tr("No bucket open")}
+        description={tr("Choose a bucket on the left to see its contents.")}
         size="sm"
         py="xl"
       />
@@ -271,11 +274,11 @@ export function ObjectBrowser() {
     placeholder = (
       <EmptyState
         icon={<IconSearch size={28} />}
-        title="No matches"
+        title={tr("No matches")}
         description={
           search.trim().length === 0 && filterName !== null
-            ? `None of the loaded items match the saved filter "${filterName}".`
-            : `None of the loaded items match "${search.trim()}".`
+            ? tr("None of the loaded items match the saved filter \"{name}\".", { name: filterName })
+            : tr("None of the loaded items match \"{name}\".", { name: search.trim() })
         }
         size="sm"
         py="xl"
@@ -289,7 +292,7 @@ export function ObjectBrowser() {
       <ObjectTable placeholder={placeholder} busy={status === "loading" || status === "idle"} />
     );
   return (
-    <section className="bb-browser" aria-label="Bucket contents">
+    <section className="bb-browser" aria-label={tr("Bucket contents")}>
       <LocationBar />
       <div className="bb-browser-body">{body}</div>
       {status === "ready" ? <LoadMoreBar /> : null}

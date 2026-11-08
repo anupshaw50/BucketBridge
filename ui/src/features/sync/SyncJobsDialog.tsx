@@ -4,6 +4,7 @@ import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
 import { DIRECTION_LABELS } from "../../lib/sync";
 import type { SyncJob } from "../../api/types";
+import { tr } from "../../i18n";
 
 function fromSide(job: SyncJob): string {
   return job.direction === "s3_to_s3" ? (job.s3_source ?? "") : job.local_root;
@@ -18,20 +19,20 @@ export function SyncJobsDialog({ onClose }: { onClose: () => void }) {
 
   const run = async (job: SyncJob) => {
     onClose();
-    model.status.info(`Analysing the sync job ${job.name}...`);
+    model.status.info(tr("Analysing the sync job {name}...", { name: job.name }));
     if (await model.sync.runJob(job.id)) {
       model.dialogs.open({ kind: "sync", review: true });
     } else {
-      model.status.error(new Error(model.sync.state.error ?? "The sync job could not be analysed."), {
-        notify: "The sync job could not be analysed",
+      model.status.error(new Error(model.sync.state.error ?? tr("The sync job could not be analysed.")), {
+        notify: tr("The sync job could not be analysed"),
       });
     }
   };
   const remove = async (job: SyncJob) => {
     const confirmed = await model.dialogs.confirm({
-      title: "Delete sync job",
-      message: `Delete the sync job "${job.name}"?\n\nOnly the saved setup is removed; no file or object is changed.`,
-      confirmLabel: "Delete",
+      title: tr("Delete sync job"),
+      message: tr("Delete the sync job \"{name}\"?\n\nOnly the saved setup is removed; no file or object is changed.", { name: job.name }),
+      confirmLabel: tr("Delete"),
       danger: true,
     });
     if (!confirmed) {
@@ -39,21 +40,21 @@ export function SyncJobsDialog({ onClose }: { onClose: () => void }) {
     }
     try {
       await model.sync.deleteJob(job.id);
-      model.status.info("Sync job deleted.");
+      model.status.info(tr("Sync job deleted."));
     } catch (error) {
-      model.status.error(error, { notify: "The sync job could not be deleted" });
+      model.status.error(error, { notify: tr("The sync job could not be deleted") });
     }
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Sync jobs" size="xl">
+    <AppModal opened onClose={onClose} title={tr("Sync jobs")} size="xl">
       <Stack gap="sm">
         {jobs.length === 0 ? (
           <Text size="sm" c="dimmed">
-            No saved sync jobs. Set up a sync with Folder sync and choose Save as job.
+            {tr("No saved sync jobs. Set up a sync with Folder sync and choose Save as job.")}
           </Text>
         ) : (
-          <ul className="bb-sync-jobs" aria-label="Saved sync jobs" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          <ul className="bb-sync-jobs" aria-label={tr("Saved sync jobs")} style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {jobs.map((job) => {
               const account = accounts.find((item) => item.id === job.account_id);
               const otherAccount = job.account_id !== activeAccountId;
@@ -72,32 +73,38 @@ export function SyncJobsDialog({ onClose }: { onClose: () => void }) {
                       </Badge>
                       {job.delete ? (
                         <Badge size="xs" variant="light" color="orange">
-                          Deletes extra files
+                          {tr("Deletes extra files")}
                         </Badge>
                       ) : null}
                     </Group>
-                    <Text size="xs" c="dimmed" className="bb-ellipsis" title={`${fromSide(job)} to ${job.s3_prefix}`}>
-                      {fromSide(job)} to {job.s3_prefix}
-                      {account ? ` (${account.label})` : " (account no longer exists)"}
+                    <Text size="xs" c="dimmed" className="bb-ellipsis" title={tr("{from} to {to}", { from: fromSide(job), to: job.s3_prefix })}>
+                      {tr("{from} to {to}", { from: fromSide(job), to: job.s3_prefix })}
+                      {account ? ` (${account.label})` : tr(" (account no longer exists)")}
                     </Text>
                   </Stack>
-                  <Tooltip label={otherAccount ? `Switch to ${account?.label ?? "its account"} to run this job` : "Analyse and review"}>
+                  <Tooltip
+                    label={
+                      otherAccount
+                        ? tr("Switch to {account} to run this job", { account: account?.label ?? tr("its account") })
+                        : tr("Analyse and review")
+                    }
+                  >
                     <Button
                       size="xs"
                       variant="light"
                       leftSection={<IconPlayerPlay size={14} />}
                       disabled={otherAccount}
-                      aria-label={`Run ${job.name}`}
+                      aria-label={tr("Run {name}", { name: job.name })}
                       onClick={() => void run(job)}
                     >
-                      Run
+                      {tr("Run")}
                     </Button>
                   </Tooltip>
-                  <Tooltip label="Edit job">
+                  <Tooltip label={tr("Edit job")}>
                     <ActionIcon
                       variant="subtle"
                       color="gray"
-                      aria-label={`Edit ${job.name}`}
+                      aria-label={tr("Edit {name}", { name: job.name })}
                       onClick={() => {
                         onClose();
                         model.dialogs.open({ kind: "sync", job });
@@ -106,8 +113,8 @@ export function SyncJobsDialog({ onClose }: { onClose: () => void }) {
                       <IconPencil size={16} />
                     </ActionIcon>
                   </Tooltip>
-                  <Tooltip label="Delete job">
-                    <ActionIcon variant="subtle" color="gray" aria-label={`Delete ${job.name}`} onClick={() => void remove(job)}>
+                  <Tooltip label={tr("Delete job")}>
+                    <ActionIcon variant="subtle" color="gray" aria-label={tr("Delete {name}", { name: job.name })} onClick={() => void remove(job)}>
                       <IconTrash size={16} />
                     </ActionIcon>
                   </Tooltip>
@@ -118,7 +125,7 @@ export function SyncJobsDialog({ onClose }: { onClose: () => void }) {
         )}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

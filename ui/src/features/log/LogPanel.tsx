@@ -8,20 +8,25 @@ import { formatDateTime } from "../../lib/format";
 import { LOG_LEVELS } from "../../state/log";
 import type { AppModel } from "../../state/model";
 import { togglePanel } from "../objects/actions";
+import { tr } from "../../i18n";
 
 const LOG_ROW_HEIGHT = 24;
 
-const LEVEL_LABELS: Record<LogLevel, string> = { error: "Errors", warning: "Warnings", information: "Information" };
+const LEVEL_LABELS: Record<LogLevel, string> = {
+  error: tr("Errors"),
+  warning: tr("Warnings"),
+  information: tr("Information"),
+};
 const LEVEL_BADGES: Record<LogLevel, { label: string; color: string }> = {
-  error: { label: "Error", color: "red" },
-  warning: { label: "Warning", color: "yellow" },
-  information: { label: "Info", color: "blue" },
+  error: { label: tr("Error"), color: "red" },
+  warning: { label: tr("Warning"), color: "yellow" },
+  information: { label: tr("Info"), color: "blue" },
 };
 
 async function exportLog(model: AppModel, format: LogExportFormat): Promise<void> {
   try {
     const path = await model.platform.pickSavePath({
-      title: "Export the event log",
+      title: tr("Export the event log"),
       defaultPath: `bucketbridge-log.${format}`,
       filters: [{ name: format === "csv" ? "CSV" : "JSON", extensions: [format] }],
     });
@@ -29,17 +34,17 @@ async function exportLog(model: AppModel, format: LogExportFormat): Promise<void
       return;
     }
     await model.api.export_log({ path, format });
-    model.status.info(`Event log exported to ${path}.`);
+    model.status.info(tr("Event log exported to {path}.", { path }));
   } catch (error) {
-    model.status.error(error, { notify: "The event log could not be exported" });
+    model.status.error(error, { notify: tr("The event log could not be exported") });
   }
 }
 
 async function clearLog(model: AppModel): Promise<void> {
   const confirmed = await model.dialogs.confirm({
-    title: "Clear the event log",
-    message: "Remove all entries from the event log?",
-    confirmLabel: "Clear log",
+    title: tr("Clear the event log"),
+    message: tr("Remove all entries from the event log?"),
+    confirmLabel: tr("Clear log"),
     danger: true,
   });
   if (!confirmed) {
@@ -48,7 +53,7 @@ async function clearLog(model: AppModel): Promise<void> {
   try {
     await model.log.clear();
   } catch (error) {
-    model.status.error(error, { notify: "The event log could not be cleared" });
+    model.status.error(error, { notify: tr("The event log could not be cleared") });
   }
 }
 
@@ -81,17 +86,17 @@ export function LogPanel() {
     }
   };
   return (
-    <section className="bb-panel bb-log-panel" aria-label="Event log">
+    <section className="bb-panel bb-log-panel" aria-label={tr("Event log")}>
       <Group className="bb-panel-header" justify="space-between" wrap="nowrap">
         <Group gap="sm" wrap="nowrap">
           <Group gap={6} wrap="nowrap">
             <IconListDetails size={16} aria-hidden />
             <Text size="sm" fw={600}>
-              Event log
+              {tr("Event log")}
             </Text>
           </Group>
           <Chip.Group multiple value={levels} onChange={(value) => model.log.setLevels(value)}>
-            <Group gap={4} wrap="nowrap" role="group" aria-label="Levels">
+            <Group gap={4} wrap="nowrap" role="group" aria-label={tr("Levels")}>
               {LOG_LEVELS.map((level) => (
                 <Chip key={level} value={level} size="xs" variant="light">
                   {LEVEL_LABELS[level]}
@@ -102,32 +107,32 @@ export function LogPanel() {
           <TextInput
             size="xs"
             w={200}
-            placeholder="Filter messages"
-            aria-label="Filter messages"
+            placeholder={tr("Filter messages")}
+            aria-label={tr("Filter messages")}
             leftSection={<IconSearch size={14} />}
             value={text}
             onChange={(event) => model.log.setText(event.currentTarget.value)}
           />
-          {loading ? <Loader size={14} aria-label="Loading log" /> : null}
+          {loading ? <Loader size={14} aria-label={tr("Loading log")} /> : null}
         </Group>
         <Group gap={4} wrap="nowrap">
           <Menu position="bottom-end" withinPortal>
             <Menu.Target>
               <Button size="compact-xs" variant="subtle" leftSection={<IconFileExport size={14} />} rightSection={<IconChevronDown size={12} />}>
-                Export
+                {tr("Export")}
               </Button>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item onClick={() => void exportLog(model, "csv")}>Export as CSV...</Menu.Item>
-              <Menu.Item onClick={() => void exportLog(model, "json")}>Export as JSON...</Menu.Item>
+              <Menu.Item onClick={() => void exportLog(model, "csv")}>{tr("Export as CSV...")}</Menu.Item>
+              <Menu.Item onClick={() => void exportLog(model, "json")}>{tr("Export as JSON...")}</Menu.Item>
             </Menu.Dropdown>
           </Menu>
           <Button size="compact-xs" variant="subtle" color="red" onClick={() => void clearLog(model)}>
-            Clear
+            {tr("Clear")}
           </Button>
           <CloseButton
             size="sm"
-            aria-label="Hide event log"
+            aria-label={tr("Hide event log")}
             disabled={!settingsLoaded}
             onClick={() => void togglePanel(model, "log")}
           />
@@ -140,9 +145,9 @@ export function LogPanel() {
           </Text>
         ) : null}
         {entries.length === 0 && !loading && error === null ? (
-          <EmptyState size="xs" py="md" title="No log entries" description="Entries matching the filter appear here as they happen." />
+          <EmptyState size="xs" py="md" title={tr("No log entries")} description={tr("Entries matching the filter appear here as they happen.")} />
         ) : (
-          <div role="log" aria-label="Log entries" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          <div role="log" aria-label={tr("Log entries")} style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((item) => {
               const entry = entries[item.index];
               if (!entry) {

@@ -2,6 +2,7 @@ import { Text, TextInput } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { toBbError } from "../../api/errors";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { redirectProblem } from "./helpers";
 
@@ -66,9 +67,13 @@ export function WebsiteRedirectDialog({
       });
       const failed = results.find((result) => result.error !== null);
       if (failed !== undefined) {
-        setError(failed.error?.message ?? "The redirect could not be saved.");
+        setError(failed.error?.message ?? tr("The redirect could not be saved."));
       } else {
-        model.status.info(text.length === 0 ? `Cleared the website redirect of ${objectKey}.` : `Website redirect of ${objectKey} set.`);
+        model.status.info(
+          text.length === 0
+            ? tr("Cleared the website redirect of {key}.", { key: objectKey })
+            : tr("Website redirect of {key} set.", { key: objectKey }),
+        );
         onClose();
       }
     } catch (raw) {
@@ -81,8 +86,8 @@ export function WebsiteRedirectDialog({
   return (
     <OkCancelDialog
       opened
-      title="Website redirect"
-      okLabel="Save"
+      title={tr("Website redirect")}
+      okLabel={tr("Save")}
       onOk={() => void submit()}
       onCancel={onClose}
       busy={busy}
@@ -91,7 +96,7 @@ export function WebsiteRedirectDialog({
       extraActions={
         current ? (
           <button type="button" onClick={() => setValue("")} disabled={busy || value.length === 0}>
-            Clear
+            {tr("Clear")}
           </button>
         ) : undefined
       }
@@ -100,8 +105,8 @@ export function WebsiteRedirectDialog({
         {objectKey}
       </Text>
       <TextInput
-        label="Redirect location"
-        description="Applies when the bucket serves this object as a static website. Leave empty to remove the redirect."
+        label={tr("Redirect location")}
+        description={tr("Applies when the bucket serves this object as a static website. Leave empty to remove the redirect.")}
         placeholder="/other-page.html or https://example.com/"
         value={value}
         onChange={(event) => setValue(event.currentTarget.value)}

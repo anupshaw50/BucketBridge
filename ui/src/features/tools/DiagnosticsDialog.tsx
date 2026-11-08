@@ -2,6 +2,7 @@ import { Autocomplete, Button, Group, Select, Stack, Text } from "@mantine/core"
 import { useState } from "react";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import { validateBucketName } from "../../lib/validation";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
@@ -19,24 +20,25 @@ export function DiagnosticsDialog({ accountId: first, onClose }: { accountId?: s
   const bucketError = trimmed.length > 0 ? validateBucketName(trimmed) : null;
   const suggestions = bucketList.accountId === accountId ? bucketList.buckets.map((item) => item.name) : [];
   return (
-    <AppModal opened onClose={onClose} title="Diagnostics" size="lg" closeOnClickOutside={false}>
+    <AppModal opened onClose={onClose} title={tr("Diagnostics")} size="lg" closeOnClickOutside={false}>
       {accountId === null ? (
         <Stack gap="sm">
-          <Text size="sm">Add an account first: the diagnostics probe the connection of one account.</Text>
+          <Text size="sm">{tr("Add an account first: the diagnostics probe the connection of one account.")}</Text>
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>
       ) : (
         <Stack gap="sm">
           <Text size="sm">
-            Checks the name lookup, the connection, the proxy, the TLS certificate, the credentials and, when you name a
-            bucket, the region of that bucket, one step after the other with the time each takes.
+            {tr(
+              "Checks the name lookup, the connection, the proxy, the TLS certificate, the credentials and, when you name a bucket, the region of that bucket, one step after the other with the time each takes.",
+            )}
           </Text>
           <Select
-            label="Account"
+            label={tr("Account")}
             data={accounts.map((account) => ({ value: account.id, label: account.label }))}
             value={accountId}
             allowDeselect={false}
@@ -44,8 +46,8 @@ export function DiagnosticsDialog({ accountId: first, onClose }: { accountId?: s
             comboboxProps={{ withinPortal: false }}
           />
           <Autocomplete
-            label="Bucket (optional)"
-            description="Adds a check of the region of this bucket."
+            label={tr("Bucket (optional)")}
+            description={tr("Adds a check of the region of this bucket.")}
             value={bucket}
             onChange={setBucket}
             data={suggestions}
@@ -62,7 +64,7 @@ export function DiagnosticsDialog({ accountId: first, onClose }: { accountId?: s
           />
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>

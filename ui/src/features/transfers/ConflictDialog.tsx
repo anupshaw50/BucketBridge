@@ -3,13 +3,14 @@ import { useState } from "react";
 import type { ConflictItem, OverwriteChoice } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
-import { formatBytes, plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatBytes, formatCount } from "../../lib/format";
 import { KIND_LABELS } from "../../lib/transfers";
 
 function describeItem(item: ConflictItem): string {
-  const size = item.size === null ? "unknown size" : formatBytes(item.size);
-  const time = item.modified === null ? "unknown time" : new Date(item.modified).toLocaleString();
-  return `${size}, modified ${time}`;
+  const size = item.size === null ? tr("unknown size") : formatBytes(item.size);
+  const time = item.modified === null ? tr("unknown time") : new Date(item.modified).toLocaleString();
+  return tr("{size}, modified {time}", { size, time });
 }
 
 /**
@@ -37,7 +38,7 @@ export function ConflictHost() {
         apply_to_batch: applyToAll && first.group_id !== null,
       });
     } catch (error) {
-      model.status.error(error, { notify: "The answer could not be sent" });
+      model.status.error(error, { notify: tr("The answer could not be sent") });
       model.conflicts.remove(first.task_id);
     } finally {
       setBusy(false);
@@ -48,53 +49,62 @@ export function ConflictHost() {
     try {
       await model.api.cancel_task({ id: first.task_id });
     } catch (error) {
-      model.status.error(error, { notify: "The transfer could not be cancelled" });
+      model.status.error(error, { notify: tr("The transfer could not be cancelled") });
     } finally {
       model.conflicts.remove(first.task_id);
       setBusy(false);
     }
   };
   return (
-    <AppModal opened onClose={() => undefined} withCloseButton={false} closeOnEscape={false} closeOnClickOutside={false} title="The destination already exists" size="lg">
+    <AppModal opened onClose={() => undefined} withCloseButton={false} closeOnEscape={false} closeOnClickOutside={false} title={tr("The destination already exists")} size="lg">
       <Stack gap="sm">
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-          {KIND_LABELS[conflict.kind]} of <b>{conflict.source}</b> would replace <b>{conflict.destination}</b>.
+          {tr("{kind} of", { kind: KIND_LABELS[conflict.kind] })}
+          <b>{conflict.source}</b> {tr("would replace")} <b>{conflict.destination}</b>.
         </Text>
         <Text size="sm" c="dimmed">
-          Source: {describeItem(conflict.source_info)}
+          {tr("Source: {info}", { info: describeItem(conflict.source_info) })}
         </Text>
         <Text size="sm" c="dimmed">
-          Existing: {describeItem(conflict.destination_info)}
+          {tr("Existing: {info}", { info: describeItem(conflict.destination_info) })}
         </Text>
         {pending.length > 1 ? (
           <Text size="xs" c="dimmed">
-            {plural(pending.length - 1, "more transfer")} wait for an answer.
+            {pending.length - 1 === 1
+              ? tr("1 more transfer waits for an answer.")
+              : tr("{count} more transfers wait for an answer.", { count: pending.length - 1 })}
           </Text>
         ) : null}
         {first.group_id === null ? null : (
           <Checkbox
-            label="Apply to all remaining in this batch"
-            description={batch > 0 ? `${plural(batch, "other transfer")} of this batch wait now; the rest follow the same answer.` : undefined}
+            label={tr("Apply to all remaining in this batch")}
+            description={
+              batch > 0
+                ? tr("{count} other transfers of this batch are waiting now; the rest follow the same answer.", {
+                    count: formatCount(batch),
+                  })
+                : undefined
+            }
             checked={applyToAll}
             onChange={(event) => setApplyToAll(event.currentTarget.checked)}
           />
         )}
         <Group justify="space-between" mt="xs">
           <Button variant="subtle" color="red" disabled={busy} onClick={() => void cancelTask()}>
-            Cancel this transfer
+            {tr("Cancel this transfer")}
           </Button>
           <Group gap="xs">
             <Button variant="default" disabled={busy} onClick={() => void answer("skip")}>
-              Skip
+              {tr("Skip")}
             </Button>
             <Button variant="default" disabled={busy} onClick={() => void answer("rename")}>
-              Rename
+              {tr("Rename")}
             </Button>
             <Button variant="default" disabled={busy} onClick={() => void answer("overwrite_if_newer")}>
-              Overwrite if newer
+              {tr("Overwrite if newer")}
             </Button>
             <Button disabled={busy} onClick={() => void answer("overwrite")} data-autofocus>
-              Overwrite
+              {tr("Overwrite")}
             </Button>
           </Group>
         </Group>

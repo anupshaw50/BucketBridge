@@ -4,6 +4,7 @@ import { COMMAND_NAMES } from "./backend";
 import { BackendError, errorText, hasCode, toBbError } from "./errors";
 import { MAX_PROMPTS_PER_CALL, runGuarded, type SessionPrompts, withSessionGuard } from "./guard";
 import { createTauriBackend } from "./tauriBackend";
+import { tr } from "../i18n";
 import { SAMPLE_ARGS } from "../test/sampleArgs";
 
 type EventHandler = (event: { payload: unknown }) => void;
@@ -41,7 +42,10 @@ describe("error normalisation", () => {
     expect(toBbError({ code: "weird", message: "x" }).code).toBe("internal");
     expect(toBbError(42).code).toBe("internal");
     expect(toBbError(undefined).message.length).toBeGreaterThan(0);
-    expect(toBbError({ code: "locked", message: "" }).message).toMatch(/master password/);
+    // The fallback text is written in the interface source, so it follows the language.
+    expect(toBbError({ code: "locked", message: "" }).message).toBe(
+      tr("Stored secrets are locked. Unlock them with the master password."),
+    );
     expect(errorText({ code: "io", message: "disk full" })).toBe("disk full");
     expect(hasCode({ code: "mfa_required", message: "code" }, "mfa_required")).toBe(true);
   });

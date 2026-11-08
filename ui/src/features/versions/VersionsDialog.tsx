@@ -30,7 +30,8 @@ import { toBbError } from "../../api/errors";
 import type { DeleteMarkerMode, ObjectVersion, VersionFilter, VersionGroup, VersionRef } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
-import { formatBytes, formatDateTime, plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatBytes, formatCount, formatDateTime } from "../../lib/format";
 import { s3Uri } from "../../lib/s3keys";
 import { DEFAULT_FILTER, DEFAULT_FORM, toVersionFilter, versionFileName, versionId, type VersionFilterForm } from "./filters";
 
@@ -69,7 +70,7 @@ function FilterPanel({
 }) {
   return (
     <form
-      aria-label="Version filters"
+      aria-label={tr("Version filters")}
       onSubmit={(event) => {
         event.preventDefault();
         onApply();
@@ -78,36 +79,36 @@ function FilterPanel({
       <Stack gap="xs">
         <Group align="flex-end" gap="md" wrap="wrap">
           <Switch
-            label="Show versions"
+            label={tr("Show versions")}
             checked={form.showVersions}
             onChange={(event) => onChange({ ...form, showVersions: event.currentTarget.checked })}
           />
           <Stack gap={2}>
             <Text size="xs" fw={500}>
-              Delete markers
+              {tr("Delete markers")}
             </Text>
             <SegmentedControl<DeleteMarkerMode>
               size="xs"
-              aria-label="Delete markers"
+              aria-label={tr("Delete markers")}
               value={form.deleteMarkers}
               onChange={(value) => onChange({ ...form, deleteMarkers: value })}
               data={[
-                { value: "include", label: "Include" },
-                { value: "exclude", label: "Hide" },
-                { value: "only", label: "Only" },
+                { value: "include", label: tr("Include") },
+                { value: "exclude", label: tr("Hide") },
+                { value: "only", label: tr("Only") },
               ]}
             />
           </Stack>
           <Switch
-            label="Only keys with several versions"
+            label={tr("Only keys with several versions")}
             checked={form.multipleVersions}
             onChange={(event) => onChange({ ...form, multipleVersions: event.currentTarget.checked })}
           />
         </Group>
         <Group align="flex-end" gap="sm" wrap="wrap">
           <NumberInput
-            label="More than"
-            description="versions"
+            label={tr("More than")}
+            description={tr("versions")}
             w={110}
             min={0}
             allowDecimal={false}
@@ -115,8 +116,8 @@ function FilterPanel({
             onChange={(value) => onChange({ ...form, moreThan: typeof value === "number" ? value : "" })}
           />
           <NumberInput
-            label="Fewer than"
-            description="versions"
+            label={tr("Fewer than")}
+            description={tr("versions")}
             w={110}
             min={0}
             allowDecimal={false}
@@ -125,21 +126,21 @@ function FilterPanel({
           />
           <TextInput
             type="date"
-            label="Modified from"
+            label={tr("Modified from")}
             value={form.from}
             onChange={(event) => onChange({ ...form, from: event.currentTarget.value })}
           />
           <TextInput
             type="date"
-            label="Modified to"
+            label={tr("Modified to")}
             value={form.to}
             onChange={(event) => onChange({ ...form, to: event.currentTarget.value })}
           />
           <Button type="submit" size="xs">
-            Apply
+            {tr("Apply")}
           </Button>
           <Button type="button" size="xs" variant="default" onClick={onReset}>
-            Reset
+            {tr("Reset")}
           </Button>
         </Group>
         {error !== null ? (
@@ -259,7 +260,7 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
     try {
       await run();
     } catch (error) {
-      model.status.error(error, { notify: `${what} failed` });
+      model.status.error(error, { notify: tr("{what} failed", { what: tr(what) }) });
     } finally {
       setWorking(false);
     }
@@ -274,7 +275,10 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
         version_id: version.version_id,
       });
       model.status.info(
-        `Restored the version of ${version.key} from ${formatDateTime(version.last_modified)}; it is now the current version.`,
+        tr("Restored the version of {key} from {time}; it is now the current version.", {
+          key: version.key,
+          time: formatDateTime(version.last_modified),
+        }),
       );
       reload();
       void model.browser.refresh();
@@ -288,13 +292,18 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
     const single = versions.length === 1;
     const what = single
       ? first.is_delete_marker
-        ? `the delete marker ${first.version_id} of "${first.key}"`
-        : `version ${first.version_id} of "${first.key}" (${formatDateTime(first.last_modified)}, ${formatBytes(first.size)})`
-      : `${plural(versions.length, "version")} (delete markers included)`;
+        ? tr("the delete marker {id} of \"{key}\"", { id: first.version_id, key: first.key })
+        : tr("version {id} of \"{key}\" ({modified}, {size})", {
+            id: first.version_id,
+            key: first.key,
+            modified: formatDateTime(first.last_modified),
+            size: formatBytes(first.size),
+          })
+      : tr("{count} versions (delete markers included)", { count: formatCount(versions.length) });
     const confirmed = await model.dialogs.confirm({
-      title: "Purge versions",
-      message: `Permanently delete ${what} from ${bucket}?\nPurged versions cannot be recovered.`,
-      confirmLabel: "Purge",
+      title: tr("Purge versions"),
+      message: tr("Permanently delete {what} from {bucket}?\nPurged versions cannot be recovered.", { what, bucket }),
+      confirmLabel: tr("Purge"),
       danger: true,
       typedConfirmation: "purge",
     });
@@ -307,11 +316,16 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
       const failure = outcome.failures[0];
       if (failure !== undefined) {
         model.status.error(
-          `${plural(outcome.failures.length, "version")} could not be purged: ${failure.message}${failure.code === null ? "" : ` (${failure.code})`}`,
-          { notify: "Purge incomplete" },
+          tr("{count} versions could not be purged: {reason}", {
+            count: formatCount(outcome.failures.length),
+            reason: `${failure.message}${failure.code === null ? "" : ` (${failure.code})`}`,
+          }),
+          { notify: tr("Purge incomplete") },
         );
+      } else if (outcome.deleted === 1) {
+        model.status.info(tr("Purged 1 version."));
       } else {
-        model.status.info(`Purged ${plural(outcome.deleted, "version")}.`);
+        model.status.info(tr("Purged {count} versions.", { count: formatCount(outcome.deleted) }));
       }
       reload();
       void model.browser.refresh();
@@ -323,7 +337,7 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
       const folder = model.settings.current.general.default_download_dir;
       const name = versionFileName(version.key, version.last_modified);
       const path = await model.platform.pickSavePath({
-        title: "Save this version as",
+        title: tr("Save this version as"),
         defaultPath: folder === null ? name : `${folder.replace(/[\\/]+$/, "")}/${name}`,
         filters: [],
       });
@@ -338,7 +352,11 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
         dest_path: path,
       });
       model.transfers.addReturned(tasks);
-      model.status.info(`Download of the version from ${formatDateTime(version.last_modified)}: added to the transfer queue.`);
+      model.status.info(
+        tr("Download of the version from {time}: added to the transfer queue.", {
+          time: formatDateTime(version.last_modified),
+        }),
+      );
     });
 
   const preview = (version: ObjectVersion) =>
@@ -351,17 +369,17 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
   if (loading) {
     body = (
       <Group justify="center" p="lg">
-        <Loader size="sm" aria-label="Loading versions" />
+        <Loader size="sm" aria-label={tr("Loading versions")} />
       </Group>
     );
   } else if (loaded.error !== null) {
     body = (
-      <Alert color="red" icon={<IconAlertCircle size={16} />} title="The versions could not be listed" role="alert">
+      <Alert color="red" icon={<IconAlertCircle size={16} />} title={tr("The versions could not be listed")} role="alert">
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {loaded.error}
         </Text>
         <Button mt="xs" size="xs" variant="default" onClick={reload}>
-          Try again
+          {tr("Try again")}
         </Button>
       </Alert>
     );
@@ -369,23 +387,23 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
     body = (
       <Text size="sm" c="dimmed" ta="center" p="lg">
         {loaded.token === null
-          ? "No versions match."
-          : `No key matched in the ${plural(loaded.scanned, "entry", "entries")} checked so far.`}
+          ? tr("No versions match.")
+          : tr("No key matched in the {count} entries checked so far.", { count: formatCount(loaded.scanned) })}
       </Text>
     );
   } else {
     body = (
       <div className="bb-versions-scroll">
-        <Table verticalSpacing={4} fz="sm" aria-label="Versions">
+        <Table verticalSpacing={4} fz="sm" aria-label={tr("Versions")}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th w={32}>
-                <Checkbox size="xs" aria-label="Select all shown" checked={allSelected} onChange={toggleAll} />
+                <Checkbox size="xs" aria-label={tr("Select all shown")} checked={allSelected} onChange={toggleAll} />
               </Table.Th>
-              <Table.Th>Version</Table.Th>
-              <Table.Th>Modified</Table.Th>
-              <Table.Th ta="right">Size</Table.Th>
-              <Table.Th w={150}>Actions</Table.Th>
+              <Table.Th>{tr("Version")}</Table.Th>
+              <Table.Th>{tr("Modified")}</Table.Th>
+              <Table.Th ta="right">{tr("Size")}</Table.Th>
+              <Table.Th w={150}>{tr("Actions")}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -416,13 +434,13 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
       title={
         <Group gap="xs">
           <IconHistory size={18} aria-hidden />
-          <Text fw={600}>Versions</Text>
+          <Text fw={600}>{tr("Versions")}</Text>
         </Group>
       }
     >
       <Stack gap="sm">
         <Text size="sm" c="dimmed" style={{ overflowWrap: "anywhere" }}>
-          {exact ? "Versions of" : "Versions under"} {s3Uri(bucket, prefix)}
+          {exact ? tr("Versions of") : tr("Versions under")} {s3Uri(bucket, prefix)}
         </Text>
         <FilterPanel form={form} onChange={setForm} error={formError} onApply={apply} onReset={reset} />
         {body}
@@ -436,11 +454,16 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
             <Text size="xs" c="dimmed" aria-live="polite">
               {loading
                 ? ""
-                : `${plural(groups.length, "key")}, ${plural(entries, "entry", "entries")} shown`}
+                : groups.length === 1
+                  ? tr("1 key, {count} entries shown", { count: formatCount(entries) })
+                  : tr("{keys} keys, {count} entries shown", {
+                      keys: formatCount(groups.length),
+                      count: formatCount(entries),
+                    })}
             </Text>
             {!loading && loaded.token !== null ? (
               <Button size="compact-xs" variant="light" loading={moreBusy} onClick={() => void loadMore()}>
-                Load more
+                {tr("Load more")}
               </Button>
             ) : null}
           </Group>
@@ -453,10 +476,10 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
               disabled={selectedVersions.length === 0 || working}
               onClick={() => void purge(selectedVersions)}
             >
-              {`Purge selected (${selectedVersions.length})...`}
+              {tr("Purge selected ({count})...", { count: selectedVersions.length })}
             </Button>
             <Button variant="default" size="xs" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Group>
@@ -486,7 +509,7 @@ function GroupRows({
 }) {
   return (
     <>
-      <Table.Tr className="bb-version-group" aria-label={`Key ${group.key}`}>
+      <Table.Tr className="bb-version-group" aria-label={tr("Key {key}", { key: group.key })}>
         <Table.Td colSpan={5}>
           <Group gap="xs" wrap="nowrap">
             {group.is_deleted ? <IconTrashX size={16} aria-hidden /> : <IconFileText size={16} aria-hidden />}
@@ -495,17 +518,19 @@ function GroupRows({
             </Text>
             {group.is_deleted ? (
               <Badge color="red" variant="light" size="sm">
-                Deleted
+                {tr("Deleted")}
               </Badge>
             ) : null}
             <Badge variant="light" size="sm">
               {group.matching === group.total
-                ? plural(group.total, "version")
-                : `${group.matching} of ${plural(group.total, "version")}`}
+                ? group.total === 1
+                  ? tr("1 version")
+                  : tr("{count} versions", { count: formatCount(group.total) })
+                : tr("{matching} of {count} versions", { matching: group.matching, count: formatCount(group.total) })}
             </Badge>
             {group.truncated ? (
               <Badge color="yellow" variant="light" size="sm">
-                More not shown
+                {tr("More not shown")}
               </Badge>
             ) : null}
           </Group>
@@ -513,18 +538,21 @@ function GroupRows({
       </Table.Tr>
       {group.versions.map((version) => {
         const marker = version.is_delete_marker;
-        const kind = marker ? "delete marker" : "version";
         return (
           <Table.Tr
             key={version.version_id}
             className="bb-version-row"
             data-marker={marker || undefined}
-            aria-label={`${marker ? "Delete marker" : "Version"} ${version.version_id} of ${group.key}`}
+            aria-label={
+              marker
+                ? tr("Delete marker {id} of {key}", { id: version.version_id, key: group.key })
+                : tr("Version {id} of {key}", { id: version.version_id, key: group.key })
+            }
           >
             <Table.Td>
               <Checkbox
                 size="xs"
-                aria-label={`Select ${kind} ${version.version_id}`}
+                aria-label={marker ? tr("Select delete marker {id}", { id: version.version_id }) : tr("Select version {id}", { id: version.version_id })}
                 checked={selected.has(versionId(version.key, version.version_id))}
                 onChange={() => onToggle(version.key, version.version_id)}
               />
@@ -537,12 +565,12 @@ function GroupRows({
                 </Text>
                 {marker ? (
                   <Badge color="red" size="xs" variant="filled">
-                    Delete marker
+                    {tr("Delete marker")}
                   </Badge>
                 ) : null}
                 {version.is_latest ? (
                   <Badge size="xs" variant="light">
-                    Latest
+                    {tr("Latest")}
                   </Badge>
                 ) : null}
               </Group>
@@ -553,32 +581,32 @@ function GroupRows({
               <Group gap={2} wrap="nowrap">
                 {marker ? null : (
                   <>
-                    <Tooltip label="Preview">
+                    <Tooltip label={tr("Preview")}>
                       <ActionIcon
                         size="sm"
                         variant="subtle"
-                        aria-label={`Preview version ${version.version_id}`}
+                        aria-label={tr("Preview version {id}", { id: version.version_id })}
                         onClick={() => onPreview(version)}
                       >
                         <IconEye size={15} />
                       </ActionIcon>
                     </Tooltip>
-                    <Tooltip label="Download this version">
+                    <Tooltip label={tr("Download this version")}>
                       <ActionIcon
                         size="sm"
                         variant="subtle"
-                        aria-label={`Download version ${version.version_id}`}
+                        aria-label={tr("Download version {id}", { id: version.version_id })}
                         disabled={busy}
                         onClick={() => onDownload(version)}
                       >
                         <IconDownload size={15} />
                       </ActionIcon>
                     </Tooltip>
-                    <Tooltip label={version.is_latest ? "This is already the current version" : "Restore as the current version"}>
+                    <Tooltip label={version.is_latest ? tr("This is already the current version") : tr("Restore as the current version")}>
                       <ActionIcon
                         size="sm"
                         variant="subtle"
-                        aria-label={`Restore version ${version.version_id}`}
+                        aria-label={tr("Restore version {id}", { id: version.version_id })}
                         disabled={busy || version.is_latest}
                         onClick={() => onRestore(version)}
                       >
@@ -587,12 +615,16 @@ function GroupRows({
                     </Tooltip>
                   </>
                 )}
-                <Tooltip label={marker ? "Remove this delete marker for good" : "Purge this version for good"}>
+                <Tooltip label={marker ? tr("Remove this delete marker for good") : tr("Purge this version for good")}>
                   <ActionIcon
                     size="sm"
                     variant="subtle"
                     color="red"
-                    aria-label={`${marker ? "Remove delete marker" : "Purge version"} ${version.version_id}`}
+                    aria-label={
+                      marker
+                        ? tr("Remove delete marker {id}", { id: version.version_id })
+                        : tr("Purge version {id}", { id: version.version_id })
+                    }
                     disabled={busy}
                     onClick={() => onPurge(version)}
                   >

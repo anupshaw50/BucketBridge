@@ -1,6 +1,7 @@
 import { Alert, Button, Group, Stack, type ModalProps } from "@mantine/core";
 import { IconAlertCircle } from "@tabler/icons-react";
 import type { FormEvent, ReactNode } from "react";
+import { tr } from "../i18n";
 import { AppModal } from "./AppModal";
 
 export interface OkCancelDialogProps {
@@ -29,8 +30,8 @@ export function OkCancelDialog({
   children,
   onOk,
   onCancel,
-  okLabel = "OK",
-  cancelLabel = "Cancel",
+  okLabel = tr("OK"),
+  cancelLabel = tr("Cancel"),
   okDisabled = false,
   busy = false,
   danger = false,

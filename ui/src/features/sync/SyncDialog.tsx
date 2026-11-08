@@ -21,6 +21,7 @@ import { AppModal } from "../../components/AppModal";
 import { Wizard } from "../../components/Wizard";
 import { formatBytes, formatCount, formatDateTime, percent, plural } from "../../lib/format";
 import { s3Uri } from "../../lib/s3keys";
+import { tr } from "../../i18n";
 import {
   ACTION_LABELS,
   DIRECTION_LABELS,
@@ -41,10 +42,10 @@ import { SyncReportView } from "./SyncReportView";
 const SYNC_ROW_HEIGHT = 26;
 
 const DIRECTION_HELP: Record<SyncDirection, string> = {
-  upload: "Copy new and changed local files to S3.",
-  download: "Copy new and changed S3 objects to the local folder.",
-  bidirectional: "Copy in both directions; when a file changed on both sides, the newer one wins.",
-  s3_to_s3: "Copy new and changed objects from one S3 prefix to another one (same or another bucket), on the server.",
+  upload: tr("Copy new and changed local files to S3."),
+  download: tr("Copy new and changed S3 objects to the local folder."),
+  bidirectional: tr("Copy in both directions; when a file changed on both sides, the newer one wins."),
+  s3_to_s3: tr("Copy new and changed objects from one S3 prefix to another one (same or another bucket), on the server."),
 };
 
 const ACTION_COLORS: Record<SyncRow["action"], string> = {
@@ -59,9 +60,9 @@ function rowStatus(row: SyncRow): string {
     return row.error;
   }
   if (row.action === "equal") {
-    return "In sync";
+    return tr("In sync");
   }
-  return row.done ? "Done" : "Pending";
+  return row.done ? tr("Done") : tr("Pending");
 }
 
 function ResultsTable({ rows, filter, sourceSide }: { rows: SyncRow[]; filter: SyncRowFilter; sourceSide: boolean }) {
@@ -74,21 +75,21 @@ function ResultsTable({ rows, filter, sourceSide }: { rows: SyncRow[]; filter: S
     overscan: 10,
   });
   return (
-    <div className="bb-sync-table" role="table" aria-label="Sync results" aria-rowcount={indexes.length + 1}>
+    <div className="bb-sync-table" role="table" aria-label={tr("Sync results")} aria-rowcount={indexes.length + 1}>
       <div role="row" className="bb-sync-row bb-sync-head">
-        <span role="columnheader">Path</span>
-        <span role="columnheader">Action</span>
-        <span role="columnheader">Target</span>
-        <span role="columnheader">{sourceSide ? "Source size" : "Local size"}</span>
-        <span role="columnheader">{sourceSide ? "Source modified" : "Local modified"}</span>
-        <span role="columnheader">{sourceSide ? "Destination size" : "S3 size"}</span>
-        <span role="columnheader">{sourceSide ? "Destination modified" : "S3 modified"}</span>
-        <span role="columnheader">Status</span>
+        <span role="columnheader">{tr("Path")}</span>
+        <span role="columnheader">{tr("Action")}</span>
+        <span role="columnheader">{tr("Target")}</span>
+        <span role="columnheader">{sourceSide ? tr("Source size") : tr("Local size")}</span>
+        <span role="columnheader">{sourceSide ? tr("Source modified") : tr("Local modified")}</span>
+        <span role="columnheader">{sourceSide ? tr("Destination size") : tr("S3 size")}</span>
+        <span role="columnheader">{sourceSide ? tr("Destination modified") : tr("S3 modified")}</span>
+        <span role="columnheader">{tr("Status")}</span>
       </div>
       <div ref={scrollRef} className="bb-sync-scroll">
         {indexes.length === 0 ? (
           <Text size="sm" c="dimmed" p="sm">
-            {filter === "failed" ? "No failed rows." : "No differences found: both sides are in sync."}
+            {filter === "failed" ? tr("No failed rows.") : tr("No differences found: both sides are in sync.")}
           </Text>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -148,7 +149,7 @@ function Results({ footer }: { footer?: ReactNode }) {
   if (plan === null) {
     return analyzing ? (
       <Text size="sm" role="status">
-        Analysing...
+        {tr("Analysing...")}
       </Text>
     ) : error !== null ? (
       <Alert color="red" py="xs" role="alert">
@@ -165,19 +166,21 @@ function Results({ footer }: { footer?: ReactNode }) {
   return (
     <Stack gap="sm">
       <Text size="sm" fw={500}>
-        {planAccount ? `Account: ${planAccount.label} (${planAccount.region})` : "Account: no longer exists"}
+        {planAccount
+          ? tr("Account: {label} ({region})", { label: planAccount.label, region: planAccount.region })
+          : tr("Account: no longer exists")}
       </Text>
       <Text size="sm" style={{ overflowWrap: "anywhere" }}>
         <strong>{DIRECTION_LABELS[plan.direction]}</strong>{" "}
         {plan.direction === "s3_to_s3"
-          ? `from ${plan.source_prefix ?? ""} to ${plan.s3_prefix}`
-          : `between ${plan.local_root} and ${plan.s3_prefix}`}
-        {plan.delete ? ", deleting extra files on the target" : ""}.
+          ? tr("from {from} to {to}", { from: plan.source_prefix ?? "", to: plan.s3_prefix })
+          : tr("between {local} and {remote}", { local: plan.local_root, remote: plan.s3_prefix })}
+        {plan.delete ? tr(", deleting extra files on the target.") : tr(".")}
       </Text>
-      <Group gap="xs" aria-label="Rows per action">
+      <Group gap="xs" aria-label={tr("Rows per action")}>
         {(["copy", "delete", "equal", "failed"] as const).map((action) => (
           <Badge key={action} variant="light" color={ACTION_COLORS[action]}>
-            {ACTION_LABELS[action]}: {formatCount(counts[action])}
+            {tr("{action}: {n}", { action: ACTION_LABELS[action], n: formatCount(counts[action]) })}
           </Badge>
         ))}
       </Group>
@@ -186,20 +189,20 @@ function Results({ footer }: { footer?: ReactNode }) {
           size="xs"
           value={filter}
           onChange={setFilter}
-          aria-label="Rows"
+          aria-label={tr("Rows")}
           data={[
-            { value: "all", label: `All rows (${formatCount(plan.rows.length)})` },
-            { value: "failed", label: `Failed only (${formatCount(failedNow)})` },
+            { value: "all", label: tr("All rows ({n})", { n: formatCount(plan.rows.length) }) },
+            { value: "failed", label: tr("Failed only ({n})", { n: formatCount(failedNow) }) },
           ]}
         />
         <Group gap="xs">
           {running ? (
             <Button size="xs" color="red" variant="light" loading={cancelling} onClick={() => void model.sync.cancel()}>
-              Cancel
+              {tr("Cancel")}
             </Button>
           ) : (
             <Button size="xs" disabled={pending === 0 || otherAccount} onClick={() => void model.sync.execute()}>
-              {started ? "Resume" : "Execute"}
+              {started ? tr("Resume") : tr("Execute")}
             </Button>
           )}
         </Group>
@@ -210,26 +213,33 @@ function Results({ footer }: { footer?: ReactNode }) {
             value={percent(progress.done, progress.total) ?? 100}
             color={progress.failed > 0 ? "orange" : "teal"}
             animated={running}
-            aria-label="Sync progress"
+            aria-label={tr("Sync progress")}
           />
           <Text size="xs" c="dimmed" aria-live="polite">
             {progress.finished
-              ? `Finished: ${formatCount(progress.done)} of ${formatCount(progress.total)} applied, ${formatCount(
-                  progress.failed,
-                )} failed.${pending > 0 ? ` Resume retries ${plural(pending, "copy or delete row")} not done yet.` : ""}`
-              : `Applying: ${formatCount(progress.done)} of ${formatCount(progress.total)} done, ${formatCount(
-                  progress.failed,
-                )} failed.`}
+              ? `${tr("Finished: {done} of {total} applied, {failed} failed.", {
+                  done: formatCount(progress.done),
+                  total: formatCount(progress.total),
+                  failed: formatCount(progress.failed),
+                })}${
+                  pending > 0
+                    ? tr(" Resume retries {rows} not done yet.", { rows: plural(pending, "copy or delete row") })
+                    : ""
+                }`
+              : tr("Applying: {done} of {total} done, {failed} failed.", {
+                  done: formatCount(progress.done),
+                  total: formatCount(progress.total),
+                  failed: formatCount(progress.failed),
+                })}
           </Text>
         </Stack>
       ) : pending === 0 && counts.failed > 0 ? (
         <Alert color="yellow" icon={<IconInfoCircle size={16} />} py="xs">
-          Nothing to execute. Rows marked failed cannot be synchronised; their status says why. Fix the cause and analyse
-          again.
+          {tr("Nothing to execute. Rows marked failed cannot be synchronised; their status says why. Fix the cause and analyse again.")}
         </Alert>
       ) : pending === 0 ? (
         <Alert color="teal" icon={<IconCheck size={16} />} py="xs">
-          Nothing to do: the folders are in sync.
+          {tr("Nothing to do: the folders are in sync.")}
         </Alert>
       ) : null}
       {error !== null ? (
@@ -271,7 +281,7 @@ export function SyncDialog({
   // Only a plan of the active account is reopened; another account's plan never offers Execute here.
   const plan = storedPlan !== null && storedPlan.account_id === accountId ? storedPlan : null;
   const otherRunning = storedPlan !== null && plan === null && running;
-  const otherLabel = accounts.find((account) => account.id === storedPlan?.account_id)?.label ?? "another account";
+  const otherLabel = accounts.find((account) => account.id === storedPlan?.account_id)?.label ?? tr("another account");
   const jobTarget = job === undefined ? null : parseS3Prefix(job.s3_prefix);
   const jobSource = job?.s3_source === undefined ? null : parseS3Prefix(job.s3_source);
   const [step, setStep] = useState(job !== undefined ? 0 : plan === null && review !== true ? 0 : 2);
@@ -293,24 +303,24 @@ export function SyncDialog({
 
   const browseLocal = async () => {
     try {
-      const folder = await model.platform.pickFolder("Choose the local folder");
+      const folder = await model.platform.pickFolder(tr("Choose the local folder."));
       if (folder !== null) {
         setLocalRoot(folder);
       }
     } catch (error) {
-      model.status.error(error, { notify: "The folder dialog could not be opened" });
+      model.status.error(error, { notify: tr("The folder dialog could not be opened") });
     }
   };
   /** What is missing from the form, or null when it is complete. */
   const formProblem = (): string | null => {
     if (bucket === null) {
-      return s3ToS3 ? "Choose the destination bucket." : "Choose a bucket.";
+      return s3ToS3 ? tr("Choose the destination bucket.") : tr("Choose a bucket.");
     }
     if (s3ToS3 && sourceBucket === null) {
-      return "Choose the source bucket.";
+      return tr("Choose the source bucket.");
     }
     if (!s3ToS3 && localRoot.length === 0) {
-      return "Choose the local folder.";
+      return tr("Choose the local folder.");
     }
     return null;
   };
@@ -336,7 +346,7 @@ export function SyncDialog({
     setTouched(true);
     const problem = formProblem();
     if (accountId === null || bucket === null || problem !== null) {
-      return problem ?? "Choose an account first.";
+      return problem ?? tr("Choose an account first.");
     }
     return {
       id: "",
@@ -361,17 +371,23 @@ export function SyncDialog({
   const deleteHelp =
     direction === "upload" || direction === "s3_to_s3"
       ? direction === "upload"
-        ? "Delete S3 objects that do not exist in the local folder."
-        : "Delete objects in the destination that do not exist in the source."
+        ? tr("Delete S3 objects that do not exist in the local folder.")
+        : tr("Delete objects in the destination that do not exist in the source.")
       : direction === "download"
-        ? "Delete local files that do not exist in the S3 folder."
-        : "Not available in both directions: a file found on one side only is copied to the other side.";
+        ? tr("Delete local files that do not exist in the S3 folder.")
+        : tr("Not available in both directions: a file found on one side only is copied to the other side.");
   const bucketNames = buckets.map((item) => item.name);
 
   return (
-    <AppModal opened onClose={onClose} title={editingJob ? `Edit sync job ${job.name}` : "Synchronise folders"} size="xl" closeOnClickOutside={false}>
+    <AppModal
+      opened
+      onClose={onClose}
+      title={editingJob ? tr("Edit sync job {name}", { name: job.name }) : tr("Synchronise folders")}
+      size="xl"
+      closeOnClickOutside={false}
+    >
       {accountId === null ? (
-        <Text size="sm">Add or choose an account first.</Text>
+        <Text size="sm">{tr("Add or choose an account first.")}</Text>
       ) : (
         <Wizard
           active={step}
@@ -379,36 +395,39 @@ export function SyncDialog({
           onBack={() => setStep(Math.max(0, step - 1))}
           onFinish={onClose}
           onCancel={onClose}
-          nextLabel={step === 1 ? "Analyse" : "Next"}
-          finishLabel="Close"
+          nextLabel={step === 1 ? tr("Analyse") : tr("Next")}
+          finishLabel={tr("Close")}
           showCancel={step < 2}
           backDisabled={running}
           busy={analyzing}
           error={step === 1 ? syncError : null}
           steps={[
             {
-              label: "Direction",
+              label: tr("Direction"),
               content: (
                 <Stack gap="sm">
                   {otherRunning ? (
                     <Alert color="yellow" icon={<IconInfoCircle size={16} />} py="xs">
-                      A synchronisation for {otherLabel} is still running. Starting a new one here stops showing its
-                      progress; switch back to {otherLabel} to follow or cancel it.
+                      {tr(
+                        "A synchronisation for {label} is still running. Starting a new one here stops showing its progress; switch back to {label} to follow or cancel it.",
+                        { label: otherLabel },
+                      )}
                     </Alert>
                   ) : null}
-                  <Radio.Group
-                    label="What should be synchronised?"
-                    value={direction}
-                    onChange={setDirection}
-                  >
+                  <Radio.Group label={tr("What should be synchronised?")} value={direction} onChange={setDirection}>
                     <Stack gap="xs" mt="xs">
                       {(["upload", "download", "bidirectional", "s3_to_s3"] as const).map((value) => (
-                        <Radio key={value} value={value} label={DIRECTION_LABELS[value]} description={DIRECTION_HELP[value]} />
+                        <Radio
+                          key={value}
+                          value={value}
+                          label={DIRECTION_LABELS[value]}
+                          description={DIRECTION_HELP[value]}
+                        />
                       ))}
                     </Stack>
                   </Radio.Group>
                   <Switch
-                    label="Delete extra files on the target"
+                    label={tr("Delete extra files on the target")}
                     description={deleteHelp}
                     checked={direction !== "bidirectional" && deleteExtra}
                     disabled={direction === "bidirectional"}
@@ -418,23 +437,23 @@ export function SyncDialog({
               ),
             },
             {
-              label: "Folders",
+              label: tr("Folders"),
               content: (
                 <Stack gap="sm">
                   {s3ToS3 ? (
                     <>
                       <Select
-                        label="Source bucket"
-                        placeholder="Choose a bucket"
+                        label={tr("Source bucket")}
+                        placeholder={tr("Choose a bucket")}
                         data={bucketNames}
                         value={sourceBucket}
                         searchable
-                        nothingFoundMessage="No bucket with that name"
+                        nothingFoundMessage={tr("No bucket with that name")}
                         onChange={(value) => {
                           setSourceBucket(value);
                           setSourcePrefix("");
                         }}
-                        error={touched && sourceBucket === null ? "Choose the source bucket." : null}
+                        error={touched && sourceBucket === null ? tr("Choose the source bucket.") : null}
                         comboboxProps={{ withinPortal: false }}
                       />
                       {sourceBucket !== null ? (
@@ -444,30 +463,30 @@ export function SyncDialog({
                   ) : (
                     <Group align="flex-end" gap="xs" wrap="nowrap">
                       <TextInput
-                        label="Local folder"
+                        label={tr("Local folder")}
                         value={localRoot}
                         readOnly
-                        placeholder="Choose a folder"
+                        placeholder={tr("Choose a folder")}
                         style={{ flex: 1 }}
-                        error={touched && localRoot.length === 0 ? "Choose the local folder." : null}
+                        error={touched && localRoot.length === 0 ? tr("Choose the local folder.") : null}
                       />
                       <Button variant="default" leftSection={<IconFolderOpen size={14} />} onClick={() => void browseLocal()}>
-                        Browse...
+                        {tr("Browse...")}
                       </Button>
                     </Group>
                   )}
                   <Select
-                    label={s3ToS3 ? "Destination bucket" : "Bucket"}
-                    placeholder="Choose a bucket"
+                    label={s3ToS3 ? tr("Destination bucket") : tr("Bucket")}
+                    placeholder={tr("Choose a bucket")}
                     data={bucketNames}
                     value={bucket}
                     searchable
-                    nothingFoundMessage="No bucket with that name"
+                    nothingFoundMessage={tr("No bucket with that name")}
                     onChange={(value) => {
                       setBucket(value);
                       setPrefix("");
                     }}
-                    error={touched && bucket === null ? "Choose a bucket." : null}
+                    error={touched && bucket === null ? tr("Choose a bucket.") : null}
                     comboboxProps={{ withinPortal: false }}
                   />
                   {bucket !== null ? (
@@ -478,13 +497,13 @@ export function SyncDialog({
                   <Group gap={6}>
                     <IconInfoCircle size={14} aria-hidden />
                     <Text size="xs" c="dimmed">
-                      Analysing only compares the two sides; nothing is changed until you execute the plan.
+                      {tr("Analysing only compares the two sides; nothing is changed until you execute the plan.")}
                     </Text>
                   </Group>
                 </Stack>
               ),
             },
-            { label: "Results", content: <Results footer={<SaveJobSection existing={null} build={buildJob} />} /> },
+            { label: tr("Results"), content: <Results footer={<SaveJobSection existing={null} build={buildJob} />} /> },
           ]}
         />
       )}

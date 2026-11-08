@@ -1,4 +1,5 @@
 import type { Side, SyncAction, SyncDirection, SyncRow } from "../api/types";
+import { tr } from "../i18n";
 
 export type SyncRowFilter = "all" | "failed";
 
@@ -39,21 +40,21 @@ export function pendingRows(rows: readonly SyncRow[]): number {
 }
 
 export const DIRECTION_LABELS: Record<SyncDirection, string> = {
-  upload: "Upload (local to S3)",
-  download: "Download (S3 to local)",
-  bidirectional: "Both directions",
-  s3_to_s3: "S3 to S3 (between prefixes)",
+  upload: tr("Upload (local to S3)"),
+  download: tr("Download (S3 to local)"),
+  bidirectional: tr("Both directions"),
+  s3_to_s3: tr("S3 to S3 (between prefixes)"),
 };
 
 export const ACTION_LABELS: Record<SyncAction, string> = {
-  copy: "Copy",
-  delete: "Delete",
-  equal: "Equal",
-  failed: "Failed",
+  copy: tr("Copy"),
+  delete: tr("Delete"),
+  equal: tr("Equal"),
+  failed: tr("Failed"),
 };
 
 export const SIDE_LABELS: Record<Side, string> = {
-  local: "Local",
+  local: tr("Local"),
   remote: "S3",
 };
 

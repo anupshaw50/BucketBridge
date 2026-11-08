@@ -2,6 +2,7 @@ import { Button, Group, Radio, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 import type { AccelerationStatus } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { ActionError, SectionGate, type TabProps } from "./common";
 import { useAction } from "./useAction";
 
@@ -41,19 +42,18 @@ function AccelerationEditor({
         return;
       }
       await model.api.put_bucket_acceleration({ account_id: accountId, bucket, status: choice });
-      model.status.info(`Transfer acceleration of ${bucket} is now ${choice}.`);
+      model.status.info(tr("Transfer acceleration of {bucket} is now {choice}.", { bucket, choice: tr(choice) }));
       await reload();
     });
 
   return (
     <Stack gap="sm">
-      <Text size="sm">{STATUS_TEXT[status]}</Text>
+      <Text size="sm">{tr(STATUS_TEXT[status])}</Text>
       <Text size="sm" c="dimmed">
-        Acceleration routes transfers over the AWS edge network, which helps over long distances. It is billed
-        separately.
+        {tr("Acceleration routes transfers over the AWS edge network, which helps over long distances. It is billed separately.")}
       </Text>
       <Radio.Group
-        label="Transfer acceleration"
+        label={tr("Transfer acceleration")}
         value={choice ?? ""}
         onChange={(value) => {
           if (isChoice(value)) {
@@ -64,17 +64,17 @@ function AccelerationEditor({
         <Stack gap={6} mt={6}>
           <Radio
             value="enabled"
-            label="Enabled"
+            label={tr("Enabled")}
             disabled={dotted}
-            description={dotted ? "Not available: the name of this bucket contains dots." : undefined}
+            description={dotted ? tr("Not available: the name of this bucket contains dots.") : undefined}
           />
-          <Radio value="suspended" label="Suspended" />
+          <Radio value="suspended" label={tr("Suspended")} />
         </Stack>
       </Radio.Group>
       <ActionError message={action.error} />
       <Group gap="xs">
         <Button loading={action.busy} disabled={choice === null || choice === current} onClick={() => void save()}>
-          Save
+          {tr("Save")}
         </Button>
       </Group>
     </Stack>

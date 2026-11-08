@@ -4,6 +4,7 @@ import { toBbError } from "../../api/errors";
 import type { CloudFrontDistribution, CloudFrontInvalidation, PathSet } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import type { CloudFrontView } from "../../state/dialogs";
 import { AttachDialog, EditDialog } from "./CloudFrontForms";
@@ -79,11 +80,14 @@ export function CloudFrontDialog({
       const enable = !item.enabled;
       const confirmed = await model.dialogs.confirm(
         enable
-          ? { title: "Enable distribution", message: `Enable ${item.id}? It starts serving requests again.`, confirmLabel: "Enable" }
+          ? { title: tr("Enable distribution"), message: tr("Enable {id}? It starts serving requests again.", { id: item.id }), confirmLabel: tr("Enable") }
           : {
-              title: "Disable distribution",
-              message: `Disable ${item.id}${item.comment === "" ? "" : ` (${item.comment})`}? Viewers get errors until it is enabled again.\\n\\nType ${item.id} to confirm.`,
-              confirmLabel: "Disable",
+              title: tr("Disable distribution"),
+              message: tr("Disable {id}{comment}? Viewers get errors until it is enabled again.\n\nType {id} to confirm.", {
+                id: item.id,
+                comment: item.comment === "" ? "" : ` (${item.comment})`,
+              }),
+              confirmLabel: tr("Disable"),
               danger: true,
               typedConfirmation: item.id,
             },
@@ -100,9 +104,9 @@ export function CloudFrontDialog({
           expected_etag: current.etag,
         });
         replace(updated);
-        model.status.info(`Distribution ${item.id} ${enable ? "enabled" : "disabled"}.`);
+        model.status.info(enable ? tr("Distribution {id} enabled.", { id: item.id }) : tr("Distribution {id} disabled.", { id: item.id }));
       } catch (raw) {
-        model.status.error(raw, { notify: "The distribution could not be changed" });
+        model.status.error(raw, { notify: tr("The distribution could not be changed") });
       }
     },
     [model, accountId],
@@ -114,9 +118,9 @@ export function CloudFrontDialog({
         return;
       }
       const confirmed = await model.dialogs.confirm({
-        title: "Detach distribution",
-        message: `Remove the origin of s3://${bucket} from ${item.id}? The distribution and the bucket are kept, but the paths it served from this bucket stop working.\n\nType ${bucket} to confirm.`,
-        confirmLabel: "Detach",
+        title: tr("Detach distribution"),
+        message: tr("Remove the origin of s3://{bucket} from {id}? The distribution and the bucket are kept, but the paths it served from this bucket stop working.\n\nType {bucket} to confirm.", { bucket, id: item.id }),
+        confirmLabel: tr("Detach"),
         danger: true,
         typedConfirmation: bucket,
       });
@@ -126,10 +130,10 @@ export function CloudFrontDialog({
       try {
         const current = await model.api.get_cloudfront_distribution({ account_id: accountId, id: item.id });
         await model.api.detach_cloudfront_bucket({ account_id: accountId, id: item.id, bucket, expected_etag: current.etag });
-        model.status.info(`Distribution ${item.id} detached from ${bucket}.`);
+        model.status.info(tr("Distribution {id} detached from {bucket}.", { id: item.id, bucket }));
         await load(null);
       } catch (raw) {
-        model.status.error(raw, { notify: "The distribution could not be detached" });
+        model.status.error(raw, { notify: tr("The distribution could not be detached") });
       }
     },
     [model, accountId, bucket, load],
@@ -163,79 +167,79 @@ export function CloudFrontDialog({
   const choices = items.map((item) => ({ value: item.id, label: `${item.id}${item.comment === "" ? "" : ` ${item.comment}`}` }));
 
   return (
-    <AppModal opened onClose={onClose} title="CloudFront manager" size="xl">
+    <AppModal opened onClose={onClose} title={tr("CloudFront manager")} size="xl">
       <Stack gap="sm">
         <Text size="sm" c="dimmed">
-          {bucket !== null && !all ? `Distributions that serve s3://${bucket}` : "Distributions of this account"}
+          {bucket !== null && !all ? tr("Distributions that serve s3://{bucket}", { bucket }) : tr("Distributions of this account")}
         </Text>
         {bucket !== null && (
-          <Checkbox label="All distributions" checked={all} onChange={(event) => setAll(event.currentTarget.checked)} />
+          <Checkbox label={tr("All distributions")} checked={all} onChange={(event) => setAll(event.currentTarget.checked)} />
         )}
         {error !== null && (
-          <Alert color="red" title="CloudFront request failed">
+          <Alert color="red" title={tr("CloudFront request failed")}>
             {error}
           </Alert>
         )}
         {bucket !== null && (
           <Group>
             <Button variant="default" size="compact-sm" onClick={() => setForm({ kind: "attach" })}>
-              Attach distribution…
+              {tr("Attach distribution…")}
             </Button>
           </Group>
         )}
         <Select
-          label="Distribution"
+          label={tr("Distribution")}
           data={choices}
           value={selected}
           onChange={setChosen}
           allowDeselect={false}
           comboboxProps={{ withinPortal: false }}
-          placeholder={loading ? "Loading…" : "No distributions"}
+          placeholder={loading ? tr("Loading…") : tr("No distributions")}
         />
         <Tabs keepMounted={false} value={tab} onChange={(next) => setTab((next as CloudFrontView | null) ?? "distributions")}>
           <Tabs.List>
-            <Tabs.Tab value="distributions">Distributions</Tabs.Tab>
-            <Tabs.Tab value="invalidate">Invalidate</Tabs.Tab>
-            <Tabs.Tab value="history">History</Tabs.Tab>
+            <Tabs.Tab value="distributions">{tr("Distributions")}</Tabs.Tab>
+            <Tabs.Tab value="invalidate">{tr("Invalidate")}</Tabs.Tab>
+            <Tabs.Tab value="history">{tr("History")}</Tabs.Tab>
           </Tabs.List>
           <Tabs.Panel value="distributions" pt="sm">
-            <Table aria-label="Distributions">
+            <Table aria-label={tr("Distributions")}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Id</Table.Th>
-                  <Table.Th>Comment</Table.Th>
-                  <Table.Th>Domain</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>State</Table.Th>
+                  <Table.Th>{tr("Id")}</Table.Th>
+                  <Table.Th>{tr("Comment")}</Table.Th>
+                  <Table.Th>{tr("Domain")}</Table.Th>
+                  <Table.Th>{tr("Status")}</Table.Th>
+                  <Table.Th>{tr("State")}</Table.Th>
                   <Table.Th />
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {items.map((item) => (
-                  <Table.Tr key={item.id} aria-label={`Distribution ${item.id}`}>
+                  <Table.Tr key={item.id} aria-label={tr("Distribution {id}", { id: item.id })}>
                     <Table.Td>{item.id}</Table.Td>
                     <Table.Td>{item.comment}</Table.Td>
                     <Table.Td>{item.domain_name}</Table.Td>
                     <Table.Td>
                       <StatusBadge status={item.status} />
                     </Table.Td>
-                    <Table.Td>{item.enabled ? "Enabled" : "Disabled"}</Table.Td>
+                    <Table.Td>{item.enabled ? tr("Enabled") : tr("Disabled")}</Table.Td>
                     <Table.Td>
                       <Group gap="xs" wrap="nowrap">
                         <Button
                           size="compact-sm"
                           variant="default"
-                          aria-label={`${item.enabled ? "Disable" : "Enable"} ${item.id}`}
+                          aria-label={item.enabled ? tr("Disable {id}", { id: item.id }) : tr("Enable {id}", { id: item.id })}
                           onClick={() => void toggle(item)}
                         >
-                          {item.enabled ? "Disable" : "Enable"}
+                          {item.enabled ? tr("Disable") : tr("Enable")}
                         </Button>
-                        <Button size="compact-sm" variant="default" aria-label={`Edit ${item.id}`} onClick={() => setForm({ kind: "edit", id: item.id })}>
-                          Edit
+                        <Button size="compact-sm" variant="default" aria-label={tr("Edit {id}", { id: item.id })} onClick={() => setForm({ kind: "edit", id: item.id })}>
+                          {tr("Edit")}
                         </Button>
                         {bucket !== null && item.origins.some((origin) => origin.bucket === bucket) && (
-                          <Button size="compact-sm" variant="default" color="red" aria-label={`Detach ${item.id}`} onClick={() => void detach(item)}>
-                            Detach
+                          <Button size="compact-sm" variant="default" color="red" aria-label={tr("Detach {id}", { id: item.id })} onClick={() => void detach(item)}>
+                            {tr("Detach")}
                           </Button>
                         )}
                       </Group>
@@ -244,10 +248,10 @@ export function CloudFrontDialog({
                 ))}
               </Table.Tbody>
             </Table>
-            {items.length === 0 && !loading && <Text size="sm">No distributions.</Text>}
+            {items.length === 0 && !loading && <Text size="sm">{tr("No distributions.")}</Text>}
             {next !== null && (
               <Button mt="xs" variant="default" loading={loading} onClick={() => void load(next)}>
-                Load more
+                {tr("Load more")}
               </Button>
             )}
           </Tabs.Panel>
@@ -260,7 +264,7 @@ export function CloudFrontDialog({
         </Tabs>
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>
@@ -312,7 +316,7 @@ function InvalidatePanel({ accountId, distributionId }: { accountId: string; dis
     }
     try {
       setSets(await model.api.save_invalidation_path_set({ set: { name: setName, paths: check.paths }, replaces: sets.some((entry) => entry.name.toLowerCase() === setName.trim().toLowerCase()) ? setName : null }));
-      model.status.info(`Path set ${setName.trim()} saved.`);
+      model.status.info(tr("Path set {name} saved.", { name: setName.trim() }));
     } catch (raw) {
       setError(toBbError(raw).message);
     }
@@ -320,9 +324,9 @@ function InvalidatePanel({ accountId, distributionId }: { accountId: string; dis
 
   const deleteSet = async (name: string) => {
     const confirmed = await model.dialogs.confirm({
-      title: "Delete path set",
-      message: `Delete the path set ${name}? Type ${name} to confirm.`,
-      confirmLabel: "Delete",
+      title: tr("Delete path set"),
+      message: tr("Delete the path set {name}? Type {name} to confirm.", { name }),
+      confirmLabel: tr("Delete"),
       danger: true,
       typedConfirmation: name,
     });
@@ -338,8 +342,8 @@ function InvalidatePanel({ accountId, distributionId }: { accountId: string; dis
   return (
     <Stack gap="xs">
       <Textarea
-        label="Paths"
-        description="One path per line. Start with /, use * only at the end (/* invalidates everything)."
+        label={tr("Paths")}
+        description={tr("One path per line. Start with /, use * only at the end (/* invalidates everything).")}
         value={text}
         onChange={(event) => {
           setText(event.currentTarget.value);
@@ -350,8 +354,8 @@ function InvalidatePanel({ accountId, distributionId }: { accountId: string; dis
       />
       <Group align="flex-end" gap="xs">
         <Select
-          label="Saved path sets"
-          placeholder={sets.length === 0 ? "None saved" : "Load a set"}
+          label={tr("Saved path sets")}
+          placeholder={sets.length === 0 ? tr("None saved") : tr("Load a set")}
           data={sets.map((entry) => entry.name)}
           value={null}
           onChange={(name) => {
@@ -363,23 +367,23 @@ function InvalidatePanel({ accountId, distributionId }: { accountId: string; dis
           }}
           comboboxProps={{ withinPortal: false }}
         />
-        <TextInput label="Set name" value={setName} onChange={(event) => setSetName(event.currentTarget.value)} />
+        <TextInput label={tr("Set name")} value={setName} onChange={(event) => setSetName(event.currentTarget.value)} />
         <Button variant="default" disabled={!check.ok || setName.trim() === ""} onClick={() => void saveSet()}>
-          Save set
+          {tr("Save set")}
         </Button>
         <Button variant="default" color="red" disabled={!sets.some((entry) => entry.name === setName)} onClick={() => void deleteSet(setName)}>
-          Delete set
+          {tr("Delete set")}
         </Button>
       </Group>
       {error !== null && <Alert color="red">{error}</Alert>}
       {created !== null && (
-        <Alert color="green" title="Invalidation created">
-          {created.id} is {created.status} for {created.paths.join(", ")}.
+        <Alert color="green" title={tr("Invalidation created")}>
+          {tr("{id} is {status} for {paths}.", { id: created.id, status: created.status, paths: created.paths.join(", ") })}
         </Alert>
       )}
       <Group>
         <Button loading={busy} disabled={distributionId === null || !check.ok} onClick={() => void create()}>
-          Create invalidation
+          {tr("Create invalidation")}
         </Button>
       </Group>
     </Stack>
@@ -436,24 +440,24 @@ function HistoryPanel({ accountId, distributionId }: { accountId: string; distri
       {error !== null && <Alert color="red">{error}</Alert>}
       <Group justify="space-between">
         <Text size="sm" c="dimmed">
-          Newest first. An invalidation is InProgress until CloudFront has removed the paths from every edge, then Completed.
+          {tr("Newest first. An invalidation is InProgress until CloudFront has removed the paths from every edge, then Completed.")}
         </Text>
         <Button variant="default" size="compact-sm" loading={loading} onClick={() => void load(null)}>
-          Refresh
+          {tr("Refresh")}
         </Button>
       </Group>
-      <Table aria-label="Invalidation history">
+      <Table aria-label={tr("Invalidation history")}>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Id</Table.Th>
-            <Table.Th>Created</Table.Th>
-            <Table.Th>Status</Table.Th>
-            <Table.Th>Paths</Table.Th>
+            <Table.Th>{tr("Id")}</Table.Th>
+            <Table.Th>{tr("Created")}</Table.Th>
+            <Table.Th>{tr("Status")}</Table.Th>
+            <Table.Th>{tr("Paths")}</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
           {items.map((item) => (
-            <Table.Tr key={item.id} aria-label={`Invalidation ${item.id}`}>
+            <Table.Tr key={item.id} aria-label={tr("Invalidation {id}", { id: item.id })}>
               <Table.Td>{item.id}</Table.Td>
               <Table.Td>{formatDateTime(item.create_time)}</Table.Td>
               <Table.Td>
@@ -463,8 +467,8 @@ function HistoryPanel({ accountId, distributionId }: { accountId: string; distri
                 {paths[item.id] !== undefined ? (
                   paths[item.id]?.join(", ")
                 ) : (
-                  <Button size="compact-sm" variant="subtle" aria-label={`Show paths of ${item.id}`} onClick={() => void show(item.id)}>
-                    Show paths
+                  <Button size="compact-sm" variant="subtle" aria-label={tr("Show paths of {id}", { id: item.id })} onClick={() => void show(item.id)}>
+                    {tr("Show paths")}
                   </Button>
                 )}
               </Table.Td>
@@ -472,10 +476,10 @@ function HistoryPanel({ accountId, distributionId }: { accountId: string; distri
           ))}
         </Table.Tbody>
       </Table>
-      {items.length === 0 && !loading && <Text size="sm">No invalidations yet.</Text>}
+      {items.length === 0 && !loading && <Text size="sm">{tr("No invalidations yet.")}</Text>}
       {next !== null && (
         <Button variant="default" loading={loading} onClick={() => void load(next)}>
-          Load more
+          {tr("Load more")}
         </Button>
       )}
     </Stack>

@@ -1,7 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
+import { setLocale } from "../i18n";
 import { disposeRenderedApps } from "./renderApp";
+
+// The build ships Chinese, so its tests run in Chinese; tr() reads the locale.
+beforeEach(() => {
+  setLocale("zh-CN");
+});
 
 afterEach(() => {
   cleanup();

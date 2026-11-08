@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, type AppServices } from "./app/App";
+import { tr } from "./i18n";
 import { startLocationFromSearch } from "./lib/startLocation";
 
 async function loadServices(): Promise<AppServices> {
@@ -39,6 +40,7 @@ loadServices().then(
     );
   },
   (error: unknown) => {
-    container.textContent = `BucketBridge could not start: ${error instanceof Error ? error.message : String(error)}`;
+    const detail = error instanceof Error ? error.message : String(error);
+    container.textContent = tr("BucketBridge could not start: {message}", { message: detail });
   },
 );

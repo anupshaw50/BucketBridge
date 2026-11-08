@@ -4,7 +4,7 @@ import "./app.css";
 import { MantineProvider } from "@mantine/core";
 import { useColorScheme } from "@mantine/hooks";
 import { Notifications, notifications } from "@mantine/notifications";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useSyncExternalStore, useState } from "react";
 import type { Backend } from "../api/backend";
 import type { Platform } from "../api/platform";
 import type { WindowLocation } from "../api/types";
@@ -12,6 +12,7 @@ import { ModalLayersProvider } from "../components/AppModal";
 import { DialogHost } from "../features/DialogHost";
 import { ConflictHost } from "../features/transfers/ConflictDialog";
 import { SessionPrompts } from "../features/accounts/SessionPrompts";
+import { getLocale, subscribeLocale } from "../i18n";
 import { AppModel } from "../state/model";
 import type { FrameScheduler } from "../state/scheduler";
 import type { Notice, Notifier } from "../state/status";
@@ -81,6 +82,8 @@ export function App({ services, env = "default", notify, scheduler }: AppProps) 
       }),
   );
   useEffect(() => model.start(), [model]);
+  // Re-renders every screen when the language changes (tr reads it).
+  useSyncExternalStore(subscribeLocale, getLocale);
   return (
     <ModelContext value={model}>
       <Themed env={env} platformUi={services.platformUi ?? null} />

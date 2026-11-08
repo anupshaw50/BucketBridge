@@ -4,10 +4,19 @@ import { toBbError } from "../../api/errors";
 import type { ObjectOwnership } from "../../api/types";
 import { useModel } from "../../app/context";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
+import { tr } from "../../i18n";
 
 const OPTIONS: { value: ObjectOwnership; label: string; hint: string }[] = [
-  { value: "BucketOwnerEnforced", label: "Bucket owner enforced", hint: "ACLs are disabled; the bucket owner owns every object." },
-  { value: "BucketOwnerPreferred", label: "Bucket owner preferred", hint: "The bucket owner owns objects uploaded with the bucket-owner-full-control ACL." },
+  {
+    value: "BucketOwnerEnforced",
+    label: "Bucket owner enforced",
+    hint: "ACLs are disabled; the bucket owner owns every object.",
+  },
+  {
+    value: "BucketOwnerPreferred",
+    label: "Bucket owner preferred",
+    hint: "The bucket owner owns objects uploaded with the bucket-owner-full-control ACL.",
+  },
   { value: "ObjectWriter", label: "Object writer", hint: "The account that uploads an object owns it." },
 ];
 
@@ -41,9 +50,9 @@ export function OwnershipDialog({ accountId, bucket, onClose }: { accountId: str
     }
     if (value === "BucketOwnerEnforced") {
       const confirmed = await model.dialogs.confirm({
-        title: "Disable ACLs",
-        message: `With BucketOwnerEnforced, ACLs of ${bucket} stop working and requests that set them fail.`,
-        confirmLabel: "Disable ACLs",
+        title: tr("Disable ACLs"),
+        message: tr("With BucketOwnerEnforced, ACLs of {bucket} stop working and requests that set them fail.", { bucket }),
+        confirmLabel: tr("Disable ACLs"),
         danger: true,
         typedConfirmation: bucket,
       });
@@ -55,7 +64,7 @@ export function OwnershipDialog({ accountId, bucket, onClose }: { accountId: str
     setError(null);
     try {
       await model.api.put_object_ownership({ account_id: accountId, bucket, ownership: value });
-      model.status.info(`Object ownership of ${bucket} saved.`);
+      model.status.info(tr("Object ownership of {bucket} saved.", { bucket }));
       onClose();
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -67,8 +76,8 @@ export function OwnershipDialog({ accountId, bucket, onClose }: { accountId: str
   return (
     <OkCancelDialog
       opened
-      title={`Object ownership: ${bucket}`}
-      okLabel="Save"
+      title={tr("Object ownership: {bucket}", { bucket })}
+      okLabel={tr("Save")}
       onOk={() => void submit()}
       onCancel={onClose}
       busy={busy}
@@ -78,11 +87,11 @@ export function OwnershipDialog({ accountId, bucket, onClose }: { accountId: str
       <Radio.Group value={value ?? ""} onChange={(next) => setValue(next as ObjectOwnership)}>
         <Stack gap="sm">
           {OPTIONS.map((option) => (
-            <Radio key={option.value} value={option.value} label={option.label} description={option.hint} />
+            <Radio key={option.value} value={option.value} label={tr(option.label)} description={tr(option.hint)} />
           ))}
         </Stack>
       </Radio.Group>
-      {loaded && value === null && <Text size="sm" c="dimmed">No setting is configured; S3 behaves as Object writer.</Text>}
+      {loaded && value === null && <Text size="sm" c="dimmed">{tr("No setting is configured; S3 behaves as Object writer.")}</Text>}
     </OkCancelDialog>
   );
 }

@@ -1,9 +1,11 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import type { UserEvent } from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { tr } from "../../i18n";
 import { MockBackend } from "../../mock/mockBackend";
 import { AppModel } from "../../state/model";
 import { immediateScheduler } from "../../state/scheduler";
-import { openBucket, renderApp, TestPlatform } from "../../test/renderApp";
+import { renderApp, TestPlatform } from "../../test/renderApp";
 
 async function accountId(mock: MockBackend): Promise<string> {
   const id = (await mock.list_accounts()).default_account_id;
@@ -14,7 +16,7 @@ async function accountId(mock: MockBackend): Promise<string> {
 }
 
 async function bucketRow(name: string): Promise<HTMLElement> {
-  const tree = await screen.findByRole("tree", { name: "Buckets and folders" });
+  const tree = await screen.findByRole("tree", { name: tr("Buckets and folders") });
   const row = (await within(tree).findByText(name)).closest<HTMLElement>('[role="treeitem"]');
   if (row === null) {
     throw new Error(`no tree row for ${name}`);
@@ -22,50 +24,60 @@ async function bucketRow(name: string): Promise<HTMLElement> {
   return row;
 }
 
+/** Opens a bucket and waits for the object grid. */
+async function openBucket(user: UserEvent, name: string): Promise<void> {
+  const tree = await screen.findByRole("tree", { name: tr("Buckets and folders") });
+  const item = await within(tree).findByText(name);
+  await user.click(item);
+  await screen.findByRole("grid", { name: tr("Objects") });
+}
+
 describe("bookmarks (T14)", () => {
   it("adds a bucket bookmark from the bucket menu, opens it, renames it and deletes it", async () => {
     const { user, mock } = await renderApp();
-    expect(screen.queryByRole("region", { name: "Bookmarks" })).toBeNull();
+    expect(screen.queryByRole("region", { name: tr("Bookmarks") })).toBeNull();
 
     fireEvent.contextMenu(await bucketRow("demo-photos"));
-    await user.click(await screen.findByRole("menuitem", { name: "Bookmark…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add bookmark" });
+    await user.click(await screen.findByRole("menuitem", { name: tr("Bookmark…") }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Add bookmark") });
     expect(within(dialog).getByText("s3://demo-photos/")).toBeTruthy();
-    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Holiday photos");
-    await user.click(within(dialog).getByRole("button", { name: "Add bookmark" }));
+    await user.type(within(dialog).getByRole("textbox", { name: tr("Name") }), "Holiday photos");
+    await user.click(within(dialog).getByRole("button", { name: tr("Add bookmark") }));
 
-    const section = await screen.findByRole("region", { name: "Bookmarks" });
+    const section = await screen.findByRole("region", { name: tr("Bookmarks") });
     await user.click(within(section).getByRole("button", { name: "Holiday photos" }));
-    await screen.findByRole("grid", { name: "Objects" });
+    await screen.findByRole("grid", { name: tr("Objects") });
     expect(await mock.list_bookmarks()).toHaveLength(1);
 
-    await user.click(within(section).getByRole("button", { name: "Rename bookmark Holiday photos" }));
-    const rename = await screen.findByRole("dialog", { name: "Rename bookmark" });
-    const field = within(rename).getByRole<HTMLInputElement>("textbox", { name: "Name" });
+    await user.click(
+      within(section).getByRole("button", { name: tr("Rename bookmark {label}", { label: "Holiday photos" }) }),
+    );
+    const rename = await screen.findByRole("dialog", { name: tr("Rename bookmark") });
+    const field = within(rename).getByRole<HTMLInputElement>("textbox", { name: tr("Name") });
     expect(field.value).toBe("Holiday photos");
     await user.clear(field);
     await user.type(field, "Photos");
-    await user.click(within(rename).getByRole("button", { name: "Rename" }));
-    await within(await screen.findByRole("region", { name: "Bookmarks" })).findByRole("button", { name: "Photos" });
+    await user.click(within(rename).getByRole("button", { name: tr("Rename") }));
+    await within(await screen.findByRole("region", { name: tr("Bookmarks") })).findByRole("button", { name: "Photos" });
 
-    await user.click(screen.getByRole("button", { name: "Delete bookmark Photos" }));
-    await user.click(await within(await screen.findByRole("dialog")).findByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Bookmarks" })).toBeNull());
+    await user.click(screen.getByRole("button", { name: tr("Delete bookmark {label}", { label: "Photos" }) }));
+    await user.click(await within(await screen.findByRole("dialog")).findByRole("button", { name: tr("Delete") }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: tr("Bookmarks") })).toBeNull());
     expect(await mock.list_bookmarks()).toEqual([]);
   });
 
   it("bookmarks a file and opens the folder that holds it", async () => {
     const { user, mock } = await renderApp();
     await openBucket(user, "demo-photos");
-    const grid = await screen.findByRole("grid", { name: "Objects" });
+    const grid = await screen.findByRole("grid", { name: tr("Objects") });
     const first = within(grid).getAllByRole("row")[1];
     if (first === undefined) {
       throw new Error("no rows");
     }
     fireEvent.contextMenu(first);
-    await user.click(await screen.findByRole("menuitem", { name: "Bookmark…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add bookmark" });
-    await user.click(within(dialog).getByRole("button", { name: "Add bookmark" }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Bookmark…") }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Add bookmark") });
+    await user.click(within(dialog).getByRole("button", { name: tr("Add bookmark") }));
     await waitFor(async () => expect(await mock.list_bookmarks()).toHaveLength(1));
     const [saved] = await mock.list_bookmarks();
     expect(saved?.bucket).toBe("demo-photos");
@@ -76,9 +88,9 @@ describe("bookmarks (T14)", () => {
     const { user, mock } = await renderApp();
     await mock.add_bookmark({ account_id: await accountId(mock), bucket: "demo-photos", prefix: "", label: null });
     fireEvent.contextMenu(await bucketRow("demo-photos"));
-    await user.click(await screen.findByRole("menuitem", { name: "Bookmark…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add bookmark" });
-    await user.click(within(dialog).getByRole("button", { name: "Add bookmark" }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Bookmark…") }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Add bookmark") });
+    await user.click(within(dialog).getByRole("button", { name: tr("Add bookmark") }));
     expect(await within(dialog).findByText(/already bookmarked/)).toBeTruthy();
   });
 
@@ -94,7 +106,7 @@ describe("bookmarks (T14)", () => {
   it("opens a new window from the bucket menu with the bucket as its location", async () => {
     const { user, mock } = await renderApp();
     fireEvent.contextMenu(await bucketRow("demo-photos"));
-    await user.click(await screen.findByRole("menuitem", { name: "Open in new window" }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Open in new window") }));
     const id = await accountId(mock);
     await waitFor(() => expect(mock.openedWindows).toEqual([{ account_id: id, bucket: "demo-photos", prefix: "" }]));
   });

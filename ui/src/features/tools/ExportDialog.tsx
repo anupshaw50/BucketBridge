@@ -5,14 +5,21 @@ import { toBbError } from "../../api/errors";
 import type { ExportOutcome, ListingFormat } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
-import { formatBytes, plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatBytes, formatCount } from "../../lib/format";
 import { s3Uri } from "../../lib/s3keys";
 import { exportFileName, FORMAT_EXTENSIONS, FORMAT_LABELS } from "../../lib/tools";
 
 const FORMATS: readonly { value: ListingFormat; description: string }[] = [
-  { value: "csv", description: "Plain text for any tool or script. Text that starts with = + - or @ gets a leading apostrophe." },
-  { value: "xlsx", description: "An Excel workbook with a header row. A listing past 1,048,576 rows continues on more sheets." },
-  { value: "parquet", description: "A compact columnar file for data tools, with Snappy compression." },
+  {
+    value: "csv",
+    description: tr("Plain text for any tool or script. Text that starts with = + - or @ gets a leading apostrophe."),
+  },
+  {
+    value: "xlsx",
+    description: tr("An Excel workbook with a header row. A listing past 1,048,576 rows continues on more sheets."),
+  },
+  { value: "parquet", description: tr("A compact columnar file for data tools, with Snappy compression.") },
 ];
 
 function isFormat(value: string): value is ListingFormat {
@@ -43,12 +50,12 @@ export function ExportDialog({ accountId, bucket, prefix, onClose }: ExportDialo
     let path: string | null;
     try {
       path = await model.platform.pickSavePath({
-        title: "Export listing",
+        title: tr("Export listing"),
         defaultPath: exportFileName(bucket, prefix, format),
         filters: [{ name: FORMAT_LABELS[format], extensions: [FORMAT_EXTENSIONS[format]] }],
       });
     } catch (raw) {
-      model.status.error(raw, { notify: "The file dialog could not be opened" });
+      model.status.error(raw, { notify: tr("The file dialog could not be opened") });
       return;
     }
     if (path === null) {
@@ -67,7 +74,11 @@ export function ExportDialog({ accountId, bucket, prefix, onClose }: ExportDialo
         filter: filter !== null && useFilter ? filter.spec : null,
       });
       setOutcome(result);
-      model.status.info(`Exported ${plural(result.rows, "row")} to ${result.path}.`);
+      model.status.info(
+        result.rows === 1
+          ? tr("Exported 1 row to {path}.", { path: result.path })
+          : tr("Exported {count} rows to {path}.", { count: formatCount(result.rows), path: result.path }),
+      );
     } catch (raw) {
       setError(toBbError(raw).message);
     } finally {
@@ -79,34 +90,40 @@ export function ExportDialog({ accountId, bucket, prefix, onClose }: ExportDialo
     try {
       await model.platform.revealPath(path);
     } catch (raw) {
-      model.status.error(raw, { notify: "The folder could not be shown" });
+      model.status.error(raw, { notify: tr("The folder could not be shown") });
     }
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Export listing" size="md" closeOnClickOutside={!busy}>
+    <AppModal opened onClose={onClose} title={tr("Export listing")} size="md" closeOnClickOutside={!busy}>
       {outcome !== null ? (
         <Stack gap="sm">
-          <Alert color="teal" icon={<IconCheck size={16} />} title="Export finished">
+          <Alert color="teal" icon={<IconCheck size={16} />} title={tr("Export finished")}>
             <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-              Exported {plural(outcome.rows, "row")} ({formatBytes(outcome.bytes)}) to {outcome.path}.
+              {outcome.rows === 1
+                ? tr("Exported 1 row ({size}) to {path}.", { size: formatBytes(outcome.bytes), path: outcome.path })
+                : tr("Exported {count} rows ({size}) to {path}.", {
+                    count: formatCount(outcome.rows),
+                    size: formatBytes(outcome.bytes),
+                    path: outcome.path,
+                  })}
             </Text>
           </Alert>
           <Group justify="flex-end" gap="xs">
             <Button variant="default" leftSection={<IconFolderSearch size={14} />} onClick={() => void reveal(outcome.path)}>
-              Show in folder
+              {tr("Show in folder")}
             </Button>
-            <Button onClick={onClose}>Close</Button>
+            <Button onClick={onClose}>{tr("Close")}</Button>
           </Group>
         </Stack>
       ) : (
         <Stack gap="sm">
           <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-            Writes the listing of <strong>{s3Uri(bucket, prefix)}</strong> to a file with the columns key, size,
-            last_modified, etag and storage_class.
+            {tr("Writes the listing of")} <strong>{s3Uri(bucket, prefix)}</strong>{" "}
+            {tr("to a file with the columns key, size, last_modified, etag and storage_class.")}
           </Text>
           <Radio.Group
-            label="File format"
+            label={tr("File format")}
             value={format}
             onChange={(value) => {
               if (isFormat(value)) {
@@ -121,14 +138,14 @@ export function ExportDialog({ accountId, bucket, prefix, onClose }: ExportDialo
             </Stack>
           </Radio.Group>
           <Switch
-            label="Include everything below this folder"
-            description="Off: only what the folder view shows, one level."
+            label={tr("Include everything below this folder")}
+            description={tr("Off: only what the folder view shows, one level.")}
             checked={recursive}
             onChange={(event) => setRecursive(event.currentTarget.checked)}
           />
           {filter !== null ? (
             <Checkbox
-              label={`Only entries matching the active filter "${filter.name}"`}
+              label={tr("Only entries matching the active filter \"{name}\"", { name: filter.name })}
               checked={useFilter}
               onChange={(event) => setUseFilter(event.currentTarget.checked)}
             />
@@ -140,10 +157,10 @@ export function ExportDialog({ accountId, bucket, prefix, onClose }: ExportDialo
           ) : null}
           <Group justify="flex-end" gap="xs">
             <Button variant="default" onClick={onClose}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button loading={busy} onClick={() => void start()}>
-              Export to file...
+              {tr("Export to file...")}
             </Button>
           </Group>
         </Stack>

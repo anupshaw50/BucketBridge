@@ -2,6 +2,7 @@ import { Button, Stack, Text } from "@mantine/core";
 import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
 import { applicationName } from "./helpers";
 
@@ -28,7 +29,7 @@ export function OpenWithDialog({
     try {
       await model.api.open_object_with({ account_id: accountId, bucket, key: objectKey, app });
       await model.settings.load().catch(() => undefined);
-      model.status.info(`Opening ${objectKey} with ${applicationName(app)}.`);
+      model.status.info(tr("Opening {key} with {app}.", { key: objectKey, app: applicationName(app) }));
       onClose();
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -38,7 +39,7 @@ export function OpenWithDialog({
 
   const choose = async () => {
     try {
-      const app = await model.platform.pickApplication("Choose an application");
+      const app = await model.platform.pickApplication(tr("Choose an application"));
       if (app !== null) {
         await openWith(app);
       }
@@ -48,15 +49,15 @@ export function OpenWithDialog({
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Open with" size="md" closeOnClickOutside={!busy}>
+    <AppModal opened onClose={onClose} title={tr("Open with")} size="md" closeOnClickOutside={!busy}>
       <Stack gap="sm">
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {objectKey}
         </Text>
         {recent.length > 0 && (
-          <Stack gap={4} aria-label="Recent applications" role="group">
+          <Stack gap={4} aria-label={tr("Recent applications")} role="group">
             <Text size="xs" c="dimmed">
-              Recent applications
+              {tr("Recent applications")}
             </Text>
             {recent.map((app) => (
               <Button key={app} variant="default" justify="flex-start" disabled={busy} onClick={() => void openWith(app)} title={app}>
@@ -71,10 +72,10 @@ export function OpenWithDialog({
           </Text>
         )}
         <Button loading={busy} onClick={() => void choose()}>
-          Choose application…
+          {tr("Choose application…")}
         </Button>
         <Button variant="subtle" onClick={onClose} disabled={busy}>
-          Cancel
+          {tr("Cancel")}
         </Button>
       </Stack>
     </AppModal>

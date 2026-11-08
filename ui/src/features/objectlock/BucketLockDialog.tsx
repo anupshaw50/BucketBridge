@@ -4,6 +4,7 @@ import { toBbError } from "../../api/errors";
 import type { BucketObjectLock, LockMode } from "../../api/types";
 import { useModel } from "../../app/context";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
+import { tr } from "../../i18n";
 
 /** Whether Object Lock is on for a bucket, and its default retention. */
 export function BucketLockDialog({ accountId, bucket, onClose }: { accountId: string; bucket: string; onClose: () => void }) {
@@ -48,9 +49,9 @@ export function BucketLockDialog({ accountId, bucket, onClose }: { accountId: st
     }
     if (current?.enabled !== true) {
       const confirmed = await model.dialogs.confirm({
-        title: "Turn on Object Lock",
-        message: `Object Lock cannot be turned off again once it is on for ${bucket}. Versioning must be enabled.`,
-        confirmLabel: "Turn on",
+        title: tr("Turn on Object Lock"),
+        message: tr("Object Lock cannot be turned off again once it is on for {bucket}. Versioning must be enabled.", { bucket }),
+        confirmLabel: tr("Turn on"),
         danger: true,
         typedConfirmation: bucket,
       });
@@ -68,7 +69,7 @@ export function BucketLockDialog({ accountId, bucket, onClose }: { accountId: st
           ? { mode, days: unit === "days" ? count : null, years: unit === "years" ? count : null }
           : null,
       });
-      model.status.info(`Object Lock settings of ${bucket} saved.`);
+      model.status.info(tr("Object Lock settings of {bucket} saved.", { bucket }));
       onClose();
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -80,8 +81,8 @@ export function BucketLockDialog({ accountId, bucket, onClose }: { accountId: st
   return (
     <OkCancelDialog
       opened
-      title={`Object lock: ${bucket}`}
-      okLabel={current?.enabled === true ? "Save" : "Turn on Object Lock"}
+      title={tr("Object lock: {bucket}", { bucket })}
+      okLabel={current?.enabled === true ? tr("Save") : tr("Turn on Object Lock")}
       onOk={() => void submit()}
       onCancel={onClose}
       busy={busy}
@@ -90,28 +91,36 @@ export function BucketLockDialog({ accountId, bucket, onClose }: { accountId: st
     >
       <Stack gap="sm">
         <Text size="sm" data-testid="lock-state">
-          {current === null ? "Reading..." : current.enabled ? "Object Lock is on for this bucket." : "Object Lock is off for this bucket."}
+          {current === null
+            ? tr("Reading...")
+            : current.enabled
+              ? tr("Object Lock is on for this bucket.")
+              : tr("Object Lock is off for this bucket.")}
         </Text>
-        <Switch label="Default retention for new objects" checked={useDefault} onChange={(event) => setUseDefault(event.currentTarget.checked)} />
+        <Switch
+          label={tr("Default retention for new objects")}
+          checked={useDefault}
+          onChange={(event) => setUseDefault(event.currentTarget.checked)}
+        />
         {useDefault && (
           <>
             <SegmentedControl
-              aria-label="Retention mode"
+              aria-label={tr("Retention mode")}
               value={mode}
               onChange={(value) => setMode(value)}
               data={[
-                { value: "governance", label: "Governance" },
-                { value: "compliance", label: "Compliance" },
+                { value: "governance", label: tr("Governance") },
+                { value: "compliance", label: tr("Compliance") },
               ]}
             />
-            <NumberInput label="Retain for" value={amount} onChange={setAmount} min={1} allowDecimal={false} />
+            <NumberInput label={tr("Retain for")} value={amount} onChange={setAmount} min={1} allowDecimal={false} />
             <SegmentedControl
-              aria-label="Unit"
+              aria-label={tr("Unit")}
               value={unit}
               onChange={(value) => setUnit(value)}
               data={[
-                { value: "days", label: "Days" },
-                { value: "years", label: "Years" },
+                { value: "days", label: tr("Days") },
+                { value: "years", label: tr("Years") },
               ]}
             />
           </>

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { tr } from "../i18n";
 import { estimateStrength, generatePassword, randomBelow, type RandomSource } from "./password";
 
 describe("password generator", () => {
@@ -44,7 +45,7 @@ describe("strength estimate", () => {
     expect(estimateStrength("aaaaaaaaaaaa").score).toBeLessThan(2);
     const weak = estimateStrength("abc12345");
     expect(weak.score).toBeLessThan(3);
-    expect(weak.hint).toMatch(/12 characters/);
+    expect(weak.hint).toBe(tr("Use at least 12 characters, or generate a password."));
     const strong = estimateStrength("tW9!qL2#vR7$xM4%");
     expect(strong.score).toBe(4);
     expect(strong.hint).toBeNull();

@@ -15,6 +15,7 @@ import { toBbError } from "../../api/errors";
 import type { ObjectPreview, PreviewKind } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import { formatBytes, formatCount, formatDateTime } from "../../lib/format";
 import { baseName, s3Uri } from "../../lib/s3keys";
 import { imageSource } from "./imageUrl";
@@ -142,12 +143,12 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
   if (current === null) {
     body = (
       <Group justify="center" p="xl">
-        <Loader size="sm" aria-label="Loading preview" />
+        <Loader size="sm" aria-label={tr("Loading preview")} />
       </Group>
     );
   } else if (preview === null) {
     body = (
-      <Alert color="red" icon={<IconAlertCircle size={16} />} title="The preview could not be loaded" role="alert">
+      <Alert color="red" icon={<IconAlertCircle size={16} />} title={tr("The preview could not be loaded")} role="alert">
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {current.error}
         </Text>
@@ -155,44 +156,53 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
     );
   } else if (preview.kind === "text" || preview.kind === "json") {
     body = (
-      <pre className="bb-preview-text" tabIndex={0} aria-label={`Contents of ${baseName(objectKey)}`}>
+      <pre className="bb-preview-text" tabIndex={0} aria-label={tr("Contents of {name}", { name: baseName(objectKey) })}>
         {preview.text}
       </pre>
     );
   } else if (preview.kind === "image") {
     body =
       source === null || brokenImage === source.url ? (
-        <Alert color="yellow" icon={<IconAlertCircle size={16} />} title="The image cannot be shown" role="alert">
-          This system cannot draw {preview.media_type ?? "this image type"}. Download the object to open it with another program.
+        <Alert color="yellow" icon={<IconAlertCircle size={16} />} title={tr("The image cannot be shown")} role="alert">
+          {tr("This system cannot draw {type}. Download the object to open it with another program.", {
+            type: preview.media_type ?? tr("this image type"),
+          })}
         </Alert>
       ) : (
         <div className="bb-preview-frame">
           <img
             className="bb-preview-image"
             src={source.url}
-            alt={`Preview of ${baseName(objectKey)}`}
+            alt={tr("Preview of {name}", { name: baseName(objectKey) })}
             onError={() => setBrokenImage(source.url)}
           />
         </div>
       );
   } else if (preview.kind === "too_large") {
     body = (
-      <Alert color="yellow" icon={<IconAlertCircle size={16} />} title="Too large to preview" role="status">
-        This {preview.media_type ?? "image"} is {formatBytes(preview.size)}. Images above 8 MiB are not previewed; download the object to
-        open it.
+      <Alert color="yellow" icon={<IconAlertCircle size={16} />} title={tr("Too large to preview")} role="status">
+        {tr("This {type} is {size}. Images above 8 MiB are not previewed; download the object to open it.", {
+          type: preview.media_type ?? tr("image"),
+          size: formatBytes(preview.size),
+        })}
       </Alert>
     );
   } else if (preview.kind === "empty") {
     body = (
-      <Alert color="gray" icon={<IconAlertCircle size={16} />} title="Empty object" role="status">
-        This object has no content.
+      <Alert color="gray" icon={<IconAlertCircle size={16} />} title={tr("Empty object")} role="status">
+        {tr("This object has no content.")}
       </Alert>
     );
   } else {
     body = (
-      <Alert color="gray" icon={<IconAlertCircle size={16} />} title="Binary data" role="status">
-        This object holds data that is neither text nor an image ({formatBytes(preview.size)}
-        {preview.content_type === null ? "" : `, stored as ${preview.content_type}`}). Download it to open it with another program.
+      <Alert color="gray" icon={<IconAlertCircle size={16} />} title={tr("Binary data")} role="status">
+        {tr(
+          "This object holds data that is neither text nor an image ({size}{type}). Download it to open it with another program.",
+          {
+            size: formatBytes(preview.size),
+            type: preview.content_type === null ? "" : tr(", stored as {type}", { type: preview.content_type }),
+          },
+        )}
       </Alert>
     );
   }
@@ -206,11 +216,11 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
         <Group gap="xs" wrap="nowrap">
           <KindIcon kind={preview?.kind ?? null} />
           <Text fw={600} className="bb-ellipsis" title={s3Uri(bucket, objectKey)}>
-            {`Preview: ${baseName(objectKey)}`}
+            {tr("Preview: {name}", { name: baseName(objectKey) })}
           </Text>
           {versionId === null ? null : (
             <Badge variant="light" size="sm" title={versionId}>
-              {`Version ${versionId}`}
+              {tr("Version {id}", { id: versionId })}
             </Badge>
           )}
         </Group>
@@ -221,7 +231,7 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
           {preview === null ? null : (
             <Group gap="xs" wrap="wrap">
               <Badge variant="outline" size="sm">
-                {preview.kind === "json" ? (preview.formatted ? "JSON (formatted)" : "JSON") : preview.kind.replace("_", " ")}
+                {preview.kind === "json" ? (preview.formatted ? tr("JSON (formatted)") : "JSON") : tr(preview.kind.replace("_", " "))}
               </Badge>
               <Text size="xs" c="dimmed">
                 {[
@@ -240,15 +250,15 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
           {preview !== null && (preview.kind === "text" || preview.kind === "json") ? (
             <Group justify="space-between" wrap="wrap" gap="xs">
               <Group gap={4} wrap="nowrap">
-                <Tooltip label="First page (Alt+Home)">
-                  <ActionIcon variant="default" aria-label="First page" disabled={!paged || preview.page === 0} onClick={() => goTo(0)}>
+                <Tooltip label={tr("First page (Alt+Home)")}>
+                  <ActionIcon variant="default" aria-label={tr("First page")} disabled={!paged || preview.page === 0} onClick={() => goTo(0)}>
                     <IconChevronsLeft size={16} />
                   </ActionIcon>
                 </Tooltip>
-                <Tooltip label="Previous page (Alt+Left)">
+                <Tooltip label={tr("Previous page (Alt+Left)")}>
                   <ActionIcon
                     variant="default"
-                    aria-label="Previous page"
+                    aria-label={tr("Previous page")}
                     disabled={!paged || preview.page === 0}
                     onClick={() => goTo(preview.page - 1)}
                   >
@@ -257,7 +267,7 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
                 </Tooltip>
                 <NumberInput
                   key={`${preview.page}:${preview.page_size}`}
-                  aria-label="Page number"
+                  aria-label={tr("Page number")}
                   size="xs"
                   w={70}
                   min={1}
@@ -285,22 +295,22 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
                     }
                   }}
                 >
-                  Go
+                  {tr("Go")}
                 </Button>
-                <Tooltip label="Next page (Alt+Right)">
+                <Tooltip label={tr("Next page (Alt+Right)")}>
                   <ActionIcon
                     variant="default"
-                    aria-label="Next page"
+                    aria-label={tr("Next page")}
                     disabled={!paged || preview.page >= preview.page_count - 1}
                     onClick={() => goTo(preview.page + 1)}
                   >
                     <IconChevronRight size={16} />
                   </ActionIcon>
                 </Tooltip>
-                <Tooltip label="Last page (Alt+End)">
+                <Tooltip label={tr("Last page (Alt+End)")}>
                   <ActionIcon
                     variant="default"
-                    aria-label="Last page"
+                    aria-label={tr("Last page")}
                     disabled={!paged || preview.page >= preview.page_count - 1}
                     onClick={() => goTo(preview.page_count - 1)}
                   >
@@ -308,15 +318,18 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
                   </ActionIcon>
                 </Tooltip>
                 <Text size="xs" c="dimmed" aria-live="polite">
-                  {`Page ${formatCount(preview.page + 1)} of ${formatCount(preview.page_count)}`}
+                  {tr("Page {cur} of {count}", { cur: formatCount(preview.page + 1), count: formatCount(preview.page_count) })}
                 </Text>
               </Group>
               <Group gap="xs" wrap="nowrap">
                 <Text size="xs" c="dimmed">
-                  {`Bytes ${formatCount(preview.offset)} to ${formatCount(Math.max(preview.offset, preview.offset + preview.length - 1))}`}
+                  {tr("Bytes {from} to {to}", {
+                    from: formatCount(preview.offset),
+                    to: formatCount(Math.max(preview.offset, preview.offset + preview.length - 1)),
+                  })}
                 </Text>
                 <Select
-                  aria-label="Page size"
+                  aria-label={tr("Page size")}
                   size="xs"
                   w={100}
                   allowDeselect={false}
@@ -325,14 +338,14 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
                   onChange={(value) => setSizeChoice(value ?? String(DEFAULT_PAGE_SIZE))}
                 />
                 <Button size="compact-xs" variant="default" onClick={applySize}>
-                  Apply
+                  {tr("Apply")}
                 </Button>
               </Group>
             </Group>
           ) : null}
           <Group justify="flex-end">
             <Button variant="default" size="xs" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>

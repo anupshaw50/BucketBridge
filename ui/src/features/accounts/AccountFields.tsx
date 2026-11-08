@@ -1,5 +1,6 @@
 import { Checkbox, PasswordInput, SegmentedControl, Stack, Switch, Text, TextInput } from "@mantine/core";
 import type { Account } from "../../api/types";
+import { tr } from "../../i18n";
 import type { AccountDraft, DraftErrors, SessionTokenMode } from "../../lib/accounts";
 
 export interface FieldsProps {
@@ -13,8 +14,8 @@ export function ConnectionFields({ draft, errors, onChange, autoFocus = true }: 
   return (
     <Stack gap="sm">
       <TextInput
-        label="Label"
-        description="A unique name for this account."
+        label={tr("Label")}
+        description={tr("A unique name for this account.")}
         value={draft.label}
         onChange={(event) => onChange({ label: event.currentTarget.value })}
         error={errors.label}
@@ -22,8 +23,8 @@ export function ConnectionFields({ draft, errors, onChange, autoFocus = true }: 
         data-autofocus={autoFocus ? true : undefined}
       />
       <TextInput
-        label="Endpoint"
-        description="Leave empty for AWS. For other S3-compatible services enter the endpoint URL."
+        label={tr("Endpoint")}
+        description={tr("Leave empty for AWS. For other S3-compatible services enter the endpoint URL.")}
         placeholder="https://storage.example.com"
         value={draft.endpoint}
         onChange={(event) => onChange({ endpoint: event.currentTarget.value })}
@@ -31,7 +32,7 @@ export function ConnectionFields({ draft, errors, onChange, autoFocus = true }: 
         spellCheck={false}
       />
       <TextInput
-        label="Region"
+        label={tr("Region")}
         value={draft.region}
         onChange={(event) => onChange({ region: event.currentTarget.value })}
         error={errors.region}
@@ -39,14 +40,14 @@ export function ConnectionFields({ draft, errors, onChange, autoFocus = true }: 
         spellCheck={false}
       />
       <Switch
-        label="Use path-style addressing"
-        description="Needed by some S3-compatible services that do not support bucket host names."
+        label={tr("Use path-style addressing")}
+        description={tr("Needed by some S3-compatible services that do not support bucket host names.")}
         checked={draft.path_style}
         onChange={(event) => onChange({ path_style: event.currentTarget.checked })}
       />
       <Switch
-        label="Requester pays"
-        description="Accept charges when reading from requester-pays buckets."
+        label={tr("Requester pays")}
+        description={tr("Accept charges when reading from requester-pays buckets.")}
         checked={draft.request_payer}
         onChange={(event) => onChange({ request_payer: event.currentTarget.checked })}
       />
@@ -68,7 +69,7 @@ export function CredentialFields({ draft, errors, onChange, original, focusMfa =
   return (
     <Stack gap="sm">
       <TextInput
-        label="Access key ID"
+        label={tr("Access key ID")}
         value={draft.access_key_id}
         onChange={(event) => onChange({ access_key_id: event.currentTarget.value })}
         error={errors.access_key_id}
@@ -78,55 +79,55 @@ export function CredentialFields({ draft, errors, onChange, original, focusMfa =
         data-autofocus={editing ? undefined : true}
       />
       <PasswordInput
-        label="Secret access key"
-        description={editing ? "Leave empty to keep the stored secret. Enter a new one to rotate it." : undefined}
-        placeholder={editing ? "Unchanged" : undefined}
+        label={tr("Secret access key")}
+        description={editing ? tr("Leave empty to keep the stored secret. Enter a new one to rotate it.") : undefined}
+        placeholder={editing ? tr("Unchanged") : undefined}
         value={draft.secret_access_key}
         onChange={(event) => onChange({ secret_access_key: event.currentTarget.value })}
         error={errors.secret_access_key}
         required={!editing}
         autoComplete="new-password"
-        visibilityToggleButtonProps={{ "aria-label": "Show or hide the secret access key" }}
+        visibilityToggleButtonProps={{ "aria-label": tr("Show or hide the secret access key") }}
       />
       {editing && hasToken ? (
         <Stack gap={4}>
           <Text size="sm" fw={500}>
-            Session token
+            {tr("Session token")}
           </Text>
           <SegmentedControl<SessionTokenMode>
             size="xs"
             value={draft.session_token_mode}
             onChange={(value) => onChange({ session_token_mode: value })}
             data={[
-              { value: "keep", label: "Keep" },
-              { value: "replace", label: "Replace" },
-              { value: "clear", label: "Remove" },
+              { value: "keep", label: tr("Keep") },
+              { value: "replace", label: tr("Replace") },
+              { value: "clear", label: tr("Remove") },
             ]}
-            aria-label="Session token"
+            aria-label={tr("Session token")}
           />
         </Stack>
       ) : null}
       {editing && !hasToken ? (
         <Checkbox
-          label="Add a session token"
+          label={tr("Add a session token")}
           checked={draft.session_token_mode === "replace"}
           onChange={(event) => onChange({ session_token_mode: event.currentTarget.checked ? "replace" : "keep" })}
         />
       ) : null}
       {!editing || draft.session_token_mode === "replace" ? (
         <PasswordInput
-          label={editing ? "New session token" : "Session token (optional)"}
-          description="Only for temporary credentials."
+          label={editing ? tr("New session token") : tr("Session token (optional)")}
+          description={tr("Only for temporary credentials.")}
           value={draft.session_token}
           onChange={(event) => onChange({ session_token: event.currentTarget.value })}
           error={errors.session_token}
           autoComplete="off"
-          visibilityToggleButtonProps={{ "aria-label": "Show or hide the session token" }}
+          visibilityToggleButtonProps={{ "aria-label": tr("Show or hide the session token") }}
         />
       ) : null}
       <TextInput
-        label="MFA device (optional)"
-        description="ARN or serial number of the MFA device. You will be asked for a code when needed."
+        label={tr("MFA device (optional)")}
+        description={tr("ARN or serial number of the MFA device. You will be asked for a code when needed.")}
         value={draft.mfa_serial}
         onChange={(event) => onChange({ mfa_serial: event.currentTarget.value })}
         error={errors.mfa_serial}

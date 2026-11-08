@@ -1,4 +1,5 @@
 import type { Account, AccountInput, AccountUpdate, CredentialSource } from "../api/types";
+import { tr } from "../i18n";
 import { validateEndpoint, validateRegion } from "./validation";
 
 export const DEFAULT_REGION = "us-east-1";
@@ -163,26 +164,26 @@ export function sourceOfDraft(draft: AccountDraft): CredentialSource {
 function validateRole(draft: AccountDraft, accounts: readonly Account[], editing: boolean): DraftErrors {
   const errors: DraftErrors = {};
   if (!editing && !accounts.some((account) => account.id === draft.role_source_account_id)) {
-    errors.role_source_account_id = "Choose the account that signs the AssumeRole call.";
+    errors.role_source_account_id = tr("Choose the account that signs the AssumeRole call.");
   }
   if (!ROLE_ARN.test(draft.role_arn.trim())) {
-    errors.role_arn = "Enter the role ARN, for example arn:aws:iam::123456789012:role/Name.";
+    errors.role_arn = tr("Enter the role ARN, for example arn:aws:iam::123456789012:role/Name.");
   }
   const name = draft.role_session_name.trim();
   if (name.length < 2 || name.length > 64 || !ROLE_NAME_CHARS.test(name)) {
-    errors.role_session_name = "Use 2 to 64 letters, digits or any of _+=,.@-.";
+    errors.role_session_name = tr("Use 2 to 64 letters, digits or any of _+=,.@-.");
   }
   const minutes = Number(draft.role_duration_minutes);
   if (!Number.isInteger(minutes) || minutes < MIN_ROLE_MINUTES || minutes > MAX_ROLE_MINUTES) {
-    errors.role_duration_minutes = `Enter a whole number of minutes from ${MIN_ROLE_MINUTES} to ${MAX_ROLE_MINUTES}.`;
+    errors.role_duration_minutes = tr("Enter a whole number of minutes from {min} to {max}.", { min: MIN_ROLE_MINUTES, max: MAX_ROLE_MINUTES });
   }
   const external = draft.role_external_id.trim();
   if (external.length > 0 && (external.length < 2 || external.length > 1224 || !/^[\w+=,.@:/-]+$/.test(external))) {
-    errors.role_external_id = "Use 2 to 1224 letters, digits or any of _+=,.@:/-.";
+    errors.role_external_id = tr("Use 2 to 1224 letters, digits or any of _+=,.@:/-.");
   }
   const serial = draft.mfa_serial.trim();
   if (serial.length > 256 || /\s/.test(serial)) {
-    errors.mfa_serial = "Enter the device ARN or serial number without spaces.";
+    errors.mfa_serial = tr("Enter the device ARN or serial number without spaces.");
   }
   return errors;
 }
@@ -191,17 +192,17 @@ function validateRole(draft: AccountDraft, accounts: readonly Account[], editing
 function validateSso(draft: AccountDraft): DraftErrors {
   const errors: DraftErrors = {};
   if (!draft.sso_start_url.trim().startsWith("https://")) {
-    errors.sso_start_url = "Enter the portal start URL, starting with https://.";
+    errors.sso_start_url = tr("Enter the portal start URL, starting with https://.");
   }
   const regionError = validateRegion(draft.sso_region.trim());
   if (regionError) {
     errors.sso_region = regionError;
   }
   if (!/^\d{12}$/.test(draft.sso_account_id.trim())) {
-    errors.sso_account_id = "Sign in and choose an AWS account.";
+    errors.sso_account_id = tr("Sign in and choose an AWS account.");
   }
   if (draft.sso_role_name.trim().length === 0) {
-    errors.sso_role_name = "Choose a role.";
+    errors.sso_role_name = tr("Choose a role.");
   }
   return errors;
 }
@@ -220,11 +221,11 @@ export function validateConnection(
   const errors: DraftErrors = {};
   const label = draft.label.trim();
   if (label.length === 0) {
-    errors.label = "Enter a label for this account.";
+    errors.label = tr("Enter a label for this account.");
   } else if (label.length > 128) {
-    errors.label = "Keep the label under 128 characters.";
+    errors.label = tr("Keep the label under 128 characters.");
   } else if (labelTaken(label, accounts, editingId)) {
-    errors.label = "Another account already uses this label.";
+    errors.label = tr("Another account already uses this label.");
   }
   const endpointError = validateEndpoint(draft.endpoint.trim());
   if (endpointError) {
@@ -253,7 +254,7 @@ export function validateCredentials(
       return validateSso(draft);
     case "instance":
       return original === null && !draft.instance_checked
-        ? { instance_checked: "Check that this machine has a role first." }
+        ? { instance_checked: tr("Check that this machine has a role first.") }
         : {};
     case "profile":
       return {};
@@ -263,28 +264,28 @@ export function validateCredentials(
   const errors: DraftErrors = {};
   const accessKey = draft.access_key_id.trim();
   if (accessKey.length === 0) {
-    errors.access_key_id = "Enter the access key ID.";
+    errors.access_key_id = tr("Enter the access key ID.");
   } else if (/\s/.test(accessKey)) {
-    errors.access_key_id = "The access key ID cannot contain spaces.";
+    errors.access_key_id = tr("The access key ID cannot contain spaces.");
   }
   const secret = draft.secret_access_key.trim();
   if (original === null) {
     if (secret.length === 0) {
-      errors.secret_access_key = "Enter the secret access key.";
+      errors.secret_access_key = tr("Enter the secret access key.");
     }
   } else if (secret.length === 0 && accessKey.length > 0 && accessKey !== original.access_key_id) {
-    errors.secret_access_key = "A new access key ID needs its secret access key.";
+    errors.secret_access_key = tr("A new access key ID needs its secret access key.");
   }
   if (secret.length > 0 && /\s/.test(secret)) {
-    errors.secret_access_key = "The secret access key cannot contain spaces.";
+    errors.secret_access_key = tr("The secret access key cannot contain spaces.");
   }
   const needsToken = original === null ? false : draft.session_token_mode === "replace";
   if (needsToken && draft.session_token.trim().length === 0) {
-    errors.session_token = "Enter the new session token, or keep the current one.";
+    errors.session_token = tr("Enter the new session token, or keep the current one.");
   }
   const serial = draft.mfa_serial.trim();
   if (serial.length > 256 || /\s/.test(serial)) {
-    errors.mfa_serial = "Enter the device ARN or serial number without spaces.";
+    errors.mfa_serial = tr("Enter the device ARN or serial number without spaces.");
   }
   return errors;
 }
@@ -407,16 +408,16 @@ export function credentialsLabel(account: Account, accounts: readonly Account[] 
     case "static_keys":
       return account.access_key_id;
     case "aws_profile":
-      return `AWS profile ${source.profile}`;
+      return tr("AWS profile {profile}", { profile: source.profile });
     case "assume_role": {
       const name = source.role_arn.split("/").pop() ?? source.role_arn;
       const via = accounts.find((item) => item.id === source.source_account_id)?.label;
-      return via === undefined ? `Role ${name}` : `Role ${name} through ${via}`;
+      return via === undefined ? tr("Role {name}", { name }) : tr("Role {name} through {via}", { name, via });
     }
     case "sso":
-      return `SSO ${source.role_name} in ${source.account_id}`;
+      return tr("SSO {role} in {account}", { role: source.role_name, account: source.account_id });
     case "instance_role":
-      return "Instance or container role";
+      return tr("Instance or container role");
   }
 }
 

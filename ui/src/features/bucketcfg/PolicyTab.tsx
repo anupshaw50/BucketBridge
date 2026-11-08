@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { PolicyIssue } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { issueText } from "../../lib/policy";
 import { ActionError, SectionGate, type TabProps } from "./common";
 import { useAction } from "./useAction";
@@ -63,14 +64,14 @@ function PolicyEditor({ accountId, bucket, policy, reload }: { accountId: string
         return;
       }
       await model.api.put_bucket_policy({ account_id: accountId, bucket, policy: text });
-      model.status.info(`The policy of ${bucket} was saved.`);
+      model.status.info(tr("The policy of {bucket} was saved.", { bucket }));
       await reload();
     });
   const remove = async () => {
     const confirmed = await model.dialogs.confirm({
-      title: "Delete bucket policy",
-      message: `The policy of ${bucket} is deleted. Access to the bucket then depends only on its other settings, such as IAM policies and ACLs.\n\nThis cannot be undone.`,
-      confirmLabel: "Delete policy",
+      title: tr("Delete bucket policy"),
+      message: tr("The policy of {bucket} is deleted. Access to the bucket then depends only on its other settings, such as IAM policies and ACLs.\n\nThis cannot be undone.", { bucket }),
+      confirmLabel: tr("Delete policy"),
       danger: true,
     });
     if (!confirmed) {
@@ -78,7 +79,7 @@ function PolicyEditor({ accountId, bucket, policy, reload }: { accountId: string
     }
     await action.run(async () => {
       await model.api.delete_bucket_policy({ account_id: accountId, bucket });
-      model.status.info(`The policy of ${bucket} was deleted.`);
+      model.status.info(tr("The policy of {bucket} was deleted.", { bucket }));
       await reload();
     });
   };
@@ -87,11 +88,11 @@ function PolicyEditor({ accountId, bucket, policy, reload }: { accountId: string
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
         {policy === null
-          ? "This bucket has no policy. Write one below and save it."
-          : "The policy attached to this bucket. Edit it, then validate and save."}
+          ? tr("This bucket has no policy. Write one below and save it.")
+          : tr("The policy attached to this bucket. Edit it, then validate and save.")}
       </Text>
       <Textarea
-        label="Bucket policy (JSON)"
+        label={tr("Bucket policy (JSON)")}
         value={text}
         onChange={(event) => edit(event.currentTarget.value)}
         placeholder={EXAMPLE}
@@ -103,7 +104,7 @@ function PolicyEditor({ accountId, bucket, policy, reload }: { accountId: string
       />
       {verdict?.type === "valid" ? (
         <Alert color="teal" icon={<IconCheck size={16} />} py="xs" aria-live="polite">
-          The policy is valid.
+          {tr("The policy is valid.")}
         </Alert>
       ) : null}
       {verdict?.type === "issues" ? (
@@ -111,7 +112,7 @@ function PolicyEditor({ accountId, bucket, policy, reload }: { accountId: string
           color="red"
           icon={<IconAlertCircle size={16} />}
           role="alert"
-          title={verdict.issues.length === 1 ? "1 problem" : `${verdict.issues.length} problems`}
+          title={verdict.issues.length === 1 ? tr("1 problem") : tr("{n} problems", { n: verdict.issues.length })}
         >
           <List size="sm" spacing={2}>
             {verdict.issues.map((issue) => (
@@ -125,17 +126,17 @@ function PolicyEditor({ accountId, bucket, policy, reload }: { accountId: string
       <ActionError message={action.error} />
       <Group gap="xs">
         <Button variant="default" disabled={action.busy || text.trim().length === 0} onClick={() => void validate()}>
-          Validate
+          {tr("Validate")}
         </Button>
         <Button variant="default" disabled={action.busy || text.trim().length === 0} onClick={() => void format()}>
-          Format
+          {tr("Format")}
         </Button>
         <Button loading={action.busy} disabled={text.trim().length === 0 || unchanged} onClick={() => void save()}>
-          Save policy
+          {tr("Save policy")}
         </Button>
         {policy !== null ? (
           <Button color="red" variant="light" ml="auto" disabled={action.busy} onClick={() => void remove()}>
-            Delete policy
+            {tr("Delete policy")}
           </Button>
         ) : null}
       </Group>

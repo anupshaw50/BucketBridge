@@ -1,3 +1,5 @@
+import { tr } from "../i18n";
+
 const LOWER = "abcdefghijklmnopqrstuvwxyz";
 const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const DIGITS = "0123456789";
@@ -85,6 +87,8 @@ const COMMON = new Set([
   "secret",
 ]);
 
+// The labels are translated where they are used: this module must not read the
+// language once at load time, or a language switch would not reach them.
 const LABELS: Record<StrengthScore, string> = {
   0: "Very weak",
   1: "Weak",
@@ -96,7 +100,7 @@ const LABELS: Record<StrengthScore, string> = {
 /** Rough entropy estimate used for the strength hint next to password fields. */
 export function estimateStrength(password: string): Strength {
   if (password.length === 0) {
-    return { score: 0, label: LABELS[0], bits: 0, hint: "Enter a password." };
+    return { score: 0, label: tr(LABELS[0]), bits: 0, hint: tr("Enter a password.") };
   }
   const characters = Array.from(password);
   let pool = 0;
@@ -121,8 +125,8 @@ export function estimateStrength(password: string): Strength {
   if (score < 3) {
     hint =
       characters.length < 12
-        ? "Use at least 12 characters, or generate a password."
-        : "Mix upper and lower case letters, digits and symbols, or generate a password.";
+        ? tr("Use at least 12 characters, or generate a password.")
+        : tr("Mix upper and lower case letters, digits and symbols, or generate a password.");
   }
-  return { score, label: LABELS[score], bits: Math.round(bits), hint };
+  return { score, label: tr(LABELS[score]), bits: Math.round(bits), hint };
 }

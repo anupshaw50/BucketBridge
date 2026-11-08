@@ -5,8 +5,8 @@ import { useSlice } from "../../app/context";
 import { toBbError } from "../../api/errors";
 import type { Bucket, IfExists } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
-import { plural } from "../../lib/format";
 import { isFolderEntry } from "../../lib/objects";
 import { breadcrumbs, childKey, displaySegment, relativeName, s3Uri, validateNewName } from "../../lib/s3keys";
 import { transferKeys } from "../objects/actions";
@@ -26,12 +26,12 @@ interface Listing {
 type PolicyChoice = IfExists | "settings";
 
 const POLICY_OPTIONS: { value: PolicyChoice; label: string }[] = [
-  { value: "settings", label: "As set in Settings" },
-  { value: "overwrite", label: "Overwrite" },
-  { value: "ask", label: "Ask me" },
-  { value: "skip", label: "Skip" },
-  { value: "overwrite_if_newer", label: "Overwrite if newer" },
-  { value: "rename", label: "Rename (name (1).ext)" },
+  { value: "settings", label: tr("As set in Settings") },
+  { value: "overwrite", label: tr("Overwrite") },
+  { value: "ask", label: tr("Ask me") },
+  { value: "skip", label: tr("Skip") },
+  { value: "overwrite_if_newer", label: tr("Overwrite if newer") },
+  { value: "rename", label: tr("Rename (name (1).ext)") },
 ];
 
 function isPolicyChoice(value: string | null): value is PolicyChoice {
@@ -119,7 +119,6 @@ export function DestinationPicker({
 
   const ready = listing !== null && listing.at === at;
   const problem = destinationProblem(mode, sourceBucket, keys, bucket, prefix, sameAccount);
-  const verb = mode === "copy" ? "Copy" : "Move";
   const go = (nextBucket: string | null, nextPrefix: string) => {
     setBucket(nextBucket);
     setPrefix(nextPrefix);
@@ -145,7 +144,7 @@ export function DestinationPicker({
     try {
       const key = childKey(prefix, name, true);
       await model.api.create_folder({ account_id: dstAccountId, bucket, key });
-      model.status.info(`Folder ${key} created.`);
+      model.status.info(tr("Folder {key} created.", { key }));
       go(bucket, key);
     } catch (raw) {
       setNameError(toBbError(raw).message);
@@ -170,7 +169,7 @@ export function DestinationPicker({
     if (ok) {
       onClose();
     } else {
-      setError(`The ${mode} could not be started.`);
+      setError(mode === "copy" ? tr("The copy could not be started.") : tr("The move could not be started."));
     }
   };
 
@@ -178,8 +177,16 @@ export function DestinationPicker({
   return (
     <OkCancelDialog
       opened
-      title={`${verb} ${plural(keys.length, "item")} to`}
-      okLabel={`${verb} here`}
+      title={
+        mode === "copy"
+          ? keys.length === 1
+            ? tr("Copy 1 item to")
+            : tr("Copy {n} items to", { n: keys.length })
+          : keys.length === 1
+            ? tr("Move 1 item to")
+            : tr("Move {n} items to", { n: keys.length })
+      }
+      okLabel={mode === "copy" ? tr("Copy here") : tr("Move here")}
       okDisabled={problem !== null}
       onOk={() => void submit()}
       onCancel={onClose}
@@ -188,14 +195,14 @@ export function DestinationPicker({
       extraActions={
         bucket === null ? null : (
           <Button variant="subtle" leftSection={<IconFolderPlus size={16} />} onClick={() => setCreating(true)}>
-            New folder
+            {tr("New folder")}
           </Button>
         )
       }
     >
       {accounts.length > 1 ? (
         <Select
-          label="Destination account"
+          label={tr("Destination account")}
           data={accounts.map((item) => ({ value: item.id, label: item.label }))}
           value={dstAccountId}
           allowDeselect={false}
@@ -212,18 +219,18 @@ export function DestinationPicker({
         />
       ) : (
         <Text size="sm" c="dimmed">
-          Account: {account?.label ?? dstAccountId}
+          {tr("Account: {label}", { label: account?.label ?? dstAccountId })}
         </Text>
       )}
       {sameAccount ? null : (
         <Text size="xs" c="dimmed">
-          Between accounts the service copies the objects when it can; otherwise they go through this computer.
-          {mode === "move" ? " Each source is deleted only after its copy was checked." : ""}
+          {tr("Between accounts the service copies the objects when it can; otherwise they go through this computer.")}
+          {mode === "move" ? tr(" Each source is deleted only after its copy was checked.") : ""}
         </Text>
       )}
-      <Group gap={4} wrap="wrap" aria-label="Destination path">
+      <Group gap={4} wrap="wrap" aria-label={tr("Destination path")}>
         <Anchor component="button" type="button" size="sm" onClick={() => go(null, "")}>
-          Buckets
+          {tr("Buckets")}
         </Anchor>
         {bucket === null ? null : (
           <>
@@ -245,8 +252,8 @@ export function DestinationPicker({
       {creating ? (
         <Group align="flex-start" gap="xs" wrap="nowrap">
           <TextInput
-            aria-label="New folder name"
-            placeholder="Folder name"
+            aria-label={tr("New folder name")}
+            placeholder={tr("Folder name")}
             value={name}
             onChange={(event) => {
               setName(event.currentTarget.value);
@@ -266,14 +273,14 @@ export function DestinationPicker({
             data-autofocus
           />
           <Button variant="default" onClick={() => void create()}>
-            Create
+            {tr("Create")}
           </Button>
         </Group>
       ) : null}
-      <Stack gap={2} role="list" aria-label="Destinations" mih={160} mah={280} style={{ overflowY: "auto" }}>
+      <Stack gap={2} role="list" aria-label={tr("Destinations")} mih={160} mah={280} style={{ overflowY: "auto" }}>
         {!ready ? (
           <Text size="sm" c="dimmed">
-            Loading...
+            {tr("Loading...")}
           </Text>
         ) : listing.error !== null ? (
           <Text size="sm" c="red" role="alert">
@@ -290,7 +297,7 @@ export function DestinationPicker({
           ))
         ) : listing.folders.length === 0 ? (
           <Text size="sm" c="dimmed">
-            No folders here.
+            {tr("No folders here.")}
           </Text>
         ) : (
           listing.folders.map((key) => (
@@ -304,10 +311,10 @@ export function DestinationPicker({
         )}
       </Stack>
       <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-        Destination: {bucket === null ? "none chosen" : s3Uri(bucket, prefix)}
+        {tr("Destination:")} {bucket === null ? tr("none chosen") : s3Uri(bucket, prefix)}
       </Text>
       <Select
-        label="If an item already exists there"
+        label={tr("If an item already exists there")}
         data={POLICY_OPTIONS}
         value={policy}
         allowDeselect={false}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { errorText } from "../../api/errors";
 import type { CrashReport } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
 import { CopyField } from "../../components/CopyField";
 import { formatDateTime } from "../../lib/format";
@@ -16,7 +17,7 @@ export function CrashReportDialog({ report, onClose }: { report: CrashReport; on
   const copy = async () => {
     try {
       await model.platform.copyText(report.contents);
-      model.status.info("Crash report copied to the clipboard.");
+      model.status.info(tr("Crash report copied to the clipboard."));
     } catch (failure) {
       setError(errorText(failure));
     }
@@ -41,15 +42,15 @@ export function CrashReportDialog({ report, onClose }: { report: CrashReport; on
     }
   };
   return (
-    <AppModal opened onClose={onClose} title="BucketBridge closed unexpectedly" size="xl">
+    <AppModal opened onClose={onClose} title={tr("BucketBridge closed unexpectedly")} size="xl">
       <Stack gap="sm">
         <Text size="sm">
-          The previous session ended with a crash on {formatDateTime(report.created_at)}. A report was saved on this
-          computer. It has not been sent anywhere; if you want to report the problem, copy it into an issue yourself.
+          {tr("The previous session ended with a crash on {date}.", { date: formatDateTime(report.created_at) })}{" "}
+          {tr("A report was saved on this computer. It has not been sent anywhere; if you want to report the problem, copy it into an issue yourself.")}
         </Text>
-        <CopyField label="Report file" value={report.path} />
+        <CopyField label={tr("Report file")} value={report.path} />
         <ScrollArea h={220} type="auto">
-          <Code block fz="xs" aria-label="Crash report contents">
+          <Code block fz="xs" aria-label={tr("Crash report contents")}>
             {report.contents}
           </Code>
         </ScrollArea>
@@ -61,18 +62,18 @@ export function CrashReportDialog({ report, onClose }: { report: CrashReport; on
         <Group justify="space-between">
           <Group gap="xs">
             <Button variant="default" leftSection={<IconCopy size={14} />} onClick={() => void copy()}>
-              Copy report
+              {tr("Copy report")}
             </Button>
             <Button variant="default" leftSection={<IconFolderOpen size={14} />} onClick={() => void reveal()}>
-              Show in folder
+              {tr("Show in folder")}
             </Button>
           </Group>
           <Group gap="xs">
             <Button variant="default" onClick={onClose}>
-              Remind me next time
+              {tr("Remind me next time")}
             </Button>
             <Button loading={busy} onClick={() => void dismiss()}>
-              Dismiss report
+              {tr("Dismiss report")}
             </Button>
           </Group>
         </Group>

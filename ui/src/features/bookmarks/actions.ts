@@ -1,5 +1,6 @@
 import type { Bookmark } from "../../api/types";
 import type { AppModel } from "../../state/model";
+import { tr } from "../../i18n";
 
 /** Opens the dialog that bookmarks a location of an account. */
 export function showAddBookmark(model: AppModel, accountId: string, bucket: string, prefix: string): void {
@@ -21,18 +22,21 @@ export function showRenameBookmark(model: AppModel, bookmark: Bookmark): void {
 /** Removes a bookmark after a confirmation. Only the shortcut goes; the bucket and its objects are not touched. */
 export async function removeBookmark(model: AppModel, bookmark: Bookmark): Promise<void> {
   const confirmed = await model.dialogs.confirm({
-    title: "Delete bookmark",
-    message: `Delete the bookmark "${bookmark.label}"?\n\nOnly the shortcut is removed; the bucket and its objects are not changed.`,
-    confirmLabel: "Delete",
+    title: tr("Delete bookmark"),
+    message: tr(
+      "Delete the bookmark \"{label}\"?\n\nOnly the shortcut is removed; the bucket and its objects are not changed.",
+      { label: bookmark.label },
+    ),
+    confirmLabel: tr("Delete"),
   });
   if (!confirmed) {
     return;
   }
   try {
     await model.bookmarks.remove(bookmark.id);
-    model.status.info("Bookmark deleted.");
+    model.status.info(tr("Bookmark deleted."));
   } catch (error) {
-    model.status.error(error, { notify: "The bookmark could not be deleted" });
+    model.status.error(error, { notify: tr("The bookmark could not be deleted") });
   }
 }
 

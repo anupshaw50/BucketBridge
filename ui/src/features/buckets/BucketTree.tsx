@@ -14,6 +14,7 @@ import {
 import { type KeyboardEvent, useRef, useState } from "react";
 import type { Bucket, BucketKind } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { isMacPlatform } from "../../lib/keys";
 import { folderEntry } from "../../lib/objects";
 import { baseName, displaySegment } from "../../lib/s3keys";
@@ -31,7 +32,7 @@ const KIND_COLORS: Record<BucketKind, string> = { aws: "orange", external: "grap
 export function KindBadge({ kind }: { kind: BucketKind }) {
   return (
     <Badge size="xs" variant="light" color={KIND_COLORS[kind]} radius="sm" style={{ flexShrink: 0 }}>
-      {KIND_LABELS[kind]}
+      {tr(KIND_LABELS[kind])}
     </Badge>
   );
 }
@@ -59,7 +60,7 @@ function buildRows(state: BrowserState): TreeRow[] {
         level,
         bucket,
         prefix,
-        message: node.error ?? "Failed to load.",
+        message: node.error ?? tr("Failed to load."),
         more: false,
       });
       return;
@@ -104,7 +105,7 @@ function BucketListState() {
   const accountId = useSlice(model.browser.store, (state) => state.bucketList.accountId);
   if (status === "loading" && count === 0) {
     return (
-      <Stack gap={8} p="sm" aria-busy="true" aria-label="Loading buckets">
+      <Stack gap={8} p="sm" aria-busy="true" aria-label={tr("Loading buckets")}>
         {Array.from({ length: 6 }, (_, index) => (
           <Skeleton key={index} height={16} width={`${85 - index * 8}%`} />
         ))}
@@ -118,14 +119,14 @@ function BucketListState() {
       }
     };
     return (
-      <Alert color="red" m="xs" p="xs" icon={<IconAlertCircle size={16} />} role="alert" title="Buckets unavailable">
+      <Alert color="red" m="xs" p="xs" icon={<IconAlertCircle size={16} />} role="alert" title={tr("Buckets unavailable")}>
         <Text size="xs" style={{ overflowWrap: "anywhere" }}>
           {error}
         </Text>
         <Group gap={6} mt="xs">
           {errorCode === "locked" ? (
             <Button size="compact-xs" leftSection={<IconLock size={12} />} onClick={() => void unlock()}>
-              Unlock
+              {tr("Unlock")}
             </Button>
           ) : null}
           {errorCode === "auth" && accountId !== null ? (
@@ -135,11 +136,11 @@ function BucketListState() {
               leftSection={<IconPlugConnected size={12} />}
               onClick={() => showAddExternalBucket(model)}
             >
-              Add external bucket
+              {tr("Add external bucket")}
             </Button>
           ) : null}
           <Button size="compact-xs" variant="default" onClick={() => void model.browser.loadBuckets()}>
-            Try again
+            {tr("Try again")}
           </Button>
         </Group>
       </Alert>
@@ -149,14 +150,14 @@ function BucketListState() {
     return (
       <Stack gap="xs" p="sm" align="flex-start">
         <Text size="sm" c="dimmed">
-          This account has no buckets yet.
+          {tr("This account has no buckets yet.")}
         </Text>
         <Button
           size="compact-xs"
           leftSection={<IconPlus size={12} />}
           onClick={() => model.dialogs.open({ kind: "create-bucket", accountId })}
         >
-          Create bucket
+          {tr("Create bucket")}
         </Button>
       </Stack>
     );
@@ -344,28 +345,28 @@ export function BucketTree() {
     >
       <Group className="bb-pane-header" justify="space-between" wrap="nowrap">
         <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-          Buckets
+          {tr("Buckets")}
         </Text>
         <Group gap={2} wrap="nowrap">
           {browser.bucketList.status === "loading" && browser.bucketList.buckets.length > 0 ? (
-            <Loader size={12} aria-label="Refreshing buckets" />
+            <Loader size={12} aria-label={tr("Refreshing buckets")} />
           ) : null}
-          <Tooltip label="Add external bucket">
+          <Tooltip label={tr("Add external bucket")}>
             <ActionIcon
               variant="subtle"
               size="sm"
-              aria-label="Add external bucket"
+              aria-label={tr("Add external bucket")}
               disabled={accountId === null}
               onClick={() => showAddExternalBucket(model)}
             >
               <IconPlugConnected size={14} />
             </ActionIcon>
           </Tooltip>
-          <Tooltip label="New bucket">
+          <Tooltip label={tr("New bucket")}>
             <ActionIcon
               variant="subtle"
               size="sm"
-              aria-label="New bucket"
+              aria-label={tr("New bucket")}
               disabled={accountId === null}
               onClick={() => {
                 if (accountId !== null) {
@@ -376,11 +377,11 @@ export function BucketTree() {
               <IconPlus size={14} />
             </ActionIcon>
           </Tooltip>
-          <Tooltip label="Reload buckets">
+          <Tooltip label={tr("Reload buckets")}>
             <ActionIcon
               variant="subtle"
               size="sm"
-              aria-label="Reload buckets"
+              aria-label={tr("Reload buckets")}
               disabled={accountId === null}
               onClick={() => {
                 model.browser.resetTree();
@@ -397,7 +398,7 @@ export function BucketTree() {
         <div
           className="bb-tree"
           role="tree"
-          aria-label="Buckets and folders"
+          aria-label={tr("Buckets and folders")}
           aria-multiselectable={markedBuckets.length > 0 || undefined}
           onKeyDown={onKeyDown}
         >
@@ -461,14 +462,14 @@ export function BucketTree() {
                     </span>
                     <KindBadge kind={row.bucket.kind} />
                     {accountId !== null && browser.bucketList.pinned.includes(row.bucket.name) ? (
-                      <Tooltip label="Remove external bucket">
+                      <Tooltip label={tr("Remove external bucket")}>
                         <ActionIcon
                           variant="subtle"
                           color="gray"
                           size="xs"
                           ml="auto"
                           tabIndex={-1}
-                          aria-label={`Remove external bucket ${row.bucket.name}`}
+                          aria-label={tr("Remove external bucket {name}", { name: row.bucket.name })}
                           onClick={(event) => {
                             event.stopPropagation();
                             void removeExternalBucket(model, accountId, row.bucket.name);
@@ -490,17 +491,17 @@ export function BucketTree() {
                 ) : null}
                 {row.type === "loading" ? (
                   <Text size="xs" c="dimmed">
-                    Loading folders...
+                    {tr("Loading folders...")}
                   </Text>
                 ) : null}
                 {row.type === "more" ? (
                   <Text size="xs" c="blue">
-                    {row.busy ? "Loading..." : "Load more folders"}
+                    {row.busy ? tr("Loading...") : tr("Load more folders")}
                   </Text>
                 ) : null}
                 {row.type === "error" ? (
                   <Text size="xs" c="red" title={row.message} className="bb-ellipsis">
-                    Could not load folders. Select to retry.
+                    {tr("Could not load folders. Select to retry.")}
                   </Text>
                 ) : null}
               </div>

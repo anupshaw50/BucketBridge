@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { tr } from "../../i18n";
 import { BackendError } from "../../api/errors";
 import { renderApp, TestPlatform } from "../../test/renderApp";
 
@@ -10,8 +11,8 @@ async function openIam(user: Awaited<ReturnType<typeof renderApp>>["user"]) {
   if (tools !== null) {
     await user.click(tools);
   }
-  await user.click(await screen.findByRole("menuitem", { name: /IAM manager/ }));
-  return screen.findByRole("dialog", { name: "IAM manager" });
+  await user.click(await screen.findByRole("menuitem", { name: tr("IAM manager…") }));
+  return screen.findByRole("dialog", { name: tr("IAM manager") });
 }
 
 describe("IAM manager", () => {
@@ -20,26 +21,26 @@ describe("IAM manager", () => {
     const { user } = await renderApp({ platform });
     const dialog = await openIam(user);
 
-    await user.type(within(dialog).getByRole("textbox", { name: "New user" }), "alice");
-    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+    await user.type(within(dialog).getByRole("textbox", { name: tr("New user") }), "alice");
+    await user.click(within(dialog).getByRole("button", { name: tr("Create") }));
     await within(dialog).findByTestId("iam-user-panel");
 
-    await user.click(within(dialog).getByRole("button", { name: "Create access key" }));
+    await user.click(within(dialog).getByRole("button", { name: tr("Create access key") }));
     const secret = await within(dialog).findByTestId("iam-secret");
-    expect(within(secret).getByText(/only time the secret access key is shown/)).toBeInTheDocument();
+    expect(within(secret).getByText(tr("This is the only time the secret access key is shown. It is not stored anywhere and cannot be recovered; if you lose it, create a new key."))).toBeInTheDocument();
     const value = within(secret).getByTestId("iam-secret-value").textContent;
     expect(value).toBeTruthy();
     expect(value.length).toBeGreaterThan(10);
-    await user.click(within(secret).getByRole("button", { name: "Copy secret" }));
+    await user.click(within(secret).getByRole("button", { name: tr("Copy secret") }));
     expect(platform.copied).toEqual([value]);
     expect(platform.copiedSensitive).toEqual([true]);
-    await user.click(within(secret).getByRole("button", { name: "I have saved it" }));
+    await user.click(within(secret).getByRole("button", { name: tr("I have saved it") }));
     expect(within(dialog).queryByTestId("iam-secret")).not.toBeInTheDocument();
     expect(within(dialog).queryByText(value)).not.toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "Delete user..." }));
-    const confirm = await screen.findByRole("dialog", { name: "Delete user" });
-    const ok = within(confirm).getByRole("button", { name: "Delete user" });
+    await user.click(within(dialog).getByRole("button", { name: tr("Delete user...") }));
+    const confirm = await screen.findByRole("dialog", { name: tr("Delete user") });
+    const ok = within(confirm).getByRole("button", { name: tr("Delete user") });
     expect(ok).toBeDisabled();
     await user.type(within(confirm).getByRole("textbox"), "alice");
     await waitFor(() => expect(ok).toBeEnabled());

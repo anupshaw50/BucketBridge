@@ -14,6 +14,7 @@ import { IconWand } from "@tabler/icons-react";
 import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { CopyField } from "../../components/CopyField";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import {
@@ -35,10 +36,10 @@ export function StrengthMeter({ password }: { password: string }) {
         value={password.length === 0 ? 0 : (strength.score + 1) * 20}
         color={STRENGTH_COLORS[strength.score]}
         size="xs"
-        aria-label={`Password strength: ${strength.label}`}
+        aria-label={tr("Password strength: {label}", { label: strength.label })}
       />
       <Text size="xs" c="dimmed">
-        Strength: {strength.label}
+        {tr("Strength")}: {strength.label}
         {strength.hint ? `. ${strength.hint}` : ""}
       </Text>
     </Stack>
@@ -55,11 +56,11 @@ export function PasswordGenerator({ onUse }: { onUse: (password: string) => void
     <Paper withBorder p="sm">
       <Stack gap="xs">
         <Text size="sm" fw={600}>
-          Password generator
+          {tr("Password generator")}
         </Text>
         <Group align="flex-end" gap="sm">
           <NumberInput
-            label="Length"
+            label={tr("Length")}
             w={110}
             min={PASSWORD_MIN_LENGTH}
             max={PASSWORD_MAX_LENGTH}
@@ -69,7 +70,7 @@ export function PasswordGenerator({ onUse }: { onUse: (password: string) => void
             error={validLength ? null : `${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH}`}
           />
           <Checkbox
-            label="Include symbols"
+            label={tr("Include symbols")}
             checked={symbols}
             onChange={(event) => setSymbols(event.currentTarget.checked)}
             mb={8}
@@ -80,16 +81,16 @@ export function PasswordGenerator({ onUse }: { onUse: (password: string) => void
             disabled={!validLength}
             onClick={() => setGenerated(generatePassword({ length, symbols }))}
           >
-            Generate
+            {tr("Generate")}
           </Button>
         </Group>
         {generated.length > 0 ? (
           <Group align="flex-end" gap="sm" wrap="nowrap">
             <div style={{ flex: 1 }}>
-              <CopyField label="Generated password" value={generated} sensitive />
+              <CopyField label={tr("Generated password")} value={generated} sensitive />
             </div>
             <Button variant="default" onClick={() => onUse(generated)}>
-              Use this password
+              {tr("Use this password")}
             </Button>
           </Group>
         ) : null}
@@ -115,10 +116,10 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
   const removing = isSet && mode === "remove";
   const nextError =
     !removing && touched && next.length < PASSWORD_MIN_LENGTH
-      ? `Use at least ${PASSWORD_MIN_LENGTH} characters.`
+      ? tr("Use at least {n} characters.", { n: PASSWORD_MIN_LENGTH })
       : null;
-  const confirmError = !removing && touched && confirm !== next ? "The passwords do not match." : null;
-  const currentError = isSet && touched && current.length === 0 ? "Enter the current master password." : null;
+  const confirmError = !removing && touched && confirm !== next ? tr("The passwords do not match.") : null;
+  const currentError = isSet && touched && current.length === 0 ? tr("Enter the current master password.") : null;
   const valid =
     (!isSet || current.length > 0) && (removing || (next.length >= PASSWORD_MIN_LENGTH && confirm === next));
 
@@ -136,12 +137,16 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
       });
       await model.session.refreshSecurity().catch(() => null);
       model.status.info(
-        removing ? "Master password removed." : isSet ? "Master password changed." : "Master password set.",
+        removing
+          ? tr("Master password removed.")
+          : isSet
+            ? tr("Master password changed.")
+            : tr("Master password set."),
       );
       onClose();
     } catch (raw) {
       const failure = toBbError(raw);
-      setError(failure.code === "auth" ? "The current master password is not correct." : failure.message);
+      setError(failure.code === "auth" ? tr("The current master password is not correct.") : failure.message);
     } finally {
       setBusy(false);
     }
@@ -150,8 +155,8 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
   return (
     <OkCancelDialog
       opened
-      title={isSet ? "Master password" : "Set a master password"}
-      okLabel={removing ? "Remove password" : isSet ? "Change password" : "Set password"}
+      title={isSet ? tr("Master password") : tr("Set a master password")}
+      okLabel={removing ? tr("Remove password") : isSet ? tr("Change password") : tr("Set password")}
       danger={removing}
       onOk={() => void submit()}
       onCancel={onClose}
@@ -160,23 +165,24 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
       size="lg"
     >
       <Text size="sm">
-        The master password encrypts the stored account secrets. You enter it once per session. If you forget it, the
-        secrets cannot be recovered and the accounts have to be added again.
+        {tr(
+          "The master password encrypts the stored account secrets. You enter it once per session. If you forget it, the secrets cannot be recovered and the accounts have to be added again.",
+        )}
       </Text>
       {isSet ? (
         <SegmentedControl<Mode>
           value={mode}
           onChange={setMode}
           data={[
-            { value: "change", label: "Change" },
-            { value: "remove", label: "Remove" },
+            { value: "change", label: tr("Change") },
+            { value: "remove", label: tr("Remove") },
           ]}
-          aria-label="Action"
+          aria-label={tr("Action")}
         />
       ) : null}
       {isSet ? (
         <PasswordInput
-          label="Current master password"
+          label={tr("Current master password")}
           value={current}
           onChange={(event) => setCurrent(event.currentTarget.value)}
           error={currentError}
@@ -187,7 +193,7 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
       {!removing ? (
         <>
           <PasswordInput
-            label="New master password"
+            label={tr("New master password")}
             value={next}
             onChange={(event) => setNext(event.currentTarget.value)}
             error={nextError}
@@ -196,7 +202,7 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
           />
           <StrengthMeter password={next} />
           <PasswordInput
-            label="Repeat the new password"
+            label={tr("Repeat the new password")}
             value={confirm}
             onChange={(event) => setConfirm(event.currentTarget.value)}
             error={confirmError}
@@ -211,7 +217,7 @@ export function MasterPasswordDialog({ onClose }: { onClose: () => void }) {
         </>
       ) : (
         <Text size="sm" c="dimmed">
-          Without a master password the secrets stay protected by the operating system's credential store only.
+          {tr("Without a master password the secrets stay protected by the operating system's credential store only.")}
         </Text>
       )}
     </OkCancelDialog>

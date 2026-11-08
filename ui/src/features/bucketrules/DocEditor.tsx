@@ -3,6 +3,7 @@ import { IconAlertCircle, IconCheck } from "@tabler/icons-react";
 import { useState } from "react";
 import type { RuleIssue } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { issueText } from "../../lib/policy";
 import { ActionError } from "../bucketcfg/common";
 import { useAction } from "../bucketcfg/useAction";
@@ -55,7 +56,7 @@ export function DocEditor({
         return;
       }
       await save(JSON.parse(text) as unknown);
-      model.status.info(`The ${noun} of ${bucket} were saved.`);
+      model.status.info(tr("The {noun} of {bucket} were saved.", { noun, bucket }));
       await reload();
     });
   const doRemove = async () => {
@@ -63,9 +64,9 @@ export function DocEditor({
       return;
     }
     const confirmed = await model.dialogs.confirm({
-      title: `Delete ${noun}`,
-      message: `The ${noun} of ${bucket} are deleted.\n\nThis cannot be undone.`,
-      confirmLabel: "Delete",
+      title: tr("Delete {noun}", { noun }),
+      message: tr("The {noun} of {bucket} are deleted.\n\nThis cannot be undone.", { noun, bucket }),
+      confirmLabel: tr("Delete"),
       danger: true,
       typedConfirmation: "delete",
     });
@@ -74,7 +75,7 @@ export function DocEditor({
     }
     await action.run(async () => {
       await remove();
-      model.status.info(`The ${noun} of ${bucket} were deleted.`);
+      model.status.info(tr("The {noun} of {bucket} were deleted.", { noun, bucket }));
       await reload();
     });
   };
@@ -82,7 +83,9 @@ export function DocEditor({
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        {initial === null ? `This bucket has no ${noun}. Write them below and save.` : `The ${noun} of this bucket. Edit, validate and save.`}
+        {initial === null
+          ? tr("This bucket has no {noun}. Write them below and save.", { noun })
+          : tr("The {noun} of this bucket. Edit, validate and save.", { noun })}
       </Text>
       <Textarea
         label={label}
@@ -100,11 +103,11 @@ export function DocEditor({
       />
       {verdict?.type === "valid" ? (
         <Alert color="teal" icon={<IconCheck size={16} />} py="xs" aria-live="polite">
-          The document is valid.
+          {tr("The document is valid.")}
         </Alert>
       ) : null}
       {verdict?.type === "issues" ? (
-        <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title={verdict.issues.length === 1 ? "1 problem" : `${verdict.issues.length} problems`}>
+        <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title={verdict.issues.length === 1 ? tr("1 problem") : tr("{n} problems", { n: verdict.issues.length })}>
           <List size="sm" spacing={2}>
             {verdict.issues.map((issue) => (
               <List.Item key={`${issue.path}|${issue.message}`} style={{ overflowWrap: "anywhere" }}>
@@ -117,14 +120,14 @@ export function DocEditor({
       <ActionError message={action.error} />
       <Group gap="xs">
         <Button variant="default" disabled={action.busy || text.trim().length === 0} onClick={() => void action.run(async () => void (await check()))}>
-          Validate
+          {tr("Validate")}
         </Button>
         <Button loading={action.busy} disabled={text.trim().length === 0 || unchanged} onClick={() => void doSave()}>
-          Save
+          {tr("Save")}
         </Button>
         {remove !== null && initial !== null ? (
           <Button color="red" variant="light" ml="auto" disabled={action.busy} onClick={() => void doRemove()}>
-            Delete
+            {tr("Delete")}
           </Button>
         ) : null}
       </Group>

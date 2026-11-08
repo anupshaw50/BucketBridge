@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import type { EditResolution, EditResolved, EditSession } from "../api/types";
+import { tr } from "../i18n";
 import type { DialogController } from "./dialogs";
 import type { StatusController } from "./status";
 
@@ -70,10 +71,10 @@ export class EditController {
       if (this.find(session.id) === undefined) {
         this.onChanged(session);
       }
-      this.status.info(`Editing ${key}. Saves are uploaded automatically.`);
+      this.status.info(tr("Editing {key}. Saves are uploaded automatically.", { key }));
       return session;
     } catch (error) {
-      this.status.error(error, { notify: "The object could not be opened for editing" });
+      this.status.error(error, { notify: tr("The object could not be opened for editing") });
       return null;
     }
   }
@@ -85,7 +86,7 @@ export class EditController {
       this.store.setState({ sessions: this.sessions.filter((item) => item.id !== id) });
       return true;
     } catch (error) {
-      this.status.error(error, { notify: "Editing could not be stopped" });
+      this.status.error(error, { notify: tr("Editing could not be stopped") });
       return false;
     }
   }
@@ -99,7 +100,7 @@ export class EditController {
       }
       return resolved;
     } catch (error) {
-      this.status.error(error, { notify: "The conflict could not be resolved" });
+      this.status.error(error, { notify: tr("The conflict could not be resolved") });
       return null;
     }
   }

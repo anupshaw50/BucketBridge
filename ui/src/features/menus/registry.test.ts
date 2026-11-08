@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, Bucket } from "../../api/types";
 import { en, type Messages } from "../../i18n/en";
-import { t } from "../../i18n";
+import { currentMessages, t, tr } from "../../i18n";
+import { zhMenu } from "../../i18n/zh/menu";
 import { formatBinding, isMacPlatform, matchesBinding } from "../../lib/keys";
 import { MockBackend, type MockOptions } from "../../mock/mockBackend";
 import { AppModel } from "../../state/model";
@@ -83,14 +84,22 @@ function actionsOf(items: ResolvedItem[]): Extract<ResolvedItem, { type: "action
   });
 }
 
+/** A submenu entry of the shape the resolver produces: "Label > Entry, Entry". */
+function submenu(prefix: string, entries: string[]): string {
+  return `${tr(prefix)} > ${entries.map((entry) => tr(entry)).join(", ")}`;
+}
+
+const EM_DASH = String.fromCharCode(0x2014);
+
 describe("message bundle", () => {
-  it("has a label for every action, menu and hint, and no em dash anywhere", () => {
-    for (const text of Object.values(en)) {
+  it("has a label for every action, menu and hint, in both languages, and no em dash anywhere", () => {
+    for (const text of [...Object.values(en), ...Object.values(zhMenu)]) {
       expect(text.trim()).not.toBe("");
-      expect(text).not.toContain(String.fromCharCode(0x2014));
+      expect(text).not.toContain(EM_DASH);
     }
+    const bundle = currentMessages();
     for (const id of [...LIVE_ACTION_IDS, ...PLANNED_ACTION_IDS]) {
-      expect(t(`action.${id}`)).toBe(en[`action.${id}`]);
+      expect(t(`action.${id}`)).toBe(bundle[`action.${id}`]);
     }
   });
 
@@ -239,28 +248,49 @@ describe("resolved menus", () => {
   it("shows the live entries of the bucket menu for an AWS bucket and for an external one", async () => {
     const { model, mock } = await loadedModel();
     const expected = [
-      "Open (Enter)",
-      "Open in new window",
+      `${tr("Open")} (Enter)`,
+      tr("Open in new window"),
       "-",
-      "New folder…",
-      "Upload files…",
-      "Upload folder…",
-      "Download all files…",
-      "Paste [off]",
+      tr("New folder…"),
+      tr("Upload files…"),
+      tr("Upload folder…"),
+      tr("Download all files…"),
+      tr("Paste") + " [off]",
       "-",
-      "Properties > Versioning…, Server access logging…, Bucket policy…, Public access block…, CORS…, Lifecycle rules…, Intelligent-Tiering…, Replication…, Static website…, Website routing rules…, Transfer acceleration…, Object ownership…, Object lock…",
-      "Sharing wizard…",
-      "Folder sync…",
-      "Sync jobs…",
+      submenu("Properties", [
+        "Versioning…",
+        "Server access logging…",
+        "Bucket policy…",
+        "Public access block…",
+        "CORS…",
+        "Lifecycle rules…",
+        "Intelligent-Tiering…",
+        "Replication…",
+        "Static website…",
+        "Website routing rules…",
+        "Transfer acceleration…",
+        "Object ownership…",
+        "Object lock…",
+      ]),
+      tr("Sharing wizard…"),
+      tr("Folder sync…"),
+      tr("Sync jobs…"),
       "-",
-      "CloudFront > Attach distribution…, Edit distribution…, Enable or disable, Create invalidation…, Invalidation history…, Detach distribution",
-      "Copy bucket name",
-      "Copy https:// URL",
-      "Open in browser",
-      "Bookmark…",
+      submenu("CloudFront", [
+        "Attach distribution…",
+        "Edit distribution…",
+        "Enable or disable",
+        "Create invalidation…",
+        "Invalidation history…",
+        "Detach distribution",
+      ]),
+      tr("Copy bucket name"),
+      tr("Copy https:// URL"),
+      tr("Open in browser"),
+      tr("Bookmark…"),
       "-",
-      "Refresh (F5)",
-      "Delete… (Del)",
+      `${tr("Refresh")} (F5)`,
+      `${tr("Delete…")} (Del)`,
     ];
     const aws = resolveMenu("bucket", bucketContext(model, [bucketNamed(model, "demo-photos")]));
     expect(shape(aws)).toEqual(expected);
@@ -273,9 +303,23 @@ describe("resolved menus", () => {
     const ctx = { ...bucketContext(model, [archive]), account: external ?? null };
     expect(ctx.caps.external_endpoint).toBe(true);
     expect(shape(resolveMenu("bucket", ctx))).toEqual(
-      expected.map((entry) =>
-        entry.startsWith("Properties >") ? "Properties > Server access logging…, Bucket policy…, Public access block…, CORS…, Lifecycle rules…, Intelligent-Tiering…, Replication…, Object ownership…, Object lock…" : entry,
-      ).filter((entry) => !entry.startsWith("CloudFront >")),
+      expected
+        .map((entry) =>
+          entry.startsWith(`${tr("Properties")} >`)
+            ? submenu("Properties", [
+                "Server access logging…",
+                "Bucket policy…",
+                "Public access block…",
+                "CORS…",
+                "Lifecycle rules…",
+                "Intelligent-Tiering…",
+                "Replication…",
+                "Object ownership…",
+                "Object lock…",
+              ])
+            : entry,
+        )
+        .filter((entry) => !entry.startsWith(`${tr("CloudFront")} >`)),
     );
   });
 
@@ -284,11 +328,11 @@ describe("resolved menus", () => {
     const both = [bucketNamed(model, "demo-photos"), bucketNamed(model, "demo-backups")];
     const items = resolveMenu("bucket", bucketContext(model, both));
     expect(shape(items)).toEqual([
-      "Copy bucket name",
-      "Copy https:// URL",
+      tr("Copy bucket name"),
+      tr("Copy https:// URL"),
       "-",
-      "Refresh (F5)",
-      "Delete… (Del)",
+      `${tr("Refresh")} (F5)`,
+      `${tr("Delete…")} (Del)`,
     ]);
   });
 
@@ -304,110 +348,110 @@ describe("resolved menus", () => {
       return;
     }
     expect(shape(resolveMenu("folder", itemsContext(model, "demo-photos", [folder])))).toEqual([
-      "Open (Enter)",
-      "Open in new window",
+      `${tr("Open")} (Enter)`,
+      tr("Open in new window"),
       "-",
-      "New folder…",
-      "Upload files…",
-      "Upload folder…",
-      "Download…",
+      tr("New folder…"),
+      tr("Upload files…"),
+      tr("Upload folder…"),
+      tr("Download…"),
       "-",
-      "Copy (Ctrl+C)",
-      "Cut (Ctrl+X)",
-      "Paste (Ctrl+V) [off]",
-      "Copy all files…",
-      "Move all files…",
+      `${tr("Copy")} (Ctrl+C)`,
+      `${tr("Cut")} (Ctrl+X)`,
+      `${tr("Paste")} (Ctrl+V) [off]`,
+      tr("Copy all files…"),
+      tr("Move all files…"),
       "-",
-      "Rename… (F2)",
-      "Folder sync…",
-      "Sync jobs…",
+      `${tr("Rename…")} (F2)`,
+      tr("Folder sync…"),
+      tr("Sync jobs…"),
       "-",
-      "Properties",
-      "Versions…",
-      "Search here",
-      "Filter…",
-      "Copy path",
-      "Bookmark…",
-      "Refresh (F5)",
-      "Delete… (Del)",
+      tr("Properties"),
+      tr("Versions…"),
+      tr("Search here"),
+      tr("Filter…"),
+      tr("Copy path"),
+      tr("Bookmark…"),
+      `${tr("Refresh")} (F5)`,
+      `${tr("Delete…")} (Del)`,
     ]);
     expect(shape(resolveMenu("file", itemsContext(model, "demo-photos", [file])))).toEqual([
-      "Open (Enter)",
-      "Open with…",
-      "Edit",
-      "Preview (F3)",
-      "Versions…",
+      `${tr("Open")} (Enter)`,
+      tr("Open with…"),
+      tr("Edit"),
+      `${tr("Preview")} (F3)`,
+      tr("Versions…"),
       "-",
-      "Download…",
+      tr("Download…"),
       "-",
-      "Copy (Ctrl+C)",
-      "Cut (Ctrl+X)",
-      "Paste (Ctrl+V) [off]",
-      "Move to…",
-      "Copy to…",
-      "Rename… (F2)",
+      `${tr("Copy")} (Ctrl+C)`,
+      `${tr("Cut")} (Ctrl+X)`,
+      `${tr("Paste")} (Ctrl+V) [off]`,
+      tr("Move to…"),
+      tr("Copy to…"),
+      `${tr("Rename…")} (F2)`,
       "-",
-      "Metadata > Tags…, Storage class…, Server-side encryption…, HTTP headers…, Website redirect…",
-      "ACL…",
-      "Share…",
+      submenu("Metadata", ["Tags…", "Storage class…", "Server-side encryption…", "HTTP headers…", "Website redirect…"]),
+      tr("ACL…"),
+      tr("Share…"),
       "-",
-      "Encrypt…",
-      "Decrypt…",
-      "Lock",
-      "Restore from Glacier…",
+      tr("Encrypt…"),
+      tr("Decrypt…"),
+      tr("Lock"),
+      tr("Restore from Glacier…"),
       "-",
-      "Properties",
-      "Export…",
-      "Bookmark…",
+      tr("Properties"),
+      tr("Export…"),
+      tr("Bookmark…"),
       "-",
-      "Refresh (F5)",
-      "Delete… (Del)",
+      `${tr("Refresh")} (F5)`,
+      `${tr("Delete…")} (Del)`,
     ]);
     expect(shape(resolveMenu("selection", itemsContext(model, "demo-photos", [folder, file])))).toEqual([
-      "Download…",
+      tr("Download…"),
       "-",
-      "Copy (Ctrl+C)",
-      "Cut (Ctrl+X)",
-      "Paste (Ctrl+V) [off]",
+      `${tr("Copy")} (Ctrl+C)`,
+      `${tr("Cut")} (Ctrl+X)`,
+      `${tr("Paste")} (Ctrl+V) [off]`,
       "-",
-      "Export…",
+      tr("Export…"),
       "-",
-      "Select all (Ctrl+A)",
-      "Invert selection (Ctrl+I)",
+      `${tr("Select all")} (Ctrl+A)`,
+      `${tr("Invert selection")} (Ctrl+I)`,
       "-",
-      "Refresh (F5)",
-      "Delete… (Del)",
+      `${tr("Refresh")} (F5)`,
+      `${tr("Delete…")} (Del)`,
     ]);
     // Several objects (no folder): the metadata editors that work on a batch join the selection menu.
-    expect(shape(resolveMenu("selection", itemsContext(model, "demo-photos", [file, { ...file, key: "other.md" }])))).toContain(
-      "Metadata > Storage class…, Tags…",
-    );
+    expect(
+      shape(resolveMenu("selection", itemsContext(model, "demo-photos", [file, { ...file, key: "other.md" }]))),
+    ).toContain(submenu("Metadata", ["Storage class…", "Tags…"]));
     expect(shape(resolveMenu("files-empty", filesEmptyContext(model)))).toEqual([
-      "Paste (Ctrl+V) [off]",
+      `${tr("Paste")} (Ctrl+V) [off]`,
       "-",
-      "New folder…",
-      "Upload files…",
-      "Upload folder…",
+      tr("New folder…"),
+      tr("Upload files…"),
+      tr("Upload folder…"),
       "-",
-      "Select all (Ctrl+A)",
-      "Invert selection (Ctrl+I)",
+      `${tr("Select all")} (Ctrl+A)`,
+      `${tr("Invert selection")} (Ctrl+I)`,
       "-",
-      "Refresh (F5)",
-      "Versions…",
-      "Filter…",
-      "Search",
+      `${tr("Refresh")} (F5)`,
+      tr("Versions…"),
+      tr("Filter…"),
+      tr("Search"),
     ]);
     expect(shape(resolveMenu("buckets-empty", bucketsEmptyContext(model)))).toEqual([
-      "New bucket…",
-      "Add external bucket…",
+      tr("New bucket…"),
+      tr("Add external bucket…"),
       "-",
-      "Refresh (F5)",
+      `${tr("Refresh")} (F5)`,
       "-",
-      "IAM manager…",
-      "CloudFront manager…",
-      "Diagnostics…",
-      "Security scan…",
-      "Uncompleted multipart uploads…",
+      tr("IAM manager…"),
+      tr("CloudFront manager…"),
+      tr("Diagnostics…"),
+      tr("Security scan…"),
+      tr("Uncompleted multipart uploads…"),
     ]);
   });
 
@@ -415,31 +459,31 @@ describe("resolved menus", () => {
     const { model } = await loadedModel();
     const items = resolveMenu("folder", itemsContext(model, "demo-backups", [folderEntry("db/")], "buckets"));
     expect(shape(items)).toEqual([
-      "Open (Enter)",
-      "Open in new window",
+      `${tr("Open")} (Enter)`,
+      tr("Open in new window"),
       "-",
-      "New folder…",
-      "Upload files…",
-      "Upload folder…",
-      "Download…",
+      tr("New folder…"),
+      tr("Upload files…"),
+      tr("Upload folder…"),
+      tr("Download…"),
       "-",
-      "Copy",
-      "Cut",
-      "Paste [off]",
-      "Copy all files…",
-      "Move all files…",
+      tr("Copy"),
+      tr("Cut"),
+      tr("Paste") + " [off]",
+      tr("Copy all files…"),
+      tr("Move all files…"),
       "-",
-      "Rename…",
-      "Folder sync…",
-      "Sync jobs…",
+      tr("Rename…"),
+      tr("Folder sync…"),
+      tr("Sync jobs…"),
       "-",
-      "Properties",
-      "Versions…",
-      "Search here",
-      "Filter…",
-      "Copy path",
-      "Bookmark…",
-      "Delete…",
+      tr("Properties"),
+      tr("Versions…"),
+      tr("Search here"),
+      tr("Filter…"),
+      tr("Copy path"),
+      tr("Bookmark…"),
+      tr("Delete…"),
     ]);
   });
 
@@ -460,7 +504,7 @@ describe("resolved menus", () => {
     model.clipboard.setState({ contents: { accountId, bucket: "demo-photos", keys: ["documents/"], mode: "cut" } });
     const into = pasteInto(itemsContext(model, "demo-photos", [folderEntry("documents/")]));
     expect(into?.disabled).toBe(true);
-    expect(into?.hint).toMatch(/itself/);
+    expect(into?.hint).toBe(tr("A folder cannot be pasted into itself or one of its subfolders."));
   });
 
   it("has the account menu entries, with set-as-default disabled for the default account", async () => {
@@ -469,17 +513,17 @@ describe("resolved menus", () => {
     const defaultAccount = accounts.find((account) => account.id === defaultAccountId)!;
     const other = accounts.find((account) => account.id !== defaultAccountId)!;
     expect(shape(resolveMenu("account", accountContext(model, defaultAccount)))).toEqual([
-      "Edit account…",
-      "Set as default [off]",
+      tr("Edit account…"),
+      tr("Set as default") + " [off]",
       "-",
-      "Change master password…",
-      "MFA device…",
+      tr("Change master password…"),
+      tr("MFA device…"),
       "-",
-      "Test connection",
-      "Remove account…",
+      tr("Test connection"),
+      tr("Remove account…"),
     ]);
     const second = resolveMenu("account", accountContext(model, other));
-    expect(shape(second)).toContain("Set as default");
+    expect(shape(second)).toContain(tr("Set as default"));
   });
 
   it("never produces a separator at an edge or two in a row, and every entry has a handler and a label", async () => {
@@ -552,24 +596,35 @@ describe("capabilities and availability", () => {
     const awsCtx = bucketContext(model, [bucketNamed(model, "demo-photos")]);
     const externalCtx = { ...bucketContext(model, [archive]), caps: capsFor(null, archive) };
     const propertiesOf = (ctx: MenuContext) =>
-      shape(resolveMenu("bucket", ctx)).find((entry) => entry.startsWith("Properties >")) ?? "";
-    expect(propertiesOf(awsCtx)).toContain("Versioning…");
-    expect(propertiesOf(awsCtx)).toContain("Static website…");
-    expect(propertiesOf(awsCtx)).toContain("Transfer acceleration…");
+      shape(resolveMenu("bucket", ctx)).find((entry) => entry.startsWith(`${tr("Properties")} >`)) ?? "";
+    expect(propertiesOf(awsCtx)).toContain(tr("Versioning…"));
+    expect(propertiesOf(awsCtx)).toContain(tr("Static website…"));
+    expect(propertiesOf(awsCtx)).toContain(tr("Transfer acceleration…"));
     // A provider that cannot do versioning, websites or acceleration keeps the settings it can show.
     expect(propertiesOf(externalCtx)).toBe(
-      "Properties > Server access logging…, Bucket policy…, Public access block…, CORS…, Lifecycle rules…, Intelligent-Tiering…, Replication…, Object ownership…, Object lock…",
+      submenu("Properties", [
+        "Server access logging…",
+        "Bucket policy…",
+        "Public access block…",
+        "CORS…",
+        "Lifecycle rules…",
+        "Intelligent-Tiering…",
+        "Replication…",
+        "Object ownership…",
+        "Object lock…",
+      ]),
     );
     // When every entry of a submenu is hidden, the submenu goes with them.
     const none = { defs: ACTIONS, available: (id: ActionId) => isAvailable(id) && !id.startsWith("bucket.") };
-    expect(shape(resolveMenu("bucket", awsCtx, none)).some((entry) => entry.startsWith("Properties"))).toBe(false);
+    const withoutBuckets = shape(resolveMenu("bucket", awsCtx, none));
+    expect(withoutBuckets.some((entry) => entry.startsWith(tr("Properties")))).toBe(false);
   });
 
   it("keeps an available entry hidden until its handler exists", async () => {
     const { model } = await loadedModel();
     const ctx = bucketContext(model, [bucketNamed(model, "demo-photos")]);
     const items = resolveMenu("bucket", ctx, { defs: ACTIONS, available: () => true });
-    expect(shape(items).some((entry) => entry.startsWith("Mount"))).toBe(false);
+    expect(items.some((item) => item.type === "action" && item.id === "bucket.mount")).toBe(false);
   });
 });
 

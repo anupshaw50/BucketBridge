@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { Account } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { Wizard } from "../../components/Wizard";
@@ -89,40 +90,51 @@ function SourceFields({
 
 /** The review rows of the add-account wizard for the chosen kind of source. */
 function SourceReview({ draft, accounts }: { draft: AccountDraft; accounts: readonly Account[] }) {
+  const entered = tr("Entered (hidden)");
+  const none = tr("None");
   switch (draft.source_kind) {
     case "keys":
       return (
         <>
-          <ReviewRow label="Access key ID" value={draft.access_key_id.trim()} />
-          <ReviewRow label="Secret access key" value="Entered (hidden)" />
-          <ReviewRow label="Session token" value={draft.session_token.trim() === "" ? "None" : "Entered (hidden)"} />
-          <ReviewRow label="MFA device" value={draft.mfa_serial.trim() === "" ? "None" : draft.mfa_serial.trim()} />
+          <ReviewRow label={tr("Access key ID")} value={draft.access_key_id.trim()} />
+          <ReviewRow label={tr("Secret access key")} value={entered} />
+          <ReviewRow
+            label={tr("Session token")}
+            value={draft.session_token.trim() === "" ? none : entered}
+          />
+          <ReviewRow label={tr("MFA device")} value={draft.mfa_serial.trim() === "" ? none : draft.mfa_serial.trim()} />
         </>
       );
     case "role":
       return (
         <>
-          <ReviewRow label="Credentials" value="Assumed role" />
-          <ReviewRow label="Signed with" value={accounts.find((a) => a.id === draft.role_source_account_id)?.label ?? "-"} />
-          <ReviewRow label="Role ARN" value={draft.role_arn.trim()} />
-          <ReviewRow label="Session" value={`${draft.role_session_name.trim()}, ${draft.role_duration_minutes} minutes`} />
-          <ReviewRow label="External ID" value={draft.role_external_id.trim() === "" ? "None" : draft.role_external_id.trim()} />
-          <ReviewRow label="MFA device" value={draft.mfa_serial.trim() === "" ? "None" : draft.mfa_serial.trim()} />
+          <ReviewRow label={tr("Credentials")} value={tr("Assumed role")} />
+          <ReviewRow
+            label={tr("Signed with")}
+            value={accounts.find((a) => a.id === draft.role_source_account_id)?.label ?? "-"}
+          />
+          <ReviewRow label={tr("Role ARN")} value={draft.role_arn.trim()} />
+          <ReviewRow
+            label={tr("Session")}
+            value={tr("{name}, {n} minutes", { name: draft.role_session_name.trim(), n: draft.role_duration_minutes })}
+          />
+          <ReviewRow label={tr("External ID")} value={draft.role_external_id.trim() === "" ? none : draft.role_external_id.trim()} />
+          <ReviewRow label={tr("MFA device")} value={draft.mfa_serial.trim() === "" ? none : draft.mfa_serial.trim()} />
         </>
       );
     case "sso":
       return (
         <>
-          <ReviewRow label="Credentials" value="AWS SSO (IAM Identity Center)" />
-          <ReviewRow label="Start URL" value={draft.sso_start_url.trim()} />
-          <ReviewRow label="AWS account" value={draft.sso_account_id} />
-          <ReviewRow label="Role" value={draft.sso_role_name} />
+          <ReviewRow label={tr("Credentials")} value={tr("AWS SSO (IAM Identity Center)")} />
+          <ReviewRow label={tr("Start URL")} value={draft.sso_start_url.trim()} />
+          <ReviewRow label={tr("AWS account")} value={draft.sso_account_id} />
+          <ReviewRow label={tr("Role")} value={draft.sso_role_name} />
         </>
       );
     case "instance":
-      return <ReviewRow label="Credentials" value="Role of this EC2 instance or container" />;
+      return <ReviewRow label={tr("Credentials")} value={tr("Role of this EC2 instance or container")} />;
     case "profile":
-      return <ReviewRow label="Credentials" value={`AWS profile ${draft.profile}`} />;
+      return <ReviewRow label={tr("Credentials")} value={tr("AWS profile {profile}", { profile: draft.profile })} />;
   }
 }
 
@@ -157,7 +169,7 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
       const account = await model.api.add_account({ input: toAccountInput(draft) });
       await model.session.refreshAccounts();
       model.session.setActive(account.id);
-      model.status.info(`Account "${account.label}" added.`);
+      model.status.info(tr("Account \"{label}\" added.", { label: account.label }));
       onClose();
     } catch (raw) {
       const failure = toBbError(raw);
@@ -174,20 +186,20 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
 
   const input = toAccountInput(draft);
   return (
-    <AppModal opened onClose={onClose} title="Add account" size="lg" closeOnClickOutside={false}>
+    <AppModal opened onClose={onClose} title={tr("Add account")} size="lg" closeOnClickOutside={false}>
       <Wizard
         active={step}
         onNext={next}
         onBack={() => setStep(Math.max(0, step - 1))}
         onFinish={() => void finish()}
         onCancel={onClose}
-        finishLabel="Add account"
+        finishLabel={tr("Add account")}
         busy={busy}
         error={error}
         steps={[
-          { label: "Connection", content: <ConnectionFields draft={draft} errors={errors} onChange={update} /> },
+          { label: tr("Connection"), content: <ConnectionFields draft={draft} errors={errors} onChange={update} /> },
           {
-            label: "Credentials",
+            label: tr("Credentials"),
             content: (
               <Stack gap="sm">
                 <SourcePicker draft={draft} onChange={update} />
@@ -196,26 +208,26 @@ export function AddAccountDialog({ onClose }: { onClose: () => void }) {
             ),
           },
           {
-            label: "Review",
+            label: tr("Review"),
             content: (
               <Stack gap="xs">
                 <Text size="sm">
                   {draft.source_kind === "keys"
-                    ? "Check the details and add the account. The secret is stored in the credential store."
-                    : "Check the details and add the account. No secret is stored: credentials are requested when needed."}
+                    ? tr("Check the details and add the account. The secret is stored in the credential store.")
+                    : tr("Check the details and add the account. No secret is stored: credentials are requested when needed.")}
                 </Text>
                 <Table withTableBorder withRowBorders verticalSpacing={4} fz="sm">
                   <Table.Tbody>
-                    <ReviewRow label="Label" value={input.label} />
-                    <ReviewRow label="Endpoint" value={input.endpoint ?? "AWS"} />
-                    <ReviewRow label="Region" value={input.region} />
-                    <ReviewRow label="Path-style addressing" value={input.path_style ? "Yes" : "No"} />
-                    <ReviewRow label="Requester pays" value={input.request_payer ? "Yes" : "No"} />
+                    <ReviewRow label={tr("Label")} value={input.label} />
+                    <ReviewRow label={tr("Endpoint")} value={input.endpoint ?? "AWS"} />
+                    <ReviewRow label={tr("Region")} value={input.region} />
+                    <ReviewRow label={tr("Path-style addressing")} value={input.path_style ? tr("Yes") : tr("No")} />
+                    <ReviewRow label={tr("Requester pays")} value={input.request_payer ? tr("Yes") : tr("No")} />
                     <SourceReview draft={draft} accounts={accounts} />
                   </Table.Tbody>
                 </Table>
                 {draft.source_kind === "keys" ? (
-                  <DiagnosticsPanel target={{ kind: "input", input }} bucket={null} runLabel="Test connection" />
+                  <DiagnosticsPanel target={{ kind: "input", input }} bucket={null} runLabel={tr("Test connection")} />
                 ) : null}
               </Stack>
             ),
@@ -241,8 +253,8 @@ export function EditAccountDialog({
   const account = accounts.find((item) => item.id === accountId) ?? null;
   if (account === null) {
     return (
-      <OkCancelDialog opened title="Edit account" onOk={onClose} onCancel={onClose} okLabel="Close">
-        <Text size="sm">This account no longer exists.</Text>
+      <OkCancelDialog opened title={tr("Edit account")} onOk={onClose} onCancel={onClose} okLabel={tr("Close")}>
+        <Text size="sm">{tr("This account no longer exists.")}</Text>
       </OkCancelDialog>
     );
   }
@@ -280,7 +292,7 @@ function EditAccountForm({
     try {
       const updated = await model.api.update_account({ id: account.id, update: change });
       await model.session.refreshAccounts();
-      model.status.info(`Account "${updated.label}" saved.`);
+      model.status.info(tr("Account \"{label}\" saved.", { label: updated.label }));
       if (model.session.store.getState().activeAccountId === account.id) {
         await model.browser.switchAccount(account.id);
       }
@@ -299,8 +311,8 @@ function EditAccountForm({
   return (
     <OkCancelDialog
       opened
-      title={`Edit account ${account.label}`}
-      okLabel="Save"
+      title={tr("Edit account {label}", { label: account.label })}
+      okLabel={tr("Save")}
       onOk={() => void save()}
       onCancel={onClose}
       busy={busy}
@@ -308,11 +320,11 @@ function EditAccountForm({
       size="lg"
     >
       <Text size="sm" fw={600}>
-        Connection
+        {tr("Connection")}
       </Text>
       <ConnectionFields draft={draft} errors={errors} onChange={update} autoFocus={!focusMfa} />
       <Text size="sm" fw={600} mt="sm">
-        Credentials
+        {tr("Credentials")}
       </Text>
       <SourceFields
         draft={draft}
@@ -344,54 +356,56 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
     try {
       await model.raw.lock();
       await model.session.refreshSecurity();
-      model.status.info("Secrets locked.");
+      model.status.info(tr("Secrets locked."));
     } catch (error) {
-      model.status.error(error, { notify: "Locking failed" });
+      model.status.error(error, { notify: tr("Locking failed") });
     }
   };
   return (
-    <AppModal opened onClose={onClose} title="Accounts" size={980}>
+    <AppModal opened onClose={onClose} title={tr("Accounts")} size={980}>
       <Stack gap="sm">
         <Group justify="space-between" wrap="nowrap">
           <Group gap="xs">
             <IconShieldLock size={16} aria-hidden />
             <Text size="sm">
               {masterSet
-                ? `A master password protects the stored secrets. They are ${unlocked ? "unlocked" : "locked"}.`
-                : "No master password is set. Secrets are protected by the operating system's credential store only."}
+                ? tr("A master password protects the stored secrets. They are {state}.", {
+                    state: unlocked ? tr("unlocked") : tr("locked"),
+                  })
+                : tr("No master password is set. Secrets are protected by the operating system's credential store only.")}
             </Text>
           </Group>
           <Group gap="xs" wrap="nowrap">
             {masterSet && unlocked ? (
               <Button size="xs" variant="default" leftSection={<IconLock size={14} />} onClick={() => void lockNow()}>
-                Lock now
+                {tr("Lock now")}
               </Button>
             ) : null}
             {masterSet && !unlocked ? (
               <Button size="xs" variant="default" onClick={() => model.prompts.showUnlock()}>
-                Unlock
+                {tr("Unlock")}
               </Button>
             ) : null}
             <Button size="xs" variant="default" onClick={() => model.dialogs.open({ kind: "master-password" })}>
-              Master password...
+              {tr("Master password...")}
             </Button>
           </Group>
         </Group>
         {accounts.length === 0 ? (
           <Text size="sm" c="dimmed" py="md">
-            No accounts yet.
+            {tr("No accounts yet.")}
           </Text>
         ) : (
           <Table.ScrollContainer minWidth={860} maxHeight={360}>
-            <Table striped highlightOnHover verticalSpacing={6} fz="sm" aria-label="Accounts">
+            <Table striped highlightOnHover verticalSpacing={6} fz="sm" aria-label={tr("Accounts")}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Label</Table.Th>
-                  <Table.Th>Service</Table.Th>
-                  <Table.Th>Region</Table.Th>
-                  <Table.Th>Credentials</Table.Th>
+                  <Table.Th>{tr("Label")}</Table.Th>
+                  <Table.Th>{tr("Service")}</Table.Th>
+                  <Table.Th>{tr("Region")}</Table.Th>
+                  <Table.Th>{tr("Credentials")}</Table.Th>
                   <Table.Th>
-                    <span className="bb-visually-hidden">Actions</span>
+                    <span className="bb-visually-hidden">{tr("Actions")}</span>
                   </Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -413,16 +427,16 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                         </Text>
                         {account.id === defaultId ? (
                           <Badge size="xs" variant="light" leftSection={<IconStar size={10} />}>
-                            Default
+                            {tr("Default")}
                           </Badge>
                         ) : null}
                         {account.id === activeId ? (
                           <Badge size="xs" variant="outline">
-                            Active
+                            {tr("Active")}
                           </Badge>
                         ) : null}
                         {account.mfa_serial !== null ? (
-                          <Tooltip label={`MFA device ${account.mfa_serial}`}>
+                          <Tooltip label={tr("MFA device {serial}", { serial: account.mfa_serial })}>
                             <Badge size="xs" variant="light" color="grape">
                               MFA
                             </Badge>
@@ -442,35 +456,35 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                           variant="subtle"
                           disabled={account.id === activeId}
                           onClick={() => model.session.setActive(account.id)}
-                          aria-label={`Use ${account.label}`}
+                          aria-label={tr("Use {label}", { label: account.label })}
                         >
-                          Use
+                          {tr("Use")}
                         </Button>
                         <Button
                           size="compact-xs"
                           variant="subtle"
                           disabled={account.id === defaultId}
                           onClick={() => void makeDefault(model, account)}
-                          aria-label={`Make ${account.label} the default`}
+                          aria-label={tr("Make {label} the default", { label: account.label })}
                         >
-                          Set default
+                          {tr("Set default")}
                         </Button>
                         <Button
                           size="compact-xs"
                           variant="subtle"
                           onClick={() => model.dialogs.open({ kind: "edit-account", accountId: account.id })}
-                          aria-label={`Edit ${account.label}`}
+                          aria-label={tr("Edit {label}", { label: account.label })}
                         >
-                          Edit
+                          {tr("Edit")}
                         </Button>
                         <Button
                           size="compact-xs"
                           variant="subtle"
                           color="red"
                           onClick={() => void removeAccount(model, account)}
-                          aria-label={`Remove ${account.label}`}
+                          aria-label={tr("Remove {label}", { label: account.label })}
                         >
-                          Remove
+                          {tr("Remove")}
                         </Button>
                       </Group>
                     </Table.Td>
@@ -483,14 +497,14 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
         <Group justify="space-between">
           <Group gap="xs">
             <Button leftSection={<IconPlus size={14} />} onClick={() => model.dialogs.open({ kind: "add-account" })}>
-              Add account...
+              {tr("Add account...")}
             </Button>
             <Button variant="default" onClick={() => model.dialogs.open({ kind: "import-aws" })}>
-              Import from AWS config...
+              {tr("Import from AWS config...")}
             </Button>
           </Group>
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

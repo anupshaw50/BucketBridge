@@ -2,7 +2,8 @@ import { Stack, Table, Text } from "@mantine/core";
 import type { ReactNode } from "react";
 import type { ObjectEntry } from "../../api/types";
 import { CopyField } from "../../components/CopyField";
-import { formatBytes, formatCount, formatDateTime, plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatBytes, formatCount, formatDateTime } from "../../lib/format";
 import { baseName, displaySegment, s3Uri } from "../../lib/s3keys";
 import type { TabContext } from "./apply";
 
@@ -32,19 +33,27 @@ export function GeneralTab({ ctx, entries }: { ctx: TabContext; entries: readonl
     const total = entries.reduce((sum, entry) => sum + entry.size, 0);
     const classes = new Map<string, number>();
     for (const entry of entries) {
-      const name = entry.storage_class ?? "Unknown";
+      const name = entry.storage_class ?? tr("Unknown");
       classes.set(name, (classes.get(name) ?? 0) + 1);
     }
     return (
       <Stack gap="xs">
         <Text size="sm">
-          {plural(entries.length, "object")} in <strong>{ctx.bucket}</strong>, {formatBytes(total)} in total.
+          {entries.length === 1
+            ? tr("1 object in {bucket}, {size} in total.", { bucket: ctx.bucket, size: formatBytes(total) })
+            : tr("{n} objects in {bucket}, {size} in total.", {
+                n: formatCount(entries.length),
+                bucket: ctx.bucket,
+                size: formatBytes(total),
+              })}
         </Text>
         <Text size="sm" c="dimmed">
-          Storage classes: {[...classes].map(([name, count]) => `${name} (${count})`).join(", ")}.
+          {tr("Storage classes: {classes}.", {
+            classes: [...classes].map(([name, count]) => `${name} (${count})`).join(", "),
+          })}
         </Text>
         <Text size="sm" c="dimmed">
-          The other tabs change all of them at once and show the result for each object.
+          {tr("The other tabs change all of them at once and show the result for each object.")}
         </Text>
       </Stack>
     );
@@ -54,36 +63,38 @@ export function GeneralTab({ ctx, entries }: { ctx: TabContext; entries: readonl
     <Stack gap="sm">
       <Table withTableBorder verticalSpacing={4} fz="sm">
         <Table.Tbody>
-          <Row label="Name">{displaySegment(baseName(details.key))}</Row>
-          <Row label="Type">Object</Row>
-          <Row label="Bucket">{ctx.bucket}</Row>
-          <Row label="Key">
+          <Row label={tr("Name")}>{displaySegment(baseName(details.key))}</Row>
+          <Row label={tr("Type of object")}>{tr("Object")}</Row>
+          <Row label={tr("Bucket")}>{ctx.bucket}</Row>
+          <Row label={tr("Key")}>
             <Mono>{details.key}</Mono>
           </Row>
-          <Row label="Size">
-            {formatBytes(details.size)} ({formatCount(details.size)} bytes)
+          <Row label={tr("Size")}>
+            {formatBytes(details.size)} ({tr("{n} bytes", { n: formatCount(details.size) })})
           </Row>
-          <Row label="Last modified">
-            {details.last_modified ? `${formatDateTime(details.last_modified)} (${details.last_modified})` : "Unknown"}
+          <Row label={tr("Last modified")}>
+            {details.last_modified ? `${formatDateTime(details.last_modified)} (${details.last_modified})` : tr("Unknown")}
           </Row>
-          <Row label="Storage class">{details.storage_class ?? "Unknown"}</Row>
+          <Row label={tr("Storage class")}>{details.storage_class ?? tr("Unknown")}</Row>
           <Row label="ETag">
-            <Mono>{details.etag ?? "None"}</Mono>
+            <Mono>{details.etag ?? tr("None")}</Mono>
           </Row>
           {details.version_id !== null ? (
-            <Row label="Version ID">
+            <Row label={tr("Version ID")}>
               <Mono>{details.version_id}</Mono>
             </Row>
           ) : null}
           {details.restore !== null ? (
-            <Row label="Restore">
+            <Row label={tr("Restore")}>
               {details.restore.in_progress
-                ? "A restore is in progress."
-                : `Restored copy available${details.restore.expires ? ` until ${formatDateTime(details.restore.expires)}` : ""}.`}
+                ? tr("A restore is in progress.")
+                : details.restore.expires
+                  ? tr("Restored copy available until {time}.", { time: formatDateTime(details.restore.expires) })
+                  : tr("Restored copy available.")}
             </Row>
           ) : null}
           {checksums.length > 0 ? (
-            <Row label="Checksums">
+            <Row label={tr("Checksums")}>
               <Stack gap={2}>
                 {checksums.map(([algorithm, value]) => (
                   <Mono key={algorithm}>
