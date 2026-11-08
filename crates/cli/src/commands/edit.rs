@@ -17,6 +17,7 @@ use tokio::sync::oneshot;
 
 use crate::cli::EditArgs;
 use crate::context::Context;
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 use crate::transfer::throttle;
 
@@ -58,9 +59,9 @@ impl<'a> EditRecord<'a> {
 pub async fn run(ctx: &Context, args: &EditArgs, out: &mut Output) -> Result<(), Failure> {
     let uri = &args.uri;
     if uri.key().is_empty() || uri.key().ends_with('/') {
-        return Err(Error::Usage(format!(
-            "{uri} is not an object; edit needs an object, for example s3://{}/key",
-            uri.bucket()
+        return Err(Error::Usage(trf(
+            "{uri} is not an object; edit needs an object, for example s3://{bucket}/key",
+            &[("uri", &uri.to_string()), ("bucket", uri.bucket())],
         ))
         .into());
     }
@@ -91,15 +92,15 @@ pub async fn run(ctx: &Context, args: &EditArgs, out: &mut Output) -> Result<(),
         // Nothing was edited yet.
         let _ = manager.stop(&session.id, true).await;
         return Err(Error::io(
-            format!("opening {}", session.local_path),
+            trf("opening {path}", &[("path", &session.local_path)]),
             io::Error::other(message),
         )
         .into());
     }
     out.change(&EditRecord::new("started", &session), || {
-        format!("editing {uri}: {}", session.local_path)
+        trf("editing {uri}: {path}", &[("uri", &uri.to_string()), ("path", &session.local_path)])
     })?;
-    out.notice("Save the file to upload it. Press Ctrl-C to stop editing.");
+    out.notice(&tr("Save the file to upload it. Press Ctrl-C to stop editing."));
 
     let interactive = !out.json() && io::stdin().is_terminal() && io::stderr().is_terminal();
     let id = session.id.clone();
@@ -133,7 +134,7 @@ fn report(out: &mut Output, session: &EditSession) -> Result<bool, Failure> {
         EditState::Uploaded => {
             let mut record = EditRecord::new("uploaded", session);
             record.etag = session.etag.as_deref();
-            out.change(&record, || format!("uploaded {uri}"))?;
+            out.change(&record, || trf("uploaded {uri}", &[("uri", &uri)]))?;
             Ok(false)
         }
         EditState::Conflict => {
@@ -147,13 +148,13 @@ fn report(out: &mut Output, session: &EditSession) -> Result<bool, Failure> {
                 .as_ref()
                 .and_then(|conflict| conflict.remote_etag.as_deref());
             let what = if deleted {
-                "was deleted"
+                "{uri} was deleted since you opened it; your save was not uploaded (the copy stays at {path})"
             } else {
-                "changed on the server"
+                "{uri} changed on the server since you opened it; your save was not uploaded (the copy stays at {path})"
             };
-            let message = format!(
-                "{uri} {what} since you opened it; your save was not uploaded (the copy stays at {})",
-                session.local_path
+            let message = trf(
+                what,
+                &[("uri", &uri), ("path", &session.local_path)],
             );
             record.message = Some(message.clone());
             out.item_failed(&record, || message.clone())?;
@@ -164,7 +165,10 @@ fn report(out: &mut Output, session: &EditSession) -> Result<bool, Failure> {
             let mut record = EditRecord::new("error", session);
             record.message = Some(message.clone());
             out.item_failed(&record, || {
-                format!("{uri} was not uploaded: {message}; save the file again to retry")
+                trf(
+                    "{uri} was not uploaded: {message}; save the file again to retry",
+                    &[("uri", &uri), ("message", &message)],
+                )
             })?;
             Ok(false)
         }
@@ -203,18 +207,20 @@ async fn resolve(
             let mut record = EditRecord::new("copy_saved", session);
             record.copy_key = resolved.copy_key.as_deref();
             out.change(&record, || {
-                format!(
-                    "saved your version as s3://{}/{}",
-                    session.bucket,
-                    resolved.copy_key.as_deref().unwrap_or_default()
+                trf(
+                    "saved your version as s3://{bucket}/{key}",
+                    &[
+                        ("bucket", &session.bucket),
+                        ("key", resolved.copy_key.as_deref().unwrap_or_default()),
+                    ],
                 )
             })?;
         }
         EditResolution::Discard => {
             out.change(&EditRecord::new("discarded", session), || {
-                format!(
-                    "discarded your changes to s3://{}/{}",
-                    session.bucket, session.key
+                trf(
+                    "discarded your changes to s3://{bucket}/{key}",
+                    &[("bucket", &session.bucket), ("key", &session.key)],
                 )
             })?;
         }
@@ -230,9 +236,9 @@ async fn ask(
     session: &EditSession,
     out: &Output,
 ) -> Option<EditResolution> {
-    out.stderr().raw(&format!(
-        "s3://{}/{} changed on the server. Overwrite it with your version (o), save your version as a copy (c), discard your changes (d), or decide later (l)? ",
-        session.bucket, session.key
+    out.stderr().raw(&trf(
+        "s3://{bucket}/{key} changed on the server. Overwrite it with your version (o), save your version as a copy (c), discard your changes (d), or decide later (l)? ",
+        &[("bucket", &session.bucket), ("key", &session.key)],
     ));
     let (tx, rx) = oneshot::channel();
     // A plain thread: a read of standard input cannot be cancelled, and a
@@ -272,7 +278,10 @@ async fn finish(
             Ok(()) => {
                 if let Some(session) = &session {
                     out.change(&EditRecord::new("stopped", session), || {
-                        format!("stopped editing s3://{}/{}", session.bucket, session.key)
+                        trf(
+                            "stopped editing s3://{bucket}/{key}",
+                            &[("bucket", &session.bucket), ("key", &session.key)],
+                        )
                     })?;
                 }
                 return Ok(());
@@ -303,9 +312,9 @@ async fn finish(
 
 /// The error that says where the unsaved work is.
 fn kept(error: Error, session: &EditSession) -> Error {
-    error.with_context(format!(
-        "your edited copy is kept at {}",
-        session.local_path
+    error.with_context(trf(
+        "your edited copy is kept at {path}",
+        &[("path", &session.local_path)],
     ))
 }
 

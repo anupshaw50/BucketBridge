@@ -1,5 +1,7 @@
 //! `bb cp` and `bb mv` between S3 locations (server-side copies).
 
+use bucketbridge_cli::i18n::{tr, trf};
+
 use super::*;
 
 /// A source bucket with a small photo tree and an empty target bucket.
@@ -30,7 +32,10 @@ async fn cp_copies_one_object_to_an_exact_key_or_into_a_prefix() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("copied s3://{src}/photos/2024/a.jpg to s3://{dst}/renamed.jpg")
+        trf("copied {source} to {destination}", &[
+            ("source", &format!("s3://{src}/photos/2024/a.jpg")),
+            ("destination", &format!("s3://{dst}/renamed.jpg")),
+        ])
     );
     assert_eq!(env.s3.get(&dst, "renamed.jpg").await, b"photos/2024/a.jpg");
 
@@ -172,7 +177,10 @@ async fn dry_run_writes_nothing() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("would move s3://{src}/photos/2025/e.jpg to s3://{dst}/e.jpg")
+        trf("would move {source} to {destination}", &[
+            ("source", &format!("s3://{src}/photos/2025/e.jpg")),
+            ("destination", &format!("s3://{dst}/e.jpg")),
+        ])
     );
     assert!(env.keys(&dst).await.is_empty());
     assert_eq!(env.keys(&src).await.len(), 5);
@@ -248,7 +256,7 @@ async fn mv_keeps_the_source_when_the_copy_fails() {
     );
     assert_eq!(
         out.error_record()["message"],
-        "4 of 4 objects could not be moved"
+        batch_summary(4, 4, "objects", "could not be moved")
     );
     assert_eq!(env.keys(&src).await.len(), 5);
 }
@@ -257,10 +265,12 @@ async fn mv_keeps_the_source_when_the_copy_fails() {
 async fn invalid_copies_are_usage_errors() {
     let env = Env::start().await;
     let (src, dst) = photos(&env).await;
-    let cases: Vec<(Vec<String>, &str)> = vec![
+    // The expectations are precomputed through the same templates as the
+    // code, so they hold in either language.
+    let cases: Vec<(Vec<String>, String)> = vec![
         (
             vec!["cp".into(), "photo.jpg".into(), "./e.jpg".into()],
-            "both locations are local",
+            tr("both locations are local"),
         ),
         (
             vec![
@@ -268,7 +278,7 @@ async fn invalid_copies_are_usage_errors() {
                 format!("s3://{src}/photos/"),
                 format!("s3://{dst}/"),
             ],
-            "--recursive",
+            "--recursive".to_owned(),
         ),
         (
             vec![
@@ -277,7 +287,7 @@ async fn invalid_copies_are_usage_errors() {
                 format!("s3://{src}/photos"),
                 format!("s3://{dst}/"),
             ],
-            "--recursive",
+            "--recursive".to_owned(),
         ),
         (
             vec![
@@ -286,7 +296,13 @@ async fn invalid_copies_are_usage_errors() {
                 format!("s3://{src}/photos/"),
                 format!("s3://{src}/photos/again/"),
             ],
-            "inside the source",
+            trf(
+                "the destination {destination} is inside the source {source}",
+                &[
+                    ("destination", &format!("s3://{src}/photos/again/")),
+                    ("source", &format!("s3://{src}/photos/")),
+                ],
+            ),
         ),
         (
             vec![
@@ -295,7 +311,13 @@ async fn invalid_copies_are_usage_errors() {
                 format!("s3://{src}/photos/2024/"),
                 format!("s3://{src}/photos/"),
             ],
-            "onto itself",
+            trf(
+                "copying {source} to {destination} would put every object onto itself",
+                &[
+                    ("source", &format!("s3://{src}/photos/2024/")),
+                    ("destination", &format!("s3://{src}/photos/")),
+                ],
+            ),
         ),
         (
             vec![
@@ -303,7 +325,10 @@ async fn invalid_copies_are_usage_errors() {
                 format!("s3://{src}/photos/2025/e.jpg"),
                 format!("s3://{src}/photos/2025/"),
             ],
-            "onto itself",
+            trf(
+                "cannot move {source} onto itself",
+                &[("source", &format!("s3://{src}/photos/2025/e.jpg"))],
+            ),
         ),
         (
             vec![
@@ -313,14 +338,14 @@ async fn invalid_copies_are_usage_errors() {
                 "--exclude".into(),
                 "*".into(),
             ],
-            "--recursive",
+            "--recursive".to_owned(),
         ),
     ];
     for (args, expected) in cases {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = env.run(&args);
         out.expect_code(1);
-        assert!(out.stderr.contains(expected), "{args:?}: {}", out.stderr);
+        assert!(out.stderr.contains(expected.as_str()), "{args:?}: {}", out.stderr);
     }
     assert!(env.keys(&dst).await.is_empty());
     assert_eq!(env.keys(&src).await.len(), 5);

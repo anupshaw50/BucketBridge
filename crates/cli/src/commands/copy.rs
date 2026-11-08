@@ -32,6 +32,7 @@ use futures::{StreamExt, TryStreamExt, stream};
 use crate::ask::TerminalResolver;
 use crate::cli::{Command, CopyArgs, GlobalArgs};
 use crate::context::{Context, Inputs, account_s3};
+use crate::i18n::trf;
 use crate::location::{
     Location, check_recursive_pair, relative_to_source, single_destination, upload_prefix,
 };
@@ -74,6 +75,8 @@ impl Direction {
 }
 
 impl Mode {
+    /// The infinitive of the operation, for building the error
+    /// templates: `copy`, `move`, `upload`, `download`.
     fn infinitive(self, direction: Direction) -> &'static str {
         match (self, direction) {
             (Mode::Move, _) => "move",
@@ -91,6 +94,60 @@ impl Mode {
             (Mode::Copy, Direction::Copy) => "copied",
         }
     }
+}
+
+/// The error templates are registered per verb, because the Chinese
+/// sentence puts the verb before the object.
+fn prefix_template(verb: &str, name: &str) -> String {
+    trf(
+        "{prefix} is a prefix; add --recursive to {verb} everything under it",
+        &[("prefix", name), ("verb", verb)],
+    )
+}
+
+fn onto_itself(verb: &str, source: &str) -> String {
+    let template = match verb {
+        "upload" => "cannot upload {source} onto itself",
+        "download" => "cannot download {source} onto itself",
+        "copy" => "cannot copy {source} onto itself",
+        _ => "cannot move {source} onto itself",
+    };
+    trf(template, &[("source", source)])
+}
+
+/// Refuses a folder source without `--recursive`; the templates are
+/// registered per verb (`upload`/`move`), because the Chinese sentence
+/// puts the verb before the object.
+fn needs_recursive_folder(verb: &str, path: &str) -> String {
+    let template = match verb {
+        "move" => "'{path}' is a folder; add --recursive to move it",
+        _ => "'{path}' is a folder; add --recursive to upload it",
+    };
+    trf(template, &[("path", path)])
+}
+
+/// Reports an expansion conflict: `nothing was <past>`, per verb.
+fn cannot_template(verb: &str, source: &str, message: &str, more: &str, past: &str) -> String {
+    let full = match verb {
+        "upload" => {
+            "cannot upload {source}: {message}{more}; nothing was uploaded"
+        }
+        "download" => {
+            "cannot download {source}: {message}{more}; nothing was downloaded"
+        }
+        "copy" => "cannot copy {source}: {message}{more}; nothing was copied",
+        _ => "cannot move {source}: {message}{more}; nothing was moved",
+    };
+    trf(
+        full,
+        &[
+            ("source", source),
+            ("message", message),
+            ("more", more),
+            ("verb", verb),
+            ("past", past),
+        ],
+    )
 }
 
 /// The two locations of an invocation.
@@ -117,9 +174,7 @@ fn route(args: &CopyArgs) -> Result<Route<'_>> {
         (Location::S3(src), Location::Local(path)) => Ok(Route::Download { src, path }),
         (Location::S3(src), Location::S3(dst)) => Ok(Route::Copy { src, dst }),
         (Location::Local(_), Location::Local(_)) => Err(Error::Usage(
-            "both locations are local paths; bb uploads files to S3, downloads objects from S3 \
-             and copies objects between S3 locations"
-                .into(),
+            crate::i18n::tr("both locations are local paths; bb uploads files to S3, downloads objects from S3 and copies objects between S3 locations"),
         )),
     }
 }
@@ -132,16 +187,14 @@ pub fn check(args: &CopyArgs, mode: Mode) -> Result<()> {
     check_cse(args, direction)?;
     match direction {
         Direction::Upload if args.from_account.is_some() => {
-            return Err(Error::Usage(
-                "--from-account names the account of an S3 source; the source here is a local path"
-                    .into(),
-            ));
+            return Err(Error::Usage(crate::i18n::tr(
+                "--from-account names the account of an S3 source; the source here is a local path",
+            )));
         }
         Direction::Download if args.to_account.is_some() => {
-            return Err(Error::Usage(
-                "--to-account names the account of an S3 destination; the destination here is a local path"
-                    .into(),
-            ));
+            return Err(Error::Usage(crate::i18n::tr(
+                "--to-account names the account of an S3 destination; the destination here is a local path",
+            )));
         }
         _ => {}
     }
@@ -150,23 +203,24 @@ pub fn check(args: &CopyArgs, mode: Mode) -> Result<()> {
         Route::Download { src, .. } | Route::Copy { src, .. } => src,
     };
     if args.recursive && !src.is_prefix() {
-        return Err(Error::Usage(format!(
-            "--recursive needs a source prefix ending in '/', for example {src}/"
+        return Err(Error::Usage(trf(
+            "--recursive needs a source prefix ending in '/', for example {source}/",
+            &[("source", &format!("{src}/"))],
         )));
     }
     if !args.recursive && src.is_prefix() {
-        return Err(Error::Usage(format!(
-            "{src} is a prefix; add --recursive to {} everything under it",
-            mode.infinitive(direction)
+        return Err(Error::Usage(prefix_template(
+            mode.infinitive(direction),
+            &src.to_string(),
         )));
     }
     if let Route::Copy { src, dst } = route {
         if args.recursive {
             check_recursive_pair(src, dst)?;
         } else if single_destination(src, dst)? == *src {
-            return Err(Error::Usage(format!(
-                "cannot {} {src} onto itself",
-                mode.infinitive(direction)
+            return Err(Error::Usage(onto_itself(
+                mode.infinitive(direction),
+                &src.to_string(),
             )));
         }
     }
@@ -177,20 +231,20 @@ pub fn check(args: &CopyArgs, mode: Mode) -> Result<()> {
 fn check_cse(args: &CopyArgs, direction: Direction) -> Result<()> {
     let cse = &args.cse;
     if cse.password_file.is_some() && !(cse.encrypt || cse.decrypt) {
-        return Err(Error::Usage(
-            "--password-file needs --encrypt or --decrypt".into(),
-        ));
+        return Err(Error::Usage(crate::i18n::tr(
+            "--password-file needs --encrypt or --decrypt",
+        )));
     }
     match direction {
-        Direction::Upload if cse.decrypt => Err(Error::Usage(
-            "--decrypt applies to downloads; to decrypt an object in S3 use bb decrypt".into(),
-        )),
-        Direction::Download if cse.encrypt => Err(Error::Usage(
-            "--encrypt applies to uploads; to encrypt an object in S3 use bb encrypt".into(),
-        )),
-        Direction::Copy if cse.encrypt || cse.decrypt => Err(Error::Usage(
-            "--encrypt and --decrypt do not apply to copies between S3 locations; use bb encrypt or bb decrypt".into(),
-        )),
+        Direction::Upload if cse.decrypt => Err(Error::Usage(crate::i18n::tr(
+            "--decrypt applies to downloads; to decrypt an object in S3 use bb decrypt",
+        ))),
+        Direction::Download if cse.encrypt => Err(Error::Usage(crate::i18n::tr(
+            "--encrypt applies to uploads; to encrypt an object in S3 use bb encrypt",
+        ))),
+        Direction::Copy if cse.encrypt || cse.decrypt => Err(Error::Usage(crate::i18n::tr(
+            "--encrypt and --decrypt do not apply to copies between S3 locations; use bb encrypt or bb decrypt",
+        ))),
         _ => Ok(()),
     }
 }
@@ -225,8 +279,7 @@ impl CseOp {
 }
 
 /// Refuses a local file that already holds an encrypted envelope.
-async fn refuse_encrypted(path: &Path) -> Result<()> {
-    let file = path.to_path_buf();
+async fn refuse_encrypted(path: &Path) -> Result<()> {    let file = path.to_path_buf();
     let head = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
         use std::io::Read;
         let mut head = Vec::with_capacity(cse::HEADER_LEN);
@@ -237,11 +290,16 @@ async fn refuse_encrypted(path: &Path) -> Result<()> {
     })
     .await
     .map_err(|err| Error::Internal(format!("a background task failed: {err}")))?
-    .map_err(|err| Error::io(format!("reading '{}'", path.display()), err))?;
+    .map_err(|err| {
+        Error::io(
+            trf("reading '{path}'", &[("path", &path.display().to_string())]),
+            err,
+        )
+    })?;
     if cse::inspect(&head)?.is_some() {
-        return Err(Error::Conflict(format!(
-            "'{}' is already client-side encrypted; it is not encrypted a second time",
-            path.display()
+        return Err(Error::Conflict(trf(
+            "'{path}' is already client-side encrypted; it is not encrypted a second time",
+            &[("path", &path.display().to_string())],
         )));
     }
     Ok(())
@@ -263,10 +321,9 @@ pub async fn run(
     let direction = route.direction();
     let policy = args.if_exists.unwrap_or(ctx.settings.transfer.if_exists);
     if policy == IfExists::Ask && !ctx.can_ask && !args.dry_run {
-        return Err(Error::Usage(
-            "the overwrite policy is 'ask', which needs a terminal; pass --if-exists overwrite, skip, newer or rename"
-                .into(),
-        )
+        return Err(Error::Usage(crate::i18n::tr(
+            "the overwrite policy is 'ask', which needs a terminal; pass --if-exists overwrite, skip, newer or rename",
+        ))
         .into());
     }
     // The upload goes to the destination account, everything else starts at
@@ -492,10 +549,9 @@ impl Planner<'_> {
     async fn upload_file(&self, path: &Path, dst: &S3Uri) -> Result<Plan> {
         let metadata = local_metadata(path).await?;
         if metadata.is_dir() {
-            return Err(Error::Usage(format!(
-                "'{}' is a folder; add --recursive to {} it",
-                path.display(),
-                self.mode.infinitive(Direction::Upload)
+            return Err(Error::Usage(needs_recursive_folder(
+                self.mode.infinitive(Direction::Upload),
+                &path.display().to_string(),
             )));
         }
         let key = if dst.is_prefix() {
@@ -581,7 +637,9 @@ impl Planner<'_> {
                 .into_iter()
                 .next()
                 .map(|item| item.path)
-                .ok_or_else(|| Error::Internal(format!("no download was planned for {src}")))?
+                .ok_or_else(|| {
+                Error::Internal(trf("no download was planned for {source}", &[("source", &src.to_string())]))
+            })?
         } else {
             path.to_path_buf()
         };
@@ -600,12 +658,14 @@ impl Planner<'_> {
     async fn download_prefix(&self, src: &S3Uri, path: &Path) -> Result<Plan> {
         if let Ok(metadata) = tokio::fs::metadata(path).await
             && !metadata.is_dir()
-        {
-            return Err(Error::Usage(format!(
-                "'{}' is a file; a recursive {} needs a folder to put the objects in",
-                path.display(),
-                self.mode.infinitive(Direction::Download)
-            )));
+        {        return Err(Error::Usage(trf(
+            if self.mode == Mode::Move {
+                "'{path}' is a file; a recursive move needs a folder to put the objects in"
+            } else {
+                "'{path}' is a file; a recursive download needs a folder to put the objects in"
+            },
+            &[("path", &path.display().to_string())],
+        )));
         }
         let keys = if src.is_bucket_root() {
             top_level_keys(self.engine.s3(), src.bucket()).await?
@@ -727,14 +787,16 @@ impl Planner<'_> {
         if let Some(first) = conflicts.next() {
             let more = match conflicts.count() {
                 0 => String::new(),
-                more => format!(" (and {more} more)"),
+                more => trf(" (and {more} more)", &[("more", more.to_string().as_str())]),
             };
-            return Err(Error::Conflict(format!(
-                "cannot {} {}: {}{more}; nothing was {}",
-                self.mode.infinitive(direction),
-                source(&first.entry),
-                first.message,
-                self.mode.past(direction)
+            let verb = self.mode.infinitive(direction);
+            let past = self.mode.past(direction);
+            return Err(Error::Conflict(cannot_template(
+                verb,
+                &source(&first.entry),
+                &first.message,
+                &more,
+                past,
             )));
         }
         Ok(failures
@@ -765,7 +827,12 @@ impl Planner<'_> {
 async fn local_metadata(path: &Path) -> Result<std::fs::Metadata> {
     tokio::fs::metadata(path)
         .await
-        .map_err(|err| Error::io(format!("reading '{}'", path.display()), err))
+        .map_err(|err| {
+            Error::io(
+                trf("reading '{path}'", &[("path", &path.display().to_string())]),
+                err,
+            )
+        })
 }
 
 async fn is_local_dir(path: &Path) -> bool {
@@ -784,9 +851,9 @@ fn ends_with_separator(path: &Path) -> bool {
 /// The last component of a path, which names it in S3.
 fn utf8_name(path: &Path) -> Result<&str> {
     path.file_name().and_then(OsStr::to_str).ok_or_else(|| {
-        Error::Usage(format!(
-            "'{}' has no name that can be used in an S3 key (it must end with a valid UTF-8 name)",
-            path.display()
+        Error::Usage(trf(
+            "'{path}' has no name that can be used in an S3 key (it must end with a valid UTF-8 name)",
+            &[("path", &path.display().to_string())],
         ))
     })
 }
@@ -799,7 +866,12 @@ async fn named(path: &Path) -> Result<PathBuf> {
     }
     let resolved = tokio::fs::canonicalize(path)
         .await
-        .map_err(|err| Error::io(format!("reading '{}'", path.display()), err))?;
+        .map_err(|err| {
+            Error::io(
+                trf("reading '{path}'", &[("path", &path.display().to_string())]),
+                err,
+            )
+        })?;
     utf8_name(&resolved)?;
     Ok(resolved)
 }
@@ -828,7 +900,10 @@ async fn top_level_keys(s3: &S3, bucket: &str) -> Result<Vec<String>> {
             .await?;
         keys.extend(page.entries.into_iter().map(|entry| entry.key));
         match page.next_token {
-            Some(next) => token = Some(seen.follow(next, &format!("listing s3://{bucket}/"))?),
+            Some(next) => {
+                let what = trf("listing s3://{bucket}/", &[("bucket", bucket)]);
+                token = Some(seen.follow(next, &what)?)
+            }
             None => return Ok(keys),
         }
     }
@@ -969,10 +1044,7 @@ async fn execute(
     if let Some(err) = single_error {
         return Err(err.into());
     }
-    batch.finish(
-        direction.noun(),
-        &format!("could not be {}", mode.past(direction)),
-    )
+    batch.finish(direction.noun(), &past_failure(mode, direction))
 }
 
 /// After `mv` of a local folder: removes the folders that moving `files`
@@ -1032,12 +1104,7 @@ impl<'o> Report<'o> {
 
     fn failed(&mut self, record: &CopyRecord, err: &Error) {
         self.batch.failed(err.kind(), err.to_string());
-        let text = format!(
-            "failed to {} {} to {}: {err}",
-            self.mode.infinitive(self.direction),
-            record.source,
-            record.destination
-        );
+        let text = failed_to_line(self.mode, self.direction, record, &err.to_string());
         self.print(|out| out.item_failed(record, || text));
     }
 
@@ -1045,20 +1112,27 @@ impl<'o> Report<'o> {
     fn skipped_item(&mut self, record: &CopyRecord) {
         self.batch.succeeded();
         let reason = record.skipped.clone().unwrap_or_default();
-        let text = format!(
-            "skipped {} to {}: {reason}",
-            record.source, record.destination
+        let text = trf(
+            "skipped {source} to {destination}: {reason}",
+            &[
+                ("source", record.source.as_str()),
+                ("destination", record.destination.as_str()),
+                ("reason", &reason),
+            ],
         );
         self.print(|out| out.skipped_item(record, || text));
     }
 
     fn skipped(&mut self, skipped: &Skipped) {
         self.batch.failed(skipped.kind, skipped.message.clone());
-        let text = format!(
-            "cannot {} {}: {}",
-            self.mode.infinitive(self.direction),
-            skipped.record.source,
-            skipped.message
+        let verb = self.mode.infinitive(self.direction);
+        // The failures are planned rejects: no `nothing was …` here.
+        let text = cannot_template(
+            verb,
+            &skipped.record.source,
+            &skipped.message,
+            "",
+            self.mode.past(self.direction),
         );
         self.print(|out| out.item_failed(&skipped.record, || text));
     }
@@ -1084,20 +1158,61 @@ impl<'o> Report<'o> {
 
     fn finish(self) -> std::result::Result<(), Failure> {
         let (mode, direction) = (self.mode, self.direction);
-        self.close()?.finish(
-            direction.noun(),
-            &format!("could not be {}", mode.past(direction)),
-        )
+        self.close()?.finish(direction.noun(), &past_failure(mode, direction))
     }
 }
 
+/// The `could not be <past>` part of a batch summary.
+fn past_failure(mode: Mode, direction: Direction) -> String {
+    crate::i18n::tr(match mode.past(direction) {
+        "uploaded" => "could not be uploaded",
+        "downloaded" => "could not be downloaded",
+        "copied" => "could not be copied",
+        _ => "could not be moved",
+    })
+}
+
 fn done_line(mode: Mode, direction: Direction, record: &CopyRecord) -> String {
-    let verb = if record.dry_run {
-        format!("would {}", mode.infinitive(direction))
+    let template = if record.dry_run {
+        match mode.infinitive(direction) {
+            "upload" => "would upload {source} to {destination}",
+            "download" => "would download {source} to {destination}",
+            "copy" => "would copy {source} to {destination}",
+            _ => "would move {source} to {destination}",
+        }
     } else {
-        mode.past(direction).to_owned()
+        match mode.past(direction) {
+            "uploaded" => "uploaded {source} to {destination}",
+            "downloaded" => "downloaded {source} to {destination}",
+            "copied" => "copied {source} to {destination}",
+            _ => "moved {source} to {destination}",
+        }
     };
-    format!("{verb} {} to {}", record.source, record.destination)
+    trf(
+        template,
+        &[
+            ("source", record.source.as_str()),
+            ("destination", record.destination.as_str()),
+        ],
+    )
+}
+
+/// The `bb: failed to …` line of one failed transfer.
+fn failed_to_line(mode: Mode, direction: Direction, record: &CopyRecord, error: &str) -> String {
+    let template = match mode.infinitive(direction) {
+        "upload" => "failed to upload {source} to {destination}: {error}",
+        "download" => "failed to download {source} to {destination}: {error}",
+        "copy" => "failed to copy {source} to {destination}: {error}",
+        _ => "failed to move {source} to {destination}: {error}",
+    };
+    trf(
+        template,
+        &[
+            ("source", record.source.as_str()),
+            ("destination", record.destination.as_str()),
+            ("error", error),
+        ],
+    )
 }
 
 /// How a job ended.
@@ -1188,14 +1303,14 @@ impl Runner<'_> {
             // Only now that this transfer succeeded, and, between accounts,
             // only after the copy was compared with its source.
             if let Err(err) = self.verify_then_remove(job, &done).await {
-                let err = err.with_context(format!(
-                    "the {} succeeded but the source could not be deleted",
-                    match self.direction {
-                        Direction::Upload => "upload",
-                        Direction::Download => "download",
-                        Direction::Copy => "copy",
+                let context = match self.direction {
+                    Direction::Upload => "the upload succeeded but the source could not be deleted",
+                    Direction::Download => {
+                        "the download succeeded but the source could not be deleted"
                     }
-                ));
+                    Direction::Copy => "the copy succeeded but the source could not be deleted",
+                };
+                let err = err.with_context(crate::i18n::tr(context));
                 record.error = Some(err.to_payload());
                 return Ended::Failed(record, err);
             }
@@ -1392,8 +1507,9 @@ impl Runner<'_> {
                 .head_object(landed.bucket(), landed.key(), None)
                 .await?;
             verify_copy(&before, &after).map_err(|err| {
-                err.with_context(format!(
-                    "the source {src} was kept because the copy {landed} could not be verified"
+                err.with_context(trf(
+                    "the source {source} was kept because the copy {landed} could not be verified",
+                    &[("source", &src.to_string()), ("landed", &landed.to_string())],
                 ))
             })?;
         }
@@ -1411,7 +1527,12 @@ impl Runner<'_> {
                 } else {
                     tokio::fs::remove_file(path).await
                 };
-                removed.map_err(|err| Error::io(format!("deleting '{}'", path.display()), err))
+                removed.map_err(|err| {
+                    Error::io(
+                        trf("deleting '{path}'", &[("path", &path.display().to_string())]),
+                        err,
+                    )
+                })
             }
             Job::Download { src, is_folder, .. } => {
                 delete_object(self.engine.s3(), src, *is_folder).await
@@ -1445,6 +1566,7 @@ async fn delete_object(s3: &S3, uri: &S3Uri, is_folder: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::trf;
 
     fn record(dry_run: bool) -> CopyRecord {
         CopyRecord {
@@ -1462,22 +1584,24 @@ mod tests {
 
     #[test]
     fn lines() {
-        assert_eq!(
-            done_line(Mode::Copy, Direction::Copy, &record(false)),
-            "copied s3://a/k to s3://b/k"
-        );
-        assert_eq!(
-            done_line(Mode::Move, Direction::Upload, &record(true)),
-            "would move s3://a/k to s3://b/k"
-        );
-        assert_eq!(
-            done_line(Mode::Copy, Direction::Download, &record(true)),
-            "would download s3://a/k to s3://b/k"
-        );
-        assert_eq!(
-            done_line(Mode::Copy, Direction::Upload, &record(false)),
-            "uploaded s3://a/k to s3://b/k"
-        );
+        // The values are data; the expectations go through the same
+        // templates as the code and hold in both languages.
+        for (mode, direction, dry_run, template) in [
+            (Mode::Copy, Direction::Copy, false, "copied {source} to {destination}"),
+            (Mode::Move, Direction::Upload, true, "would move {source} to {destination}"),
+            (
+                Mode::Copy,
+                Direction::Download,
+                true,
+                "would download {source} to {destination}",
+            ),
+            (Mode::Copy, Direction::Upload, false, "uploaded {source} to {destination}"),
+        ] {
+            assert_eq!(
+                done_line(mode, direction, &record(dry_run)),
+                trf(template, &[("source", "s3://a/k"), ("destination", "s3://b/k")])
+            );
+        }
         assert_eq!(Direction::Upload.noun(), "files");
         assert_eq!(Mode::Move.past(Direction::Download), "moved");
     }

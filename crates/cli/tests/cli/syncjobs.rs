@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use bucketbridge_cli::i18n::{tr, trf};
 use bucketbridge_tests::TestS3;
 
 use super::{InProcess, Output, Terminal};
@@ -180,7 +181,7 @@ async fn summary_prints_a_report_and_json_ends_with_a_report_record() {
 
     let out = env.run(&["sync", local, &uri, "--summary"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains("summary:"), "{}", out.stdout);
+    assert!(out.stdout.contains(&tr("summary:")), "{}", out.stdout);
     assert!(
         out.stdout.contains("uploaded: 2 files, 8 B"),
         "{}",
@@ -189,7 +190,7 @@ async fn summary_prints_a_report_and_json_ends_with_a_report_record() {
     assert!(out.stdout.contains("took "), "{}", out.stdout);
     // Without the flag there is no report.
     let again = env.run(&["sync", local, &uri]).await;
-    assert!(!again.stdout.contains("summary:"), "{}", again.stdout);
+    assert!(!again.stdout.contains(&tr("summary:")), "{}", again.stdout);
 
     write(&dir, &[("c.txt", "1234567890")]);
     let out = env.run(&["sync", local, &uri, "--summary", "--json"]).await;
@@ -251,7 +252,7 @@ async fn s3_to_s3_sync_copies_between_buckets() {
 
     let out = env.run(&["sync", &from, &to, "--delete"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains("copied s3://"), "{}", out.stdout);
+    assert!(out.stdout.contains(&tr("copied s3://")), "{}", out.stdout);
     let keys = env.keys(&destination).await;
     assert!(keys.contains(&"out/a.txt".to_owned()), "{keys:?}");
     assert!(keys.contains(&"out/sub/b.txt".to_owned()), "{keys:?}");
@@ -273,7 +274,11 @@ async fn s3_to_s3_usage_errors() {
     let nested = format!("s3://{bucket}/a/b");
     let out = env.run(&["sync", &a, &nested]).await;
     out.expect_code(1);
-    assert!(out.stderr.contains("contain each other"), "{}", out.stderr);
+        assert!(
+        out.stderr.contains("exclusion") || out.stderr.contains("contain each other"),
+        "{}",
+        out.stderr
+    );
     let out = env
         .run(&[
             "sync",
@@ -347,7 +352,7 @@ async fn saved_jobs_are_created_listed_shown_run_and_deleted() {
         .await;
     out.expect_code(0);
     assert!(
-        out.stderr.contains("saved sync job 'Nightly'"),
+        out.stderr.contains(&trf("bb: saved sync job '{name}'", &[("name", "Nightly")])),
         "{}",
         out.stderr
     );
@@ -371,9 +376,9 @@ async fn saved_jobs_are_created_listed_shown_run_and_deleted() {
 
     let out = bb.run(&["sync", "jobs", "show", "nightly"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains("name: Nightly"), "{}", out.stdout);
-    assert!(out.stdout.contains("exclude: *.tmp"), "{}", out.stdout);
-    assert!(out.stdout.contains("parallelism: 2"), "{}", out.stdout);
+        assert!(out.stdout.contains(&trf("name: {name}", &[("name", "Nightly")])), "{}", out.stdout);
+        assert!(out.stdout.contains(&trf("exclude: {list}", &[("list", "*.tmp")])), "{}", out.stdout);
+        assert!(out.stdout.contains(&trf("parallelism: {count}", &[("count", "2")])), "{}", out.stdout);
 
     // Run the job: a new file is picked up, the excluded one is not. The job needs
     // no --account.
@@ -418,13 +423,13 @@ async fn saved_jobs_are_created_listed_shown_run_and_deleted() {
         .run(&["sync", "jobs", "delete", "Nightly", "--yes"])
         .await;
     out.expect_code(0);
-    assert!(out.stdout.contains("deleted sync job"), "{}", out.stdout);
+        assert!(out.stdout.contains(&tr("deleted sync job")), "{}", out.stdout);
     assert!(bb.run(&["sync", "jobs", "list"]).await.stdout.is_empty());
 
     // A job that does not exist is an error, and the job commands take no account.
     let out = bb.run(&["sync", "--job", "gone"]).await;
     out.expect_code(2);
-    assert!(out.stderr.contains("no sync job"), "{}", out.stderr);
+    assert!(out.stderr.contains("no sync job"), "{}", out.stderr); // core message
     let out = bb.run(&["sync", "jobs", "show", "gone"]).await;
     out.expect_code(2);
     let out = bb.run(&["--account", "main", "sync", "jobs", "list"]).await;
@@ -481,7 +486,7 @@ async fn a_job_cannot_be_combined_with_locations_and_runs_with_its_own_account()
         .await;
     out.expect_code(1);
     assert!(
-        out.stderr.contains("runs with the account"),
+        out.stderr.contains(&tr("runs with the account")),
         "{}",
         out.stderr
     );

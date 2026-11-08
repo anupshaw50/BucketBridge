@@ -3,6 +3,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use bucketbridge_cli::i18n::trf;
+
 use aws_smithy_mocks::{MockResponseInterceptor, Rule, RuleMode, create_mock_http_client, mock};
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use aws_smithy_runtime_api::http::StatusCode;
@@ -438,12 +440,26 @@ async fn show_prints_the_details() {
     let out = run_cf(&service, &["cloudfront", "show", "EA"]).await;
     out.expect_code(0);
     let text = out.stdout;
-    assert!(text.contains("id: EA\n"), "{text}");
-    assert!(text.contains("state: enabled\n"), "{text}");
-    assert!(text.contains("default root object: index.html\n"), "{text}");
-    assert!(text.contains("invalidations in progress: 1\n"), "{text}");
+    assert!(text.contains(&format!("{}\n", trf("domain: {domain}", &[("domain", "d111.cloudfront.net")]))), "{text}");
+    assert!(text.contains(&format!("{}\n", trf("id: {id}", &[("id", "EA")]))), "{text}");
+    assert!(text.contains(&format!("{}\n", trf("state: {state}", &[("state", "enabled")]))), "{text}");
+    assert!(text.contains(&format!("{}\n", trf("default root object: {root}", &[("root", "index.html")]))), "{text}");
+    assert!(text.contains(&format!("{}\n", trf("invalidations in progress: {count}", &[("count", "1")]))), "{text}");
     assert!(
-        text.contains("origin s3-site: site.s3.eu-west-1.amazonaws.com (bucket site)"),
+        text.contains(&trf(
+            "origin {id}: {domain} (bucket {bucket})",
+            &[
+                ("id", "s3-site"),
+                ("domain", "site.s3.eu-west-1.amazonaws.com"),
+                ("bucket", "site"),
+            ],
+        )),
+        "{text}"
+    );
+    // The website-endpoint and access-control suffixes are separate
+    // fragments joined after the bucket.
+    assert!(
+        text.contains(&trf("origin {id}: {domain}", &[("id", "api"), ("domain", "api.example.org")])),
         "{text}"
     );
     let out = run_cf(&service, &["cloudfront", "show", "EA", "--json"]).await;
@@ -467,7 +483,10 @@ async fn disable_and_enable_send_the_etag() {
     let service = service();
     let out = run_cf(&service, &["cloudfront", "disable", "EA"]).await;
     out.expect_code(0);
-    assert_eq!(out.stdout.trim(), "disabled distribution EA");
+    assert_eq!(
+        out.stdout.trim(),
+        trf("disabled distribution {id}", &[("id", "EA")])
+    );
     let out = run_cf(&service, &["cloudfront", "enable", "EA", "--json"]).await;
     out.expect_code(0);
     assert_eq!(out.records()[0]["id"], "EA");
@@ -498,7 +517,10 @@ async fn detach_removes_the_origins_of_the_bucket() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        "distribution EA no longer serves bucket site"
+        trf(
+            "distribution {id} no longer serves bucket {bucket}",
+            &[("id", "EA"), ("bucket", "site")]
+        )
     );
     let updates = service.updates.lock().unwrap();
     let ids: Vec<&str> = updates[0]
@@ -523,7 +545,10 @@ async fn invalidate_sends_the_paths() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        "created invalidation I1 (InProgress): /*"
+        trf(
+            "created invalidation {id} ({status}): {paths}",
+            &[("id", "I1"), ("status", "InProgress"), ("paths", "/*")]
+        )
     );
     // Paths are trimmed and repeats removed before they are sent.
     assert_eq!(
@@ -604,8 +629,14 @@ async fn create_prints_the_bucket_policy() {
     .await;
     out.expect_code(0);
     assert!(
-        out.stdout
-            .starts_with("created distribution ENEW (d111.cloudfront.net) for bucket site\n"),
+        out.stdout.starts_with(&trf(
+            "created distribution {id} ({domain}) for bucket {bucket}\n",
+            &[
+                ("id", "ENEW"),
+                ("domain", "d111.cloudfront.net"),
+                ("bucket", "site"),
+            ],
+        )),
         "{}",
         out.stdout
     );

@@ -1,5 +1,6 @@
 //! `bb lock get|set` and `bb restore`
 
+use bucketbridge_cli::i18n::{tr, trf};
 use bucketbridge_tests::MockResponse;
 
 use super::*;
@@ -127,8 +128,10 @@ async fn lock_set_dry_run_sends_nothing_and_usage_errors_come_first() {
     ]));
     out.expect_code(0);
     assert!(
-        out.stdout
-            .contains("would turn the legal hold of s3://b/k on")
+        out.stdout.contains(&trf(
+            "would turn the legal hold of {uri} {word}",
+            &[("uri", "s3://b/k"), ("word", tr("on").as_str())]
+        ))
     );
     assert!(mock.requests().iter().all(|r| r.method == "GET"));
 
@@ -174,7 +177,10 @@ async fn restore_requests_days_and_tier_and_reports_each_object() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        "requested the restore of s3://b/cold for 4 days (Bulk)"
+        trf(
+            "requested the restore of {uri} for {days} days ({tier})",
+            &[("uri", "s3://b/cold"), ("days", "4"), ("tier", "Bulk")],
+        )
     );
     let post = mock
         .requests()

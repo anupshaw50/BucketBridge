@@ -51,7 +51,10 @@ impl Env {
             Some(value) => match value.to_str() {
                 Some(text) if text.trim().is_empty() => Ok(None),
                 Some(text) => Ok(Some(text.to_owned())),
-                None => Err(Error::Usage(format!("{name} is not valid UTF-8"))),
+                None => Err(Error::Usage(crate::i18n::trf(
+                    "{name} is not valid UTF-8",
+                    &[("name", name)],
+                ))),
             },
         }
     }

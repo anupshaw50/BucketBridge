@@ -17,6 +17,8 @@ use aws_sdk_iam::types::{AccessKey, AccessKeyMetadata, LoginProfile, StatusType,
 use aws_smithy_mocks::{MockResponseInterceptor, Rule, RuleMode, create_mock_http_client, mock};
 use bucketbridge_core::session::IamConfigHook;
 
+use bucketbridge_cli::i18n::{tr, trf};
+
 use super::*;
 
 const SECRET: &str = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYIPCSECRETKEY";
@@ -133,9 +135,15 @@ async fn a_new_access_key_secret_is_printed_once_with_a_warning() {
 
     let out = run(&bb, &["iam", "keys", "create", "alice"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains(&format!("secret access key: {SECRET}")));
-    assert!(out.stdout.contains(KEY_ID));
-    assert!(out.stderr.contains("shown only now"), "{}", out.stderr);
+    assert!(out.stdout.contains(&trf(
+        "secret access key: {secret}",
+        &[("secret", SECRET)]
+    )));
+    assert!(out.stdout.contains(&trf(
+        "access key ID: {key_id}",
+        &[("key_id", KEY_ID)]
+    )));
+    assert!(out.stderr.contains(&tr("shown only now")), "{}", out.stderr);
 
     // --quiet does not hide a secret; --json has it as a field and no warning.
     let out = run(
@@ -188,7 +196,7 @@ async fn keys_list_and_change() {
     // Deleting needs --yes: no request without it.
     let out = run(&bb, &["iam", "keys", "delete", "alice", KEY_ID]).await;
     out.expect_code(1);
-    assert!(out.stderr.contains("needs --yes"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("needs --yes")), "{}", out.stderr);
     assert_eq!(delete.num_calls(), 0);
     let out = run(&bb, &["iam", "keys", "delete", "alice", KEY_ID, "--yes"]).await;
     out.expect_code(0);
@@ -205,7 +213,7 @@ async fn user_delete_login_profile_delete_and_inline_delete_need_yes() {
     ] {
         let out = run(&bb, args).await;
         out.expect_code(1);
-        assert!(out.stderr.contains("needs --yes"), "{}", out.stderr);
+        assert!(out.stderr.contains(&tr("needs --yes")), "{}", out.stderr);
     }
 }
 
@@ -307,8 +315,8 @@ async fn login_profiles() {
     )
     .await;
     out.expect_code(0);
-    assert!(out.stdout.contains("password: "), "{}", out.stdout);
-    assert!(out.stderr.contains("shown only now"), "{}", out.stderr);
+    assert!(out.stdout.contains(&tr("password: ")), "{}", out.stdout);
+    assert!(out.stderr.contains(&tr("shown only now")), "{}", out.stderr);
     let out = run(
         &bb,
         &[
@@ -349,7 +357,7 @@ async fn login_profiles() {
 
     let out = run(&bb, &["iam", "login-profile", "show", "alice"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains("must be changed at the next sign-in"));
+    assert!(out.stdout.contains(&tr("must be changed at the next sign-in")));
 }
 
 #[tokio::test]
@@ -364,7 +372,7 @@ async fn policy_documents_are_checked_without_an_account() {
 
     let out = bb.run(&["iam", "validate-policy", good]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains(": valid"));
+    assert!(out.stdout.contains(&tr(": valid")));
 
     let out = bb.run(&["--json", "iam", "validate-policy", bad]).await;
     out.expect_code(1);

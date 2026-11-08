@@ -617,8 +617,9 @@ fn parse_compression(text: &str) -> Result<Compression, String> {
         "none" => Ok(Compression::None),
         "gzip" => Ok(Compression::Gzip),
         "zstd" => Ok(Compression::Zstd),
-        other => Err(format!(
-            "unknown compression '{other}' (none, gzip or zstd)"
+        other => Err(crate::i18n::trf(
+            "unknown compression '{value}' (none, gzip or zstd)",
+            &[("value", other)],
         )),
     }
 }
@@ -1425,14 +1426,21 @@ fn parse_until(text: &str) -> Result<DateTime<Utc>, String> {
         .ok()
         .and_then(|date| date.and_hms_opt(0, 0, 0))
         .map(|time| time.and_utc())
-        .ok_or_else(|| format!("'{text}' is not a date; use YYYY-MM-DD or an RFC 3339 time"))
+        .ok_or_else(|| {
+            crate::i18n::trf(
+                "'{text}' is not a date; use YYYY-MM-DD or an RFC 3339 time",
+                &[("text", text)],
+            )
+        })
 }
 
 /// `KEY=VALUE`, checked against the S3 tag rules.
 fn parse_tag(text: &str) -> Result<(String, String), String> {
     let (key, value) = text
         .split_once('=')
-        .ok_or_else(|| format!("'{text}' is not KEY=VALUE"))?;
+        .ok_or_else(|| {
+            crate::i18n::trf("'{text}' is not KEY=VALUE", &[("text", text)])
+        })?;
     validate_tag(key, value).map_err(|err| err.to_string())?;
     Ok((key.to_owned(), value.to_owned()))
 }
@@ -1456,9 +1464,12 @@ fn parse_sse_mode(text: &str) -> Result<SseMode, String> {
         ("c", None) => Ok(SseMode::Customer),
         ("kms", None) => Ok(SseMode::Kms(None)),
         ("kms", Some(key)) if !key.trim().is_empty() => Ok(SseMode::Kms(Some(key.to_owned()))),
-        ("kms", Some(_)) => Err("kms: needs a key ID, ARN or alias after the colon".to_owned()),
-        _ => Err(format!(
-            "'{text}' is not an encryption; use s3, kms, kms:KEYID or c"
+        ("kms", Some(_)) => Err(crate::i18n::tr(
+            "kms: needs a key ID, ARN or alias after the colon",
+        )),
+        _ => Err(crate::i18n::trf(
+            "'{text}' is not an encryption; use s3, kms, kms:KEYID or c",
+            &[("text", text)],
         )),
     }
 }
@@ -1473,7 +1484,10 @@ fn parse_glob(text: &str) -> Result<String, String> {
 fn parse_sync_prefix(text: &str) -> Result<S3Uri, String> {
     parse_s3_uri(text).map_err(|err| {
         format!(
-            "{err} (bb sync takes the local folder first and the S3 location second; two S3 locations sync from the first to the second)"
+            "{err} {}",
+            crate::i18n::tr(
+                "(bb sync takes the local folder first and the S3 location second; two S3 locations sync from the first to the second)"
+            )
         )
     })
 }
@@ -1489,8 +1503,9 @@ fn parse_plan_id(text: &str) -> Result<String, String> {
     if well_formed {
         Ok(text.to_ascii_lowercase())
     } else {
-        Err(format!(
-            "'{text}' is not a plan ID (expected a UUID such as 5b0e6a7a-3f1c-4d2e-9a47-0c8d2f6e1b35)"
+        Err(crate::i18n::trf(
+            "'{text}' is not a plan ID (expected a UUID such as 5b0e6a7a-3f1c-4d2e-9a47-0c8d2f6e1b35)",
+            &[("text", text)],
         ))
     }
 }
@@ -1514,10 +1529,15 @@ pub fn copy_rules(matches: &ArgMatches) -> Result<IncludeExclude, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::translate_command;
     use clap::{CommandFactory, FromArgMatches};
 
     fn parse(args: &[&str]) -> Result<(Cli, ArgMatches), clap::Error> {
-        let matches = Cli::command()
+        // Translation does not affect parsing, but exercises the
+        // translated command like `run` does.
+        let mut command = Cli::command();
+        translate_command(&mut command);
+        let matches = command
             .try_get_matches_from(std::iter::once("bb").chain(args.iter().copied()))?;
         let cli = Cli::from_arg_matches(&matches)?;
         Ok((cli, matches))
@@ -1575,7 +1595,9 @@ mod tests {
 
     #[test]
     fn definition_is_valid() {
-        Cli::command().debug_assert();
+        let mut command = Cli::command();
+        crate::i18n::translate_command(&mut command);
+        command.debug_assert();
     }
 
     #[test]

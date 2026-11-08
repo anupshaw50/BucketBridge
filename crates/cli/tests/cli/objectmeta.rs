@@ -6,6 +6,8 @@ use std::sync::Arc;
 use bucketbridge_tests::{ObjectStore, StoredEncryption, StoredObject};
 use serde_json::json;
 
+use bucketbridge_cli::i18n::trf;
+
 use super::*;
 
 const BUCKET: &str = "bucket";
@@ -90,7 +92,7 @@ async fn tag_set_merges_or_replaces_and_a_dry_run_writes_nothing() {
         &["tag", "set", "s3://bucket/a.txt", "env=prod", "--dry-run"],
     );
     dry.expect_code(0);
-    assert_eq!(dry.lines(), ["would tag s3://bucket/a.txt"]);
+    assert_eq!(dry.lines(), [trf("would tag {uri}", &[("uri", "s3://bucket/a.txt")])]);
     assert_eq!(store.object(BUCKET, "a.txt").unwrap().tags["env"], "dev");
     assert!(
         mock.requests().iter().all(|r| r.method != "PUT"),
@@ -128,7 +130,7 @@ async fn tag_set_merges_or_replaces_and_a_dry_run_writes_nothing() {
         &["tag", "set", "s3://bucket/a.txt", "env=prod"],
     );
     out.expect_code(0);
-    assert_eq!(out.lines(), ["unchanged s3://bucket/a.txt"]);
+    assert_eq!(out.lines(), [trf("unchanged {uri}", &[("uri", "s3://bucket/a.txt")])]);
 
     let out = bb_run(
         &mock,
@@ -136,7 +138,7 @@ async fn tag_set_merges_or_replaces_and_a_dry_run_writes_nothing() {
         &["tag", "set", "s3://bucket/a.txt", "only=this", "--replace"],
     );
     out.expect_code(0);
-    assert_eq!(out.lines(), ["tagged s3://bucket/a.txt"]);
+    assert_eq!(out.lines(), [trf("tagged {uri}", &[("uri", "s3://bucket/a.txt")])]);
     assert_eq!(
         store.object(BUCKET, "a.txt").unwrap().tags,
         [("only".to_owned(), "this".to_owned())]
@@ -181,7 +183,10 @@ async fn tag_delete_removes_the_named_tags_or_every_tag() {
 
     let out = bb_run(&mock, &config, &["tag", "delete", "s3://bucket/a.txt"]);
     out.expect_code(0);
-    assert_eq!(out.lines(), ["removed tags from s3://bucket/a.txt"]);
+    assert_eq!(
+        out.lines(),
+        [trf("removed tags from {uri}", &[("uri", "s3://bucket/a.txt")])]
+    );
     assert!(store.object(BUCKET, "a.txt").unwrap().tags.is_empty());
 }
 
@@ -212,8 +217,18 @@ async fn storage_class_changes_objects_and_reports_each_failure_with_the_first_e
     assert_eq!(
         dry.lines(),
         [
-            "would change s3://bucket/logs/a.log from STANDARD to STANDARD_IA",
-            "unchanged s3://bucket/logs/c.log (already STANDARD_IA)"
+            trf(
+                "would change {uri} from {previous} to {class}",
+                &[
+                    ("uri", "s3://bucket/logs/a.log"),
+                    ("previous", "STANDARD"),
+                    ("class", "STANDARD_IA"),
+                ],
+            ),
+            trf(
+                "unchanged {uri} (already {what})",
+                &[("uri", "s3://bucket/logs/c.log"), ("what", "STANDARD_IA")],
+            )
         ]
     );
     assert!(dry.stderr.contains("archived (GLACIER)"), "{}", dry.stderr);
@@ -251,7 +266,7 @@ async fn storage_class_changes_objects_and_reports_each_failure_with_the_first_e
     assert_eq!(records[2]["changed"], false);
     assert_eq!(
         out.error_record()["message"],
-        "1 of 3 objects could not be changed"
+        super::batch_summary(1, 3, "objects", "could not be changed")
     );
     assert_eq!(
         store
@@ -281,7 +296,14 @@ async fn storage_class_changes_objects_and_reports_each_failure_with_the_first_e
     out.expect_code(0);
     assert_eq!(
         out.lines(),
-        ["changed s3://bucket/other.txt from STANDARD to GLACIER_IR"]
+        [trf(
+            "changed {uri} from {previous} to {class}",
+            &[
+                ("uri", "s3://bucket/other.txt"),
+                ("previous", "STANDARD"),
+                ("class", "GLACIER_IR"),
+            ],
+        )]
     );
 }
 
@@ -334,7 +356,14 @@ async fn sse_changes_the_encryption_and_keeps_the_rest() {
     out.expect_code(0);
     assert_eq!(
         out.lines(),
-        ["changed the encryption of s3://bucket/a.txt from none to s3"]
+        [trf(
+            "changed the encryption of {uri} from {previous} to {name}",
+            &[
+                ("uri", "s3://bucket/a.txt"),
+                ("previous", "none"),
+                ("name", "s3"),
+            ],
+        )]
     );
     let after = store.object(BUCKET, "a.txt").unwrap();
     assert_eq!(after.encryption, StoredEncryption::S3);
@@ -371,7 +400,13 @@ async fn sse_changes_the_encryption_and_keeps_the_rest() {
     // Already as wanted.
     let out = bb_run(&mock, &config, &["sse", "s3://bucket/b.txt", "s3"]);
     out.expect_code(0);
-    assert_eq!(out.lines(), ["unchanged s3://bucket/b.txt (already s3)"]);
+    assert_eq!(
+        out.lines(),
+        [trf(
+            "unchanged {uri} (already {what})",
+            &[("uri", "s3://bucket/b.txt"), ("what", "s3")]
+        )]
+    );
 
     let dry = bb_run(
         &mock,
@@ -380,7 +415,14 @@ async fn sse_changes_the_encryption_and_keeps_the_rest() {
     );
     dry.expect_code(0);
     assert!(
-        dry.stdout.starts_with("would change the encryption"),
+        dry.stdout.starts_with(&trf(
+            "would change the encryption of {uri} from {previous} to {name}",
+            &[
+                ("uri", "s3://bucket/b.txt"),
+                ("previous", "s3"),
+                ("name", "kms"),
+            ],
+        )),
         "{}",
         dry.stdout
     );
@@ -583,8 +625,18 @@ async fn acl_get_and_set_work_on_objects_and_prefixes() {
     assert_eq!(
         out.lines(),
         [
-            "unchanged s3://bucket/dir/b.txt (already public-read)",
-            "set the ACL of s3://bucket/dir/c.txt to public-read (was private)"
+            trf(
+                "unchanged {uri} (already {what})",
+                &[("uri", "s3://bucket/dir/b.txt"), ("what", "public-read")],
+            ),
+            trf(
+                "set the ACL of {uri} to {acl}{was}",
+                &[
+                    ("uri", "s3://bucket/dir/c.txt"),
+                    ("acl", "public-read"),
+                    ("was", &trf(" (was {previous})", &[("previous", "private")])),
+                ],
+            )
         ]
     );
     let dry = bb_run(

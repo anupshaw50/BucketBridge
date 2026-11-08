@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::cli::ExportArgs;
 use crate::context::Context;
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 
 /// The record of `--json`: what was exported and where it went.
@@ -50,26 +51,34 @@ pub async fn run(ctx: &Context, args: &ExportArgs, out: &mut Output) -> Result<(
 
 /// `exported 12 rows from s3://bucket/prefix/ to /path/listing.csv (csv, 1234 bytes)`
 fn line(record: &ExportRecord) -> String {
-    format!(
-        "exported {} from {} to {} ({}, {} bytes)",
-        if record.rows == 1 {
-            "1 row".to_owned()
-        } else {
-            format!("{} rows", record.rows)
-        },
-        record.source,
-        record.file,
-        record.format,
-        record.bytes
+    let rows = if record.rows == 1 {
+        tr("1 row")
+    } else {
+        trf(
+            "{rows} rows",
+            &[("rows", record.rows.to_string().as_str())],
+        )
+    };
+    trf(
+        "exported {rows} from {source} to {file} ({format}, {bytes} bytes)",
+        &[
+            ("rows", rows.as_str()),
+            ("source", record.source.as_str()),
+            ("file", record.file.as_str()),
+            ("format", record.format.as_str()),
+            ("bytes", record.bytes.to_string().as_str()),
+        ],
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::trf;
 
     #[test]
     fn the_line_names_the_source_the_file_and_the_size() {
+        // Asserted through the same templates and values as the code.
         let mut record = ExportRecord {
             source: "s3://b/p/".into(),
             format: "csv".into(),
@@ -78,16 +87,21 @@ mod tests {
             rows: 12,
             bytes: 345,
         };
-        assert_eq!(
-            line(&record),
-            "exported 12 rows from s3://b/p/ to /tmp/out.csv (csv, 345 bytes)"
-        );
+        let expected = |rows: &str, bytes: u64| {
+            trf(
+                "exported {rows} from {source} to {file} ({format}, {bytes} bytes)",
+                &[
+                    ("rows", rows),
+                    ("source", record.source.as_str()),
+                    ("file", record.file.as_str()),
+                    ("format", record.format.as_str()),
+                    ("bytes", bytes.to_string().as_str()),
+                ],
+            )
+        };
+        assert_eq!(line(&record), expected(&trf("{rows} rows", &[("rows", "12")]), 345));
         record.rows = 1;
-        assert!(
-            line(&record).starts_with("exported 1 row from"),
-            "{}",
-            line(&record)
-        );
+        assert_eq!(line(&record), expected(&tr("1 row"), 345));
     }
 
     #[test]

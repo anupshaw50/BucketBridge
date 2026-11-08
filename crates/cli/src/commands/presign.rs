@@ -6,6 +6,7 @@ use chrono::{TimeDelta, Utc};
 
 use crate::cli::{PresignArgs, PresignMethod};
 use crate::context::{Context, open_session};
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 use crate::records::PresignRecord;
 
@@ -13,9 +14,9 @@ use crate::records::PresignRecord;
 pub async fn run(ctx: &Context, args: &PresignArgs, out: &mut Output) -> Result<(), Failure> {
     let uri = &args.uri;
     if uri.key().is_empty() {
-        return Err(Error::Usage(format!(
-            "{uri} names a bucket; presign needs an object, for example s3://{}/key",
-            uri.bucket()
+        return Err(Error::Usage(trf(
+            "{uri} names a bucket; presign needs an object, for example s3://{bucket}/key",
+            &[("uri", &uri.to_string()), ("bucket", uri.bucket())],
         ))
         .into());
     }
@@ -61,11 +62,10 @@ pub async fn run(ctx: &Context, args: &PresignArgs, out: &mut Output) -> Result<
 async fn shorten(ctx: &Context, url: &str, out: &Output) -> Result<String, Failure> {
     let provider = ctx.settings.shortener.provider;
     if provider == ShortenerProvider::None {
-        return Err(Error::Usage(
+        return Err(Error::Usage(tr(
             "no URL shortener is configured: choose one in the settings (the desktop app's \
-             Settings, or `provider` under [shortener] in config.toml)"
-                .into(),
-        )
+             Settings, or `provider` under [shortener] in config.toml)",
+        ))
         .into());
     }
     let access = &ctx.shortener;
@@ -78,9 +78,9 @@ async fn shorten(ctx: &Context, url: &str, out: &Output) -> Result<String, Failu
         },
         None => Endpoints::default(),
     };
-    out.notice(&format!(
-        "note: the link, including its signature, is sent to {}",
-        provider_name(provider)
+    out.notice(&trf(
+        "note: the link, including its signature, is sent to {provider}",
+        &[("provider", provider_name(provider))],
     ));
     let short = session
         .shorten_url_with(&endpoints, access.token.clone(), url)

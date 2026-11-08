@@ -18,6 +18,7 @@ use serde::Serialize;
 
 use crate::cli::{Command, DecryptArgs, EncryptArgs};
 use crate::context::{Context, Inputs};
+use crate::i18n::{tr, trf};
 use crate::output::{Batch, Failure, Output};
 
 /// Environment variable holding the encryption password.
@@ -52,7 +53,7 @@ pub fn password(
     let text = if let Some(path) = file {
         let content = std::fs::read_to_string(path).map_err(|err| {
             Error::io(
-                format!("reading the password file '{}'", path.display()),
+                trf("reading the password file '{path}'", &[("path", &path.display().to_string())]),
                 err,
             )
         })?;
@@ -60,22 +61,23 @@ pub fn password(
     } else if let Some(value) = inputs.env.get(PASSWORD_ENV)? {
         value
     } else {
-        let asked = inputs.console.read_secret("Encryption password: ");
+        let asked = inputs.console.read_secret(&tr("Encryption password: "));
         let Ok(Some(first)) = asked else {
-            return Err(Error::Usage(format!(
-                "no encryption password: use --password-file, set {PASSWORD_ENV}, or run on a terminal"
+            return Err(Error::Usage(trf(
+                "no encryption password: use --password-file, set {env}, or run on a terminal",
+                &[("env", PASSWORD_ENV)],
             )));
         };
         if confirm {
-            match inputs.console.read_secret("Confirm encryption password: ") {
+            match inputs.console.read_secret(&tr("Confirm encryption password: ")) {
                 Ok(Some(again)) if again == first => {}
-                _ => return Err(Error::Usage("the two passwords differ".into())),
+                _ => return Err(Error::Usage(tr("the two passwords differ"))),
             }
         }
         first
     };
     if text.is_empty() {
-        return Err(Error::Usage("the encryption password is empty".into()));
+        return Err(Error::Usage(tr("the encryption password is empty")));
     }
     Ok(SecretString::new(text))
 }
@@ -153,12 +155,20 @@ async fn transform(
     };
     if recursive != uri.is_prefix() {
         let message = if recursive {
-            format!("--recursive needs a prefix ending in '/', for example {uri}/")
-        } else {
-            format!(
-                "{uri} is a prefix; add --recursive to {} everything under it",
-                verb(action)
+            trf(
+                "--recursive needs a prefix ending in '/', for example {prefix}/",
+                &[("prefix", &format!("{uri}"))],
             )
+        } else {
+            let template = match action {
+                Action::Encrypt(_) => {
+                    "{uri} is a prefix; add --recursive to encrypt everything under it"
+                }
+                Action::Decrypt => {
+                    "{uri} is a prefix; add --recursive to decrypt everything under it"
+                }
+            };
+            trf(template, &[("uri", &uri.to_string())])
         };
         return Err(Error::Usage(message).into());
     }
@@ -209,16 +219,24 @@ async fn transform(
             Err(err) => {
                 batch.failed(err.kind(), err.to_string());
                 let record = record(uri.bucket(), &key, action, Err(&err));
-                let message = format!(
-                    "failed to {} s3://{}/{key}: {err}",
-                    verb(action),
-                    uri.bucket()
+                let message = trf(
+                    "failed to {action} s3://{bucket}/{key}: {error}",
+                    &[
+                        ("action", verb(action)),
+                        ("bucket", uri.bucket()),
+                        ("key", &key),
+                        ("error", &err.to_string()),
+                    ],
                 );
                 out.item_failed(&record, || message)?;
             }
         }
     }
-    batch.finish("objects", &format!("could not be {}ed", verb(action)))
+    let failure = match action {
+        Action::Encrypt(_) => "could not be encrypted",
+        Action::Decrypt => "could not be decrypted",
+    };
+    batch.finish("objects", failure)
 }
 
 /// Whether `err` only says the object is already in the wanted state.
@@ -257,18 +275,20 @@ fn record(
 }
 
 fn line(record: &CseRecord) -> String {
-    let what = if record.action == "encrypt" {
-        "encrypted"
+    let (what, skipped) = if record.action == "encrypt" {
+        (
+            "encrypted s3://{bucket}/{key}",
+            "skipped s3://{bucket}/{key} (already encrypted)",
+        )
     } else {
-        "decrypted"
+        (
+            "decrypted s3://{bucket}/{key}",
+            "skipped s3://{bucket}/{key} (not encrypted)",
+        )
     };
-    if record.skipped {
-        let state = if record.action == "encrypt" {
-            "already encrypted"
-        } else {
-            "not encrypted"
-        };
-        return format!("skipped s3://{}/{} ({state})", record.bucket, record.key);
-    }
-    format!("{what} s3://{}/{}", record.bucket, record.key)
+    let template = if record.skipped { skipped } else { what };
+    trf(
+        template,
+        &[("bucket", &record.bucket), ("key", &record.key)],
+    )
 }

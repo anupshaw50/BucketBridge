@@ -21,6 +21,7 @@ use crate::cli::{
     AccountAddArgs, AccountCommand, AccountSelector, AccountSsoLoginArgs, GlobalArgs,
 };
 use crate::context::{Inputs, dirs, env, find_account, open_session, unlock};
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 use crate::records::{
     AccountChangeRecord, AccountRecord, ImportSkippedRecord, SsoPromptRecord, SsoSignedInRecord,
@@ -34,17 +35,15 @@ pub async fn run(
     out: &mut Output,
 ) -> std::result::Result<(), Failure> {
     if global.account.is_some() || global.mfa_code.is_some() {
-        return Err(Error::Usage(
-            "--account and --mfa-code do not apply to `bb account`; name the account as an argument"
-                .into(),
-        )
+        return Err(Error::Usage(tr(
+            "--account and --mfa-code do not apply to `bb account`; name the account as an argument",
+        ))
         .into());
     }
     if !global.profile.is_empty() && !matches!(command, AccountCommand::ImportAws) {
-        return Err(Error::Usage(
-            "--profile applies to `bb account import-aws` only; add a profile account with it"
-                .into(),
-        )
+        return Err(Error::Usage(tr(
+            "--profile applies to `bb account import-aws` only; add a profile account with it",
+        ))
         .into());
     }
     let dirs = dirs(global, &inputs.env)?;
@@ -74,9 +73,9 @@ async fn add(
     if args.instance_role {
         if !args.no_probe {
             let found = session.probe_instance_role().await?;
-            out.notice(&format!(
-                "found the role of this machine (access key {})",
-                found.access_key_id
+            out.notice(&trf(
+                "found the role of this machine (access key {key})",
+                &[("key", &found.access_key_id)],
             ));
         }
         input.source = CredentialSource::InstanceRole;
@@ -110,17 +109,19 @@ async fn add(
         account,
     };
     out.change(&record, || {
-        format!(
-            "added account {} ({})",
-            record.account.label, record.account.id
+        trf(
+            "added account {label} ({id})",
+            &[
+                ("label", record.account.label.as_str()),
+                ("id", record.account.id.as_str()),
+            ],
         )
     })
 }
 
-fn required(value: &Option<String>, flag: &str) -> Result<String> {
-    value
-        .clone()
-        .ok_or_else(|| Error::Usage(format!("{flag} is required")))
+fn required(value: &Option<String>, flag: &str) -> Result<String> {    value.clone().ok_or_else(|| {
+        Error::Usage(trf("{flag} is required", &[("flag", flag)]))
+    })
 }
 
 /// The assumed-role source of `bb account add --assume-role`.
@@ -132,13 +133,14 @@ async fn role_source(
     let selector = required(&args.source_account, "--source-account")?;
     let list = session.list_accounts().await?;
     let source = find_account(&list.accounts, &selector).ok_or_else(|| {
-        Error::NotFound(format!(
-            "account '{selector}' not found; `bb account list` shows the stored accounts"
+        Error::NotFound(trf(
+            "account '{selector}' not found; `bb account list` shows the stored accounts",
+            &[("selector", selector.as_str())],
         ))
     })?;
     let duration_secs = match args.duration {
         Some(duration) => u32::try_from(duration.as_secs())
-            .map_err(|_| Error::Usage("--duration is too long".into()))?,
+            .map_err(|_| Error::Usage(tr("--duration is too long")))?,
         None => DEFAULT_ROLE_DURATION_SECS,
     };
     Ok(CredentialSource::AssumeRole {
@@ -163,21 +165,23 @@ fn read_secrets(
         let mut stdin = inputs
             .stdin
             .lock()
-            .map_err(|_| Error::Internal("standard input is unavailable".into()))?;
+            .map_err(|_| Error::Internal(tr("standard input is unavailable")))?;
         let secret = read_line(&mut **stdin)?.ok_or_else(|| {
-            Error::Usage("--secret-stdin: standard input is empty; expected the secret access key on the first line".into())
+            Error::Usage(tr(
+                "--secret-stdin: standard input is empty; expected the secret access key on the first line",
+            ))
         })?;
         let token = read_line(&mut **stdin)?;
         return Ok((secret, token));
     }
     let secret = match inputs.env.get(env::SECRET_ACCESS_KEY)? {
         Some(secret) => SecretString::new(secret),
-        None => match inputs.console.read_secret("Secret access key: ") {
+        None => match inputs.console.read_secret(&tr("Secret access key: ")) {
             Ok(Some(secret)) if !secret.is_empty() => SecretString::new(secret),
             _ => {
-                return Err(Error::Usage(format!(
-                    "no secret access key: use --secret-stdin, set {}, or run bb in a terminal",
-                    env::SECRET_ACCESS_KEY
+                return Err(Error::Usage(trf(
+                    "no secret access key: use --secret-stdin, set {env}, or run bb in a terminal",
+                    &[("env", env::SECRET_ACCESS_KEY)],
                 )));
             }
         },
@@ -250,7 +254,7 @@ async fn import_aws(
             .collect()
     };
     if names.is_empty() {
-        out.notice("no AWS profile to import");
+        out.notice(&tr("no AWS profile to import"));
         return Ok(());
     }
     let outcome = session.import_aws_profiles(&names).await?;
@@ -261,9 +265,12 @@ async fn import_aws(
             account: account.clone(),
         };
         out.change(&record, || {
-            format!(
-                "imported profile as account {} ({})",
-                record.account.label, record.account.id
+            trf(
+                "imported profile as account {label} ({id})",
+                &[
+                    ("label", record.account.label.as_str()),
+                    ("id", record.account.id.as_str()),
+                ],
             )
         })?;
     }
@@ -274,11 +281,17 @@ async fn import_aws(
             skipped: true,
         };
         out.row(&record, || {
-            format!("skipped profile {}: {}", skipped.profile, skipped.reason)
+            trf(
+                "skipped profile {profile}: {reason}",
+                &[
+                    ("profile", skipped.profile.as_str()),
+                    ("reason", skipped.reason.as_str()),
+                ],
+            )
         })?;
     }
     if outcome.imported.is_empty() && explicit {
-        return Err(Error::Usage("no profile was imported".into()).into());
+        return Err(Error::Usage(tr("no profile was imported")).into());
     }
     Ok(())
 }
@@ -305,9 +318,12 @@ async fn sso_login(
         expires_in_secs: started.expires_in_secs,
     };
     out.row(&record, || {
-        format!(
-            "Open {} and confirm the code {}",
-            record.verification_uri, record.user_code
+        trf(
+            "Open {url} and confirm the code {code}",
+            &[
+                ("url", record.verification_uri.to_string().as_str()),
+                ("code", record.user_code.as_str()),
+            ],
         )
     })?;
     if !args.no_browser
@@ -315,7 +331,10 @@ async fn sso_login(
         && inputs.console.stderr_is_terminal()
         && let Err(reason) = open_in_browser(&target)
     {
-        out.notice(&format!("could not open the browser: {reason}"));
+        out.notice(&trf(
+            "could not open the browser: {reason}",
+            &[("reason", &reason)],
+        ));
     }
     let mut interval = started.interval_secs.max(1);
     loop {
@@ -329,7 +348,13 @@ async fn sso_login(
                     expires_at,
                 };
                 return out.change(&done, || {
-                    format!("signed in to {} until {}", done.start_url, done.expires_at)
+                    trf(
+                        "signed in to {url} until {time}",
+                        &[
+                            ("url", done.start_url.as_str()),
+                            ("time", done.expires_at.to_string().as_str()),
+                        ],
+                    )
                 });
             }
         }
@@ -354,13 +379,15 @@ async fn portal_of(
     };
     if let Some(selector) = &args.account_label {
         let account = find_account(&list.accounts, selector).ok_or_else(|| {
-            Error::NotFound(format!(
-                "account '{selector}' not found; `bb account list` shows the stored accounts"
+            Error::NotFound(trf(
+                "account '{selector}' not found; `bb account list` shows the stored accounts",
+                &[("selector", selector)],
             ))
         })?;
         return portal_of(account).ok_or_else(|| {
-            Error::Usage(format!(
-                "account '{selector}' does not use IAM Identity Center"
+            Error::Usage(trf(
+                "account '{selector}' does not use IAM Identity Center",
+                &[("selector", selector)],
             ))
         });
     }
@@ -371,9 +398,9 @@ async fn portal_of(
     portals.dedup();
     match portals.as_slice() {
         [only] if args.start_url.is_none() && args.sso_region.is_none() => Ok(only.clone()),
-        _ => Err(Error::Usage(
-            "name the portal with --start-url and --sso-region, or an SSO account".into(),
-        )),
+        _ => Err(Error::Usage(tr(
+            "name the portal with --start-url and --sso-region, or an SSO account",
+        ))),
     }
 }
 
@@ -410,7 +437,10 @@ async fn remove(
     let record = select(session, selector).await?;
     session.remove_account(&record.id).await?;
     out.change(&record, || {
-        format!("removed account {} ({})", record.label, record.id)
+        trf(
+            "removed account {label} ({id})",
+            &[("label", &record.label), ("id", &record.id)],
+        )
     })
 }
 
@@ -422,16 +452,19 @@ async fn set_default(
     let record = select(session, selector).await?;
     session.set_default_account(&record.id).await?;
     out.change(&record, || {
-        format!("default account is now {} ({})", record.label, record.id)
+        trf(
+            "default account is now {label} ({id})",
+            &[("label", &record.label), ("id", &record.id)],
+        )
     })
 }
 
 async fn select(session: &Session, selector: &AccountSelector) -> Result<AccountChangeRecord> {
     let list = session.list_accounts().await?;
     let account = find_account(&list.accounts, &selector.label_or_id).ok_or_else(|| {
-        Error::NotFound(format!(
-            "account '{}' not found; `bb account list` shows the stored accounts",
-            selector.label_or_id
+        Error::NotFound(trf(
+            "account '{selector}' not found; `bb account list` shows the stored accounts",
+            &[("selector", selector.label_or_id.as_str())],
         ))
     })?;
     Ok(AccountChangeRecord {

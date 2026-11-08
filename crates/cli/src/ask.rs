@@ -41,13 +41,14 @@ pub fn parse_answer(line: &str) -> Option<std::result::Result<(Choice, bool), ()
 }
 
 fn describe(info: &ItemInfo) -> String {
-    let size = info
-        .size
-        .map_or_else(|| "unknown size".to_owned(), |s| format!("{s} bytes"));
+    let size = info.size.map_or_else(
+        || crate::i18n::tr("unknown size"),
+        |s| crate::i18n::trf("{bytes} bytes", &[("bytes", s.to_string().as_str())]),
+    );
     let time = info
         .modified
-        .map_or_else(|| "unknown time".to_owned(), |t| t.to_rfc3339());
-    format!("{size}, {time}")
+        .map_or_else(|| crate::i18n::tr("unknown time"), |t| t.to_rfc3339());
+    crate::i18n::trf("{size}, {time}", &[("size", size.as_str()), ("time", time.as_str())])
 }
 
 impl ConflictResolver for TerminalResolver {
@@ -57,13 +58,14 @@ impl ConflictResolver for TerminalResolver {
             if let Some(choice) = *remembered {
                 return Ok(choice);
             }
-            let prompt = format!(
-                "\n{} already exists ({}); source {} ({}).\n\
-                 [o]verwrite, [s]kip, [r]ename, [n]ewer only, [c]ancel; a capital letter applies to all remaining: ",
-                conflict.destination,
-                describe(&conflict.destination_info),
-                conflict.source,
-                describe(&conflict.source_info),
+            let prompt = crate::i18n::trf(
+                "\n{destination} already exists ({destination_info}); source {source} ({source_info}).\n[o]verwrite, [s]kip, [r]ename, [n]ewer only, [c]ancel; a capital letter applies to all remaining: ",
+                &[
+                    ("destination", conflict.destination.as_str()),
+                    ("destination_info", describe(&conflict.destination_info).as_str()),
+                    ("source", conflict.source.as_str()),
+                    ("source_info", describe(&conflict.source_info).as_str()),
+                ],
             );
             loop {
                 let text = prompt.clone();
@@ -78,8 +80,8 @@ impl ConflictResolver for TerminalResolver {
                         .map(|n| (n, line))
                 })
                 .await
-                .map_err(|err| Error::Internal(format!("reading the answer failed: {err}")))?
-                .map_err(|err| Error::io("reading the answer", err))?;
+                .map_err(|err| Error::Internal(crate::i18n::trf("reading the answer failed: {error}", &[("error", &err.to_string())])))?
+                .map_err(|err| Error::io(crate::i18n::tr("reading the answer"), err))?;
                 if line.0 == 0 {
                     return Err(Error::Cancelled);
                 }

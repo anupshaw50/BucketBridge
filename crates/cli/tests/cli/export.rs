@@ -1,5 +1,6 @@
 //! `bb export`
 
+use bucketbridge_cli::i18n::trf;
 use bucketbridge_tests::MockResponse;
 
 use super::*;
@@ -58,9 +59,15 @@ async fn one_folder_level_or_everything_below_the_prefix() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!(
-            "exported 3 rows from s3://{bucket}/ to {file_arg} (csv, {} bytes)",
-            std::fs::metadata(&file).unwrap().len()
+        trf(
+            "exported {rows} from {source} to {file} ({format}, {bytes} bytes)",
+            &[
+                ("rows", &trf("{rows} rows", &[("rows", "3")])),
+                ("source", &format!("s3://{bucket}/")),
+                ("file", file_arg),
+                ("format", "csv"),
+                ("bytes", std::fs::metadata(&file).unwrap().len().to_string().as_str()),
+            ],
         )
     );
     let rows = csv_rows(&file);
@@ -292,7 +299,7 @@ async fn a_server_that_repeats_a_continuation_token_ends_the_export() {
         let out = run(bb_mock(&mock, config.path()).args(&args));
         out.expect_code(2);
         assert!(
-            out.stderr.contains("same continuation token"),
+            out.stderr.contains("same continuation token twice"),
             "{}",
             out.stderr
         );

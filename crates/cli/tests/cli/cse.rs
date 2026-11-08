@@ -2,6 +2,8 @@
 
 use std::fs;
 
+use bucketbridge_cli::i18n::tr;
+
 use super::*;
 
 const PASSWORD: &str = "correct horse battery staple";
@@ -179,7 +181,7 @@ async fn an_encrypted_file_is_not_encrypted_twice() {
     );
     out.expect_code(2);
     assert!(
-        out.stderr.contains("already client-side encrypted"),
+        out.stderr.contains(&tr("already client-side encrypted")),
         "{}",
         out.stderr
     );
@@ -188,7 +190,7 @@ async fn an_encrypted_file_is_not_encrypted_twice() {
     // bb encrypt refuses an encrypted object as well.
     let out = run_with(&env, PASSWORD, &["encrypt", &first]);
     out.expect_code(2);
-    assert!(out.stderr.contains("already"), "{}", out.stderr);
+    assert!(out.stderr.contains("already encrypted"), "{}", out.stderr);
 }
 
 #[tokio::test]
@@ -355,7 +357,11 @@ async fn encrypt_and_decrypt_rewrite_objects_in_place() {
         ],
     );
     out.expect_code(0);
-    assert!(out.stdout.contains("skipped s3://"), "{}", out.stdout);
+    assert!(
+        out.stdout.contains(&tr("skipped s3://")),
+        "{}",
+        out.stdout
+    );
     assert!(is_envelope(&env.s3.get(&bucket, "docs/b.txt").await));
 
     let out = run_with(&env, "wrong", &["decrypt", &a]);
@@ -398,7 +404,7 @@ async fn the_password_can_be_typed_on_the_terminal() {
     ];
     let out = proc.run_with(&args, &vars, b"", &terminal).await;
     out.expect_code(1);
-    assert!(out.stderr.contains("differ"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("differ")), "{}", out.stderr);
     assert_eq!(terminal.prompts().len(), 2);
 
     let terminal = Terminal::answering(&[PASSWORD, PASSWORD]);

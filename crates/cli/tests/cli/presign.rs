@@ -1,5 +1,7 @@
 //! `bb presign`
 
+use bucketbridge_cli::i18n::tr;
+
 use super::*;
 use bucketbridge_tests::MockResponse;
 
@@ -117,17 +119,21 @@ async fn invalid_durations_and_targets_are_usage_errors() {
             out.stderr
         );
         let reason = if ["0s", "0", "8d", "604801"].contains(&expires) {
-            "out of range"
+            tr("out of range")
         } else {
-            "invalid duration"
+            tr("invalid duration")
         };
-        assert!(out.stderr.contains(reason), "{expires:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(&reason),
+            "{expires:?}: {}",
+            out.stderr
+        );
     }
     env.run(&["presign", "--expires", "-1h", &uri])
         .expect_code(1);
     let out = env.run(&["presign", &format!("s3://{bucket}")]);
     out.expect_code(1);
-    assert!(out.stderr.contains("names a bucket"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("names a bucket")), "{}", out.stderr);
     env.run(&["presign", "--method", "delete", &uri])
         .expect_code(1);
 }
@@ -191,7 +197,7 @@ async fn shorten_is_off_unless_asked_and_needs_a_provider() {
         )
         .await;
     out.expect_code(1);
-    assert!(out.stderr.contains("no URL shortener"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("no URL shortener")), "{}", out.stderr);
     assert!(server.requests().is_empty());
 }
 
@@ -211,7 +217,7 @@ async fn shorten_prints_the_short_link_and_says_where_it_went() {
         .await;
     out.expect_code(0);
     assert_eq!(out.stdout.trim(), "https://bit.example/q");
-    assert!(out.stderr.contains("sent to Bitly"), "{}", out.stderr);
+    assert!(out.stderr.contains("Bitly") && out.stderr.contains(&tr("sent to")), "{}", out.stderr);
     let requests = server.requests();
     assert_eq!(requests.len(), 1);
     assert!(requests[0].body_text().contains("X-Amz-Signature"));

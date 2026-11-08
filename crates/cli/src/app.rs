@@ -19,6 +19,7 @@ use crate::cli::{
 use crate::commands;
 use crate::commands::copy::Mode;
 use crate::context::{Context, Inputs, Secrets};
+use crate::i18n::{translate_clap_error, translate_command};
 use crate::io::Io;
 use crate::output::{Failure, Output, Stderr, json_line};
 
@@ -70,7 +71,11 @@ where
         console,
     } = io;
     let stderr = Stderr::new(stderr);
-    let parsed = Cli::command()
+    // The help texts are translated before the arguments are parsed, so
+    // that help and usage errors come out in the interface language.
+    let mut command = Cli::command();
+    translate_command(&mut command);
+    let parsed = command
         .try_get_matches_from(args)
         .and_then(|matches| Cli::from_arg_matches(&matches).map(|cli| (cli, matches)));
     let (cli, matches) = match parsed {
@@ -105,7 +110,7 @@ where
 /// Help and version go to stdout with status 0; usage errors to stderr
 /// with status 1 (clap's own default would be 2).
 fn clap_exit(err: &clap::Error, stdout: &mut dyn Write, stderr: &Stderr) -> Exit {
-    let text = err.render().to_string();
+    let text = translate_clap_error(&err.render().to_string());
     if err.use_stderr() {
         stderr.raw(&text);
         Exit::code(ErrorKind::Usage.exit_code())

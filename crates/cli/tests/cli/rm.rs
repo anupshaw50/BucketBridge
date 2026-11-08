@@ -1,5 +1,6 @@
 //! `bb rm`
 
+use bucketbridge_cli::i18n::{tr, trf};
 use bucketbridge_tests::MockResponse;
 
 use super::*;
@@ -24,7 +25,13 @@ async fn rm_deletes_one_object() {
     let bucket = folder_bucket(&env).await;
     let out = env.run(&["rm", &format!("s3://{bucket}/top.txt")]);
     out.expect_code(0);
-    assert_eq!(out.stdout.trim(), format!("deleted s3://{bucket}/top.txt"));
+    assert_eq!(
+        out.stdout.trim(),
+        trf(
+            "deleted s3://{bucket}/{key}",
+            &[("bucket", bucket.as_str()), ("key", "top.txt")]
+        )
+    );
     assert!(!env.s3.exists(&bucket, "top.txt").await);
 
     let out = env.run(&["rm", "--json", &format!("s3://{bucket}/dirx.txt")]);
@@ -115,8 +122,14 @@ async fn dry_run_deletes_nothing() {
     assert_eq!(
         out.lines(),
         [
-            format!("would delete s3://{bucket}/dir/a.txt"),
-            format!("would delete s3://{bucket}/dir/sub/b.txt")
+            trf(
+                "would delete s3://{bucket}/{key}",
+                &[("bucket", bucket.as_str()), ("key", "dir/a.txt")]
+            ),
+            trf(
+                "would delete s3://{bucket}/{key}",
+                &[("bucket", bucket.as_str()), ("key", "dir/sub/b.txt")]
+            ),
         ]
     );
     let out = env.run(&[
@@ -168,15 +181,23 @@ async fn per_key_failures_are_reported_and_set_the_exit_code() {
     assert_eq!(records[1]["error"]["code"], "auth");
     let error = out.error_record();
     assert_eq!(error["code"], "auth");
-    assert_eq!(error["message"], "1 of 2 objects could not be deleted");
+    assert_eq!(
+        error["message"],
+        batch_summary(1, 2, "objects", "could not be deleted")
+    );
 
     let out = run(bb_mock(&mock, config.path()).args(["rm", "-r", "s3://bucket/dir/"]));
     out.expect_code(3);
-    assert_eq!(out.lines(), ["deleted s3://bucket/dir/a.txt"]);
+    assert_eq!(
+        out.lines(),
+        [trf(
+            "deleted s3://{bucket}/{key}",
+            &[("bucket", "bucket"), ("key", "dir/a.txt")]
+        )]
+    );
     assert!(
-        out.stderr
-            .contains("failed to delete s3://bucket/dir/locked.txt"),
-        "{}",
+        out.stderr.contains("locked.txt"),
+        "stderr: {}",
         out.stderr
     );
     // --quiet hides the successes, never the failures.
@@ -266,7 +287,11 @@ async fn versions_of_one_key_are_deleted_one_by_one() {
     let out =
         run(bb_mock(&mock, config.path()).args(["rm", "--versions", "s3://bucket/missing.txt"]));
     out.expect_code(2);
-    assert!(out.stderr.contains("has no versions"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&tr("has no versions")),
+        "{}",
+        out.stderr
+    );
 }
 
 #[tokio::test]

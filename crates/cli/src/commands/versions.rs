@@ -90,18 +90,20 @@ pub fn all_versions(
                     .then(b.is_latest.cmp(&a.is_latest))
                     .then(b.last_modified.cmp(&a.last_modified))
             });
+            let base = format!("s3://{bucket}/{prefix}");
             let next = if out.is_truncated() == Some(true) {
                 let key = out.next_key_marker().filter(|k| !k.is_empty()).ok_or_else(|| {
-                    Error::Remote(format!(
-                        "listing versions of s3://{bucket}/{prefix}: the server reported more results but sent no marker"
+                    Error::Remote(crate::i18n::trf(
+                        "listing versions of {uri}: the server reported more results but sent no marker",
+                        &[("uri", &base)],
                     ))
                 })?;
                 let next = (
                     key.to_owned(),
                     out.next_version_id_marker().map(str::to_owned),
                 );
-                let next =
-                    seen.follow(next, &format!("listing versions of s3://{bucket}/{prefix}"))?;
+                let what = crate::i18n::trf("listing versions of {uri}", &[("uri", &base)]);
+                let next = seen.follow(next, &what)?;
                 Some(Cursor {
                     markers: Some(next),
                     seen,

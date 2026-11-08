@@ -43,7 +43,7 @@ pub async fn run(ctx: &Context, args: &LsArgs, out: &mut Output) -> Result<(), F
         }
     }
     let page_size = ctx.settings.advanced.list_page_size;
-    let what = format!("listing {uri}");
+    let what = crate::i18n::trf("listing {uri}", &[("uri", &uri.to_string())]);
     let mut seen = SeenTokens::default();
     let mut token: Option<String> = None;
     loop {
@@ -168,7 +168,11 @@ fn version_line(record: &VersionRecord) -> String {
         "{:<20}  {:>14}  {:<6}  {:<36}  {}",
         timestamp(record.last_modified),
         size,
-        if record.is_latest { "latest" } else { "-" },
+        if record.is_latest {
+            crate::i18n::tr("latest")
+        } else {
+            "-".to_owned()
+        },
         record.version_id.as_deref().unwrap_or("-"),
         record.key
     )
@@ -232,7 +236,12 @@ mod tests {
         let line = version_line(&VersionRecord::from(&version));
         assert_eq!(
             line,
-            format!("-{}5  latest  v1{}a.txt", pad(19 + 2 + 13), pad(34 + 2))
+            format!(
+                "-{}5  {:<6}  v1{}a.txt",
+                pad(19 + 2 + 13),
+                crate::i18n::tr("latest"),
+                pad(34 + 2)
+            )
         );
         let marker = ObjectVersion {
             is_delete_marker: true,
