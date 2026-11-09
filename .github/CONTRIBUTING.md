@@ -1,8 +1,9 @@
 # Contributing to BucketBridge
 
 Thanks for helping. BucketBridge is a Tauri 2 desktop app with a React UI and a
-CLI (`bb`), all on one Rust core. `development_plan.md` defines the scope and
-`docs/development.md` has the full per-OS setup.
+CLI (`bb`), all on one Rust core. `docs/development.md` has the full per-OS
+setup, and `AGENTS.md` has the project rules and the review checklist (for
+people and AI coding agents alike).
 
 ## Build and run
 
@@ -42,8 +43,9 @@ Tests never touch the real OS keychain. See `docs/testing.md`.
 - Dependencies must be permissively licensed and GPL-3.0 compatible;
   `cargo deny check` must pass.
 - Do not use the em dash character in code, docs or UI text.
-- Build only from `development_plan.md`. Do not copy code, assets or strings
-  from other products.
+- Do not copy code, assets or strings from other products.
+- User-visible text goes through `tr()` (UI) or `tr`/`trf` (CLI) with a
+  Chinese entry; English stays the default. See `docs/i18n.md`.
 
 ## Commits
 

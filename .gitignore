@@ -11,11 +11,9 @@
 # Rust
 /target
 
-# Coding agent files
-CLAUDE.md
+# Coding agent files (AGENTS.md and CLAUDE.md are shared and committed)
 CLAUDE.local.md
 .claude/
-AGENTS.md
 GEMINI.md
 .gemini/
 .codex/
