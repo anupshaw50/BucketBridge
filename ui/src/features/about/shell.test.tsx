@@ -75,7 +75,7 @@ describe("about dialog", () => {
       "https://github.com/anupshaw50",
       "https://www.linkedin.com/in/anup-kumar-shaw/",
       "https://anupshaw50.github.io/BucketBridge/",
-      "https://github.com/sponsors/anupshaw50",
+      "https://buymeacoffee.com/anupshaw50b",
     ]);
   });
 });

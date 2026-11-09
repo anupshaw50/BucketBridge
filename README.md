@@ -562,6 +562,6 @@ BucketBridge is created and maintained by **Anup Shaw**
 [LinkedIn](https://www.linkedin.com/in/anup-kumar-shaw/)).
 Feedback, ideas and collaboration requests are welcome on either.
 If it is useful to you, a star on GitHub helps others find it, and
-[sponsoring](https://github.com/sponsors/anupshaw50) supports further work.
+[buying me a coffee](https://buymeacoffee.com/anupshaw50b) supports further work.
 
 Copyright (C) 2026 Anup Shaw (anupshaw50).

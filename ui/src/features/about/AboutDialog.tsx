@@ -13,7 +13,7 @@ export const AUTHOR_NAME = "Anup Shaw";
 export const AUTHOR_HANDLE = "anupshaw50";
 export const AUTHOR_URL = "https://github.com/anupshaw50";
 export const LINKEDIN_URL = "https://www.linkedin.com/in/anup-kumar-shaw/";
-export const SPONSOR_URL = "https://github.com/sponsors/anupshaw50";
+export const SPONSOR_URL = "https://buymeacoffee.com/anupshaw50b";
 
 const COPYRIGHT_NOTICE = `BucketBridge
 Copyright (C) 2026 Anup Shaw (anupshaw50)
