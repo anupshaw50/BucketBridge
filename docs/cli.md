@@ -47,6 +47,11 @@ and instance metadata are never used. The HTTP client honours `HTTP_PROXY`,
 
 `BB_SHORTENER_TOKEN` and `BB_SHORTENER_ENDPOINT` only matter for `bb presign --shorten`.
 
+`BB_LANG` selects the language of the help and the output: a value beginning
+with `zh` gives Simplified Chinese, anything else gives English, which is also
+the default. When `BB_LANG` is not set, `LC_ALL`, `LC_MESSAGES` and `LANG` are
+consulted in that order.
+
 ### Stored accounts and their secrets
 
 Stored accounts live in `config.toml`; their secret access keys and session
