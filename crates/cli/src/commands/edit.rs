@@ -98,9 +98,14 @@ pub async fn run(ctx: &Context, args: &EditArgs, out: &mut Output) -> Result<(),
         .into());
     }
     out.change(&EditRecord::new("started", &session), || {
-        trf("editing {uri}: {path}", &[("uri", &uri.to_string()), ("path", &session.local_path)])
+        trf(
+            "editing {uri}: {path}",
+            &[("uri", &uri.to_string()), ("path", &session.local_path)],
+        )
     })?;
-    out.notice(&tr("Save the file to upload it. Press Ctrl-C to stop editing."));
+    out.notice(&tr(
+        "Save the file to upload it. Press Ctrl-C to stop editing.",
+    ));
 
     let interactive = !out.json() && io::stdin().is_terminal() && io::stderr().is_terminal();
     let id = session.id.clone();
@@ -152,10 +157,7 @@ fn report(out: &mut Output, session: &EditSession) -> Result<bool, Failure> {
             } else {
                 "{uri} changed on the server since you opened it; your save was not uploaded (the copy stays at {path})"
             };
-            let message = trf(
-                what,
-                &[("uri", &uri), ("path", &session.local_path)],
-            );
+            let message = trf(what, &[("uri", &uri), ("path", &session.local_path)]);
             record.message = Some(message.clone());
             out.item_failed(&record, || message.clone())?;
             Ok(true)

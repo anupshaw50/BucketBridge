@@ -44,7 +44,9 @@ mod tests {
 
     /// The tail of the endless-listing error, translated like the code.
     fn tr_full_suffix() -> String {
-        crate::i18n::tr("the server returned a continuation token it had already sent; stopping to avoid an endless listing")
+        crate::i18n::tr(
+            "the server returned a continuation token it had already sent; stopping to avoid an endless listing",
+        )
     }
 
     #[test]
@@ -55,11 +57,7 @@ mod tests {
         let err = seen.follow("A".to_owned(), "listing s3://b/").unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Remote);
         // The `what` prefix is data here; the translated part is the tail.
-        assert!(
-            err.to_string()
-                .ends_with(&tr_full_suffix()),
-            "{err}"
-        );
+        assert!(err.to_string().ends_with(&tr_full_suffix()), "{err}");
 
         let mut seen = SeenTokens::default();
         seen.follow(("k".to_owned(), Some("v".to_owned())), "x")

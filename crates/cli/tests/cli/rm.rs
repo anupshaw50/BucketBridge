@@ -195,11 +195,7 @@ async fn per_key_failures_are_reported_and_set_the_exit_code() {
             &[("bucket", "bucket"), ("key", "dir/a.txt")]
         )]
     );
-    assert!(
-        out.stderr.contains("locked.txt"),
-        "stderr: {}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("locked.txt"), "stderr: {}", out.stderr);
     // --quiet hides the successes, never the failures.
     let out = run(bb_mock(&mock, config.path()).args(["rm", "-r", "-q", "s3://bucket/dir/"]));
     out.expect_code(3);

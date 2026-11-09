@@ -170,13 +170,17 @@ async fn a_changed_object_is_never_overwritten_without_a_terminal() {
     // The conflict is reported while the session keeps running.
     let stderr_path = session.stderr.clone();
     wait_until("the conflict notice", || {
-        fs::read_to_string(&stderr_path).is_ok_and(|text| text.contains(&tr("changed on the server")))
+        fs::read_to_string(&stderr_path)
+            .is_ok_and(|text| text.contains(&tr("changed on the server")))
     })
     .await;
     let (code, stdout, stderr) = session.interrupt().await;
 
     assert_eq!(code, 2, "{stderr}");
-    assert!(stderr.contains(&tr("your edited copy is kept at")), "{stderr}");
+    assert!(
+        stderr.contains(&tr("your edited copy is kept at")),
+        "{stderr}"
+    );
     assert!(!stdout.contains("uploaded"), "{stdout}");
     assert_eq!(
         env.s3.get(&bucket, "c.txt").await,

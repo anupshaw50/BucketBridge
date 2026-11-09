@@ -440,11 +440,38 @@ async fn show_prints_the_details() {
     let out = run_cf(&service, &["cloudfront", "show", "EA"]).await;
     out.expect_code(0);
     let text = out.stdout;
-    assert!(text.contains(&format!("{}\n", trf("domain: {domain}", &[("domain", "d111.cloudfront.net")]))), "{text}");
-    assert!(text.contains(&format!("{}\n", trf("id: {id}", &[("id", "EA")]))), "{text}");
-    assert!(text.contains(&format!("{}\n", trf("state: {state}", &[("state", "enabled")]))), "{text}");
-    assert!(text.contains(&format!("{}\n", trf("default root object: {root}", &[("root", "index.html")]))), "{text}");
-    assert!(text.contains(&format!("{}\n", trf("invalidations in progress: {count}", &[("count", "1")]))), "{text}");
+    assert!(
+        text.contains(&format!(
+            "{}\n",
+            trf("domain: {domain}", &[("domain", "d111.cloudfront.net")])
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("{}\n", trf("id: {id}", &[("id", "EA")]))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "{}\n",
+            trf("state: {state}", &[("state", "enabled")])
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "{}\n",
+            trf("default root object: {root}", &[("root", "index.html")])
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "{}\n",
+            trf("invalidations in progress: {count}", &[("count", "1")])
+        )),
+        "{text}"
+    );
     assert!(
         text.contains(&trf(
             "origin {id}: {domain} (bucket {bucket})",
@@ -459,7 +486,10 @@ async fn show_prints_the_details() {
     // The website-endpoint and access-control suffixes are separate
     // fragments joined after the bucket.
     assert!(
-        text.contains(&trf("origin {id}: {domain}", &[("id", "api"), ("domain", "api.example.org")])),
+        text.contains(&trf(
+            "origin {id}: {domain}",
+            &[("id", "api"), ("domain", "api.example.org")]
+        )),
         "{text}"
     );
     let out = run_cf(&service, &["cloudfront", "show", "EA", "--json"]).await;

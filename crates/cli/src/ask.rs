@@ -48,7 +48,10 @@ fn describe(info: &ItemInfo) -> String {
     let time = info
         .modified
         .map_or_else(|| crate::i18n::tr("unknown time"), |t| t.to_rfc3339());
-    crate::i18n::trf("{size}, {time}", &[("size", size.as_str()), ("time", time.as_str())])
+    crate::i18n::trf(
+        "{size}, {time}",
+        &[("size", size.as_str()), ("time", time.as_str())],
+    )
 }
 
 impl ConflictResolver for TerminalResolver {
@@ -62,7 +65,10 @@ impl ConflictResolver for TerminalResolver {
                 "\n{destination} already exists ({destination_info}); source {source} ({source_info}).\n[o]verwrite, [s]kip, [r]ename, [n]ewer only, [c]ancel; a capital letter applies to all remaining: ",
                 &[
                     ("destination", conflict.destination.as_str()),
-                    ("destination_info", describe(&conflict.destination_info).as_str()),
+                    (
+                        "destination_info",
+                        describe(&conflict.destination_info).as_str(),
+                    ),
                     ("source", conflict.source.as_str()),
                     ("source_info", describe(&conflict.source_info).as_str()),
                 ],
@@ -80,7 +86,12 @@ impl ConflictResolver for TerminalResolver {
                         .map(|n| (n, line))
                 })
                 .await
-                .map_err(|err| Error::Internal(crate::i18n::trf("reading the answer failed: {error}", &[("error", &err.to_string())])))?
+                .map_err(|err| {
+                    Error::Internal(crate::i18n::trf(
+                        "reading the answer failed: {error}",
+                        &[("error", &err.to_string())],
+                    ))
+                })?
                 .map_err(|err| Error::io(crate::i18n::tr("reading the answer"), err))?;
                 if line.0 == 0 {
                     return Err(Error::Cancelled);

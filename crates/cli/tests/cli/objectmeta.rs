@@ -92,7 +92,10 @@ async fn tag_set_merges_or_replaces_and_a_dry_run_writes_nothing() {
         &["tag", "set", "s3://bucket/a.txt", "env=prod", "--dry-run"],
     );
     dry.expect_code(0);
-    assert_eq!(dry.lines(), [trf("would tag {uri}", &[("uri", "s3://bucket/a.txt")])]);
+    assert_eq!(
+        dry.lines(),
+        [trf("would tag {uri}", &[("uri", "s3://bucket/a.txt")])]
+    );
     assert_eq!(store.object(BUCKET, "a.txt").unwrap().tags["env"], "dev");
     assert!(
         mock.requests().iter().all(|r| r.method != "PUT"),
@@ -130,7 +133,10 @@ async fn tag_set_merges_or_replaces_and_a_dry_run_writes_nothing() {
         &["tag", "set", "s3://bucket/a.txt", "env=prod"],
     );
     out.expect_code(0);
-    assert_eq!(out.lines(), [trf("unchanged {uri}", &[("uri", "s3://bucket/a.txt")])]);
+    assert_eq!(
+        out.lines(),
+        [trf("unchanged {uri}", &[("uri", "s3://bucket/a.txt")])]
+    );
 
     let out = bb_run(
         &mock,
@@ -138,7 +144,10 @@ async fn tag_set_merges_or_replaces_and_a_dry_run_writes_nothing() {
         &["tag", "set", "s3://bucket/a.txt", "only=this", "--replace"],
     );
     out.expect_code(0);
-    assert_eq!(out.lines(), [trf("tagged {uri}", &[("uri", "s3://bucket/a.txt")])]);
+    assert_eq!(
+        out.lines(),
+        [trf("tagged {uri}", &[("uri", "s3://bucket/a.txt")])]
+    );
     assert_eq!(
         store.object(BUCKET, "a.txt").unwrap().tags,
         [("only".to_owned(), "this".to_owned())]
@@ -185,7 +194,10 @@ async fn tag_delete_removes_the_named_tags_or_every_tag() {
     out.expect_code(0);
     assert_eq!(
         out.lines(),
-        [trf("removed tags from {uri}", &[("uri", "s3://bucket/a.txt")])]
+        [trf(
+            "removed tags from {uri}",
+            &[("uri", "s3://bucket/a.txt")]
+        )]
     );
     assert!(store.object(BUCKET, "a.txt").unwrap().tags.is_empty());
 }

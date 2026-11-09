@@ -58,7 +58,8 @@ async fn add_list_default_and_remove() {
         .await;
     out.expect_code(0);
     assert!(
-        out.stdout.starts_with(&trf("added account {label}", &[("label", "Work")])),
+        out.stdout
+            .starts_with(&trf("added account {label}", &[("label", "Work")])),
         "{}",
         out.stdout
     );
@@ -154,11 +155,7 @@ async fn add_list_default_and_remove() {
         .run(&["account", "remove", "home", "--account", "home"])
         .await;
     out.expect_code(1);
-    assert!(
-        out.stderr.contains(&tr("do not apply")),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains(&tr("do not apply")), "{}", out.stderr);
     bb.run(&["--mfa-code", "123456", "account", "list"])
         .await
         .expect_code(1);

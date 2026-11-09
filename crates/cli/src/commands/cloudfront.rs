@@ -81,12 +81,27 @@ fn details(distribution: &Distribution) -> String {
     let mut lines = vec![
         trf("id: {id}", &[("id", distribution.id.as_str())]),
         trf("arn: {arn}", &[("arn", distribution.arn.as_str())]),
-        trf("domain: {domain}", &[("domain", distribution.domain_name.as_str())]),
-        trf("status: {status}", &[("status", distribution.status.as_str())]),
+        trf(
+            "domain: {domain}",
+            &[("domain", distribution.domain_name.as_str())],
+        ),
+        trf(
+            "status: {status}",
+            &[("status", distribution.status.as_str())],
+        ),
         trf("state: {state}", &[("state", state(distribution.enabled))]),
-        trf("comment: {comment}", &[("comment", distribution.comment.as_str())]),
-        trf("price class: {price_class}", &[("price_class", distribution.price_class.as_str())]),
-        trf("last modified: {time}", &[("time", timestamp(distribution.last_modified).as_str())]),
+        trf(
+            "comment: {comment}",
+            &[("comment", distribution.comment.as_str())],
+        ),
+        trf(
+            "price class: {price_class}",
+            &[("price_class", distribution.price_class.as_str())],
+        ),
+        trf(
+            "last modified: {time}",
+            &[("time", timestamp(distribution.last_modified).as_str())],
+        ),
     ];
     if !distribution.aliases.is_empty() {
         lines.push(trf(
@@ -119,10 +134,7 @@ fn details(distribution: &Distribution) -> String {
             line.push_str(&origin.origin_path);
         }
         if let Some(bucket) = &origin.bucket {
-            line.push_str(&trf(
-                " (bucket {bucket}",
-                &[("bucket", bucket.as_str())],
-            ));
+            line.push_str(&trf(" (bucket {bucket}", &[("bucket", bucket.as_str())]));
             if origin.website {
                 line.push_str(&tr(", website endpoint"));
             }
@@ -235,10 +247,7 @@ async fn detach(
     out.change(&distribution, || {
         trf(
             "distribution {id} no longer serves bucket {bucket}",
-            &[
-                ("id", distribution.id.as_str()),
-                ("bucket", &args.bucket),
-            ],
+            &[("id", distribution.id.as_str()), ("bucket", &args.bucket)],
         )
     })
 }

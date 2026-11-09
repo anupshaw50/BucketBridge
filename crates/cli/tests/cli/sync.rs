@@ -110,7 +110,8 @@ fn sync_failed(failed: usize, total: usize) -> String {
     )
 }
 
-fn summary_record(out: &Output) -> Value {    let records = out.records();
+fn summary_record(out: &Output) -> Value {
+    let records = out.records();
     let last = records.last().expect("a summary record").clone();
     assert_eq!(last["type"], "summary", "{}", out.stdout);
     let summaries = records.iter().filter(|r| r["type"] == "summary").count();
@@ -605,10 +606,7 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
     let summary = summary_record(&out);
     assert_eq!(counts(&summary), [0, 0, 0, 1, 0]);
     assert!(summary["plan_id"].is_null());
-    assert_eq!(
-        out.error_record()["message"],
-        sync_failed(1, 1)
-    );
+    assert_eq!(out.error_record()["message"], sync_failed(1, 1));
     // No plan is stored (the listing cache may be written).
     assert!(!env.config.path().join("data").join("sync").exists());
 
@@ -622,10 +620,7 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
         ["conflict.txt failed -", "fresh.txt copy remote"]
     );
     assert_eq!(rows[1]["done"], true);
-    assert_eq!(
-        out.error_record()["message"],
-        sync_failed(1, 2)
-    );
+    assert_eq!(out.error_record()["message"], sync_failed(1, 2));
     assert_eq!(
         files(&dir),
         map(&[
@@ -640,15 +635,12 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
     let out = env.run(&args);
     out.expect_code(2);
     assert!(
-        out.stderr.contains(&format!("bb: {} conflict.txt", tr("cannot sync"))),
+        out.stderr
+            .contains(&format!("bb: {} conflict.txt", tr("cannot sync"))),
         "{}",
         out.stderr
     );
-    assert!(
-        out.stderr.contains("bb: error: "),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("bb: error: "), "{}", out.stderr);
     assert_eq!(
         out.stdout.trim(),
         format!(
@@ -665,7 +657,8 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
     let out = env.run(&with(&args, &["--dry-run"]));
     out.expect_code(2);
     assert!(
-        out.stderr.contains(&trf("cannot sync {path}", &[("path", "conflict.txt")])),
+        out.stderr
+            .contains(&trf("cannot sync {path}", &[("path", "conflict.txt")])),
     );
 }
 
@@ -805,14 +798,24 @@ async fn dry_runs_write_nothing() {
         trf(
             "would upload {source} to {destination}",
             &[
-                ("source", dir.join("only-local.txt").display().to_string().as_str()),
+                (
+                    "source",
+                    dir.join("only-local.txt").display().to_string().as_str(),
+                ),
                 ("destination", &format!("s3://{bucket}/p/only-local.txt")),
             ],
         ),
         trf(
             "would upload {source} to {destination}",
             &[
-                ("source", dir.join("sub").join("changed.txt").display().to_string().as_str()),
+                (
+                    "source",
+                    dir.join("sub")
+                        .join("changed.txt")
+                        .display()
+                        .to_string()
+                        .as_str(),
+                ),
                 ("destination", &format!("s3://{bucket}/p/sub/changed.txt")),
             ],
         ),
@@ -889,22 +892,20 @@ async fn an_unreadable_file_fails_its_row_and_the_others_complete() {
         )
     );
     assert!(
-        out.stderr.contains(&format!("bb: {} locked.txt", tr("cannot sync"))),
+        out.stderr
+            .contains(&format!("bb: {} locked.txt", tr("cannot sync"))),
         "{}",
         out.stderr
     );
-    assert!(
-        out.stderr.contains("bb: error: "),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("bb: error: "), "{}", out.stderr);
     // --quiet still reports failures.
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
     let out = env.run(&["sync", local, &prefix, "-q"]);
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
     out.expect_code(2);
     assert!(
-        out.stderr.contains(&trf("cannot sync {path}", &[("path", "locked.txt")])),
+        out.stderr
+            .contains(&trf("cannot sync {path}", &[("path", "locked.txt")])),
         "{}",
         out.stderr
     );
@@ -954,10 +955,7 @@ async fn a_row_that_fails_while_running_is_kept_for_resume() {
     assert_eq!(done, [false, true, true]);
     assert!(rows[0]["error"].as_str().is_some_and(|e| !e.is_empty()));
     assert!(rows[1]["error"].is_null());
-    assert_eq!(
-        out.error_record()["message"],
-        sync_failed(1, 3)
-    );
+    assert_eq!(out.error_record()["message"], sync_failed(1, 3));
     let summary = summary_record(&out);
     assert_eq!(counts(&summary), [0, 2, 0, 1, 0]);
     // The plan stays, so that --resume can try the row again.
@@ -974,13 +972,14 @@ async fn a_row_that_fails_while_running_is_kept_for_resume() {
     let human = env.run(&args);
     human.expect_code(2);
     assert!(
-        human.stderr.contains(&format!("bb: {}", tr("failed to download"))),
+        human
+            .stderr
+            .contains(&format!("bb: {}", tr("failed to download"))),
         "{}",
         human.stderr
     );
     assert!(
-        human.stderr.contains("bb sync --resume")
-            && human.stderr.contains(&tr("try again with: ")),
+        human.stderr.contains("bb sync --resume") && human.stderr.contains(&tr("try again with: ")),
         "{}",
         human.stderr
     );
@@ -1057,7 +1056,11 @@ async fn usage_errors_exit_with_1() {
         let out = run(bb(config.path()).args(&args));
         out.expect_code(1);
         assert!(out.stdout.is_empty(), "{args:?}");
-        assert!(out.stderr.contains(&tr(expected)), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(&tr(expected)),
+            "{args:?}: {}",
+            out.stderr
+        );
     }
 
     // Found by the analysis of the folder.
@@ -1177,11 +1180,7 @@ async fn resume_runs_the_rows_of_a_stored_plan_that_are_not_done() {
     // The plan is gone now.
     let out = env.run(&["sync", "--resume", &id]);
     out.expect_code(2);
-    assert!(
-        out.stderr.contains("does not exist"),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("does not exist"), "{}", out.stderr);
 }
 
 #[tokio::test]
@@ -1376,11 +1375,7 @@ async fn ctrl_c_stops_the_sync_and_resume_finishes_it() {
         .find(|line| line.contains("bb sync --resume"))
         .and_then(|line| line.rsplit(' ').next().map(str::to_owned));
 
-    assert!(
-        ended.stderr.contains("bb: error: "),
-        "{}",
-        ended.stderr
-    );
+    assert!(ended.stderr.contains("bb: error: "), "{}", ended.stderr);
     assert!(
         ended.stdout.contains(&tr("not done")),
         "the summary counts what is left: {}",

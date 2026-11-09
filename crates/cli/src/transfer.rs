@@ -93,8 +93,14 @@ impl Totals {
                 ("total", human_bytes(total).as_str()),
                 ("percent", percent.to_string().as_str()),
                 ("rate", human_bytes(rate).as_str()),
-                ("items_done", self.items_done.load(Ordering::Relaxed).to_string().as_str()),
-                ("items", self.items.load(Ordering::Relaxed).to_string().as_str()),
+                (
+                    "items_done",
+                    self.items_done.load(Ordering::Relaxed).to_string().as_str(),
+                ),
+                (
+                    "items",
+                    self.items.load(Ordering::Relaxed).to_string().as_str(),
+                ),
             ],
         )
     }
@@ -291,21 +297,17 @@ mod tests {
                 ],
             )
         );
-        assert!(
-            Totals::new(0, 0)
-                .line(Duration::ZERO)
-                .starts_with(&trf(
-                    "{done} of {total} ({percent}%), {rate}/s, {items_done} of {items} done",
-                    &[
-                        ("done", "0 B"),
-                        ("total", "0 B"),
-                        ("percent", "0"),
-                        ("rate", "0 B"),
-                        ("items_done", "0"),
-                        ("items", "0"),
-                    ],
-                ))
-        );
+        assert!(Totals::new(0, 0).line(Duration::ZERO).starts_with(&trf(
+            "{done} of {total} ({percent}%), {rate}/s, {items_done} of {items} done",
+            &[
+                ("done", "0 B"),
+                ("total", "0 B"),
+                ("percent", "0"),
+                ("rate", "0 B"),
+                ("items_done", "0"),
+                ("items", "0"),
+            ],
+        )));
     }
     #[test]
     fn unlimited_settings_do_not_throttle() {

@@ -129,20 +129,18 @@ pub(super) fn object_uri(bucket: &str, key: &str) -> String {
 
 /// Reads an SSE-C key from a file (32 raw bytes, 64 hex digits or base64).
 fn read_key(path: &Path, what: &str) -> Result<CustomerKey, Error> {
-    let bytes = Zeroizing::new(
-        std::fs::read(path).map_err(|err| {
-            Error::io(
-                trf(
-                    "reading the {what} {path}",
-                    &[
-                        ("what", tr(what).as_str()),
-                        ("path", path.display().to_string().as_str()),
-                    ],
-                ),
-                err,
-            )
-        })?,
-    );
+    let bytes = Zeroizing::new(std::fs::read(path).map_err(|err| {
+        Error::io(
+            trf(
+                "reading the {what} {path}",
+                &[
+                    ("what", tr(what).as_str()),
+                    ("path", path.display().to_string().as_str()),
+                ],
+            ),
+            err,
+        )
+    })?);
     CustomerKey::from_file_contents(&bytes).map_err(|err| {
         err.with_context(trf(
             "the {what} {path}",
@@ -676,7 +674,9 @@ pub async fn acl_set(ctx: &Context, args: &AclSetArgs, out: &mut Output) -> Resu
                 changed: change.changed,
                 error: change.error.clone(),
             };
-            let was = previous.map_or_else(String::new, |p| trf(" (was {previous})", &[("previous", p)]));
+            let was = previous.map_or_else(String::new, |p| {
+                trf(" (was {previous})", &[("previous", p)])
+            });
             let line = match (change.changed, args.dry_run) {
                 (true, true) => trf(
                     "would set the ACL of {uri} to {acl}{was}",

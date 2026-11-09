@@ -133,7 +133,10 @@ fn apply_flags(args: &SyncArgs, mut options: SyncOptions) -> Result<SyncOptions,
         let file = std::path::absolute(file).map_err(|err| {
             Error::Usage(trf(
                 "invalid exclusion file '{file}': {error}",
-                &[("file", &file.display().to_string()), ("error", &err.to_string())],
+                &[
+                    ("file", &file.display().to_string()),
+                    ("error", &err.to_string()),
+                ],
             ))
         })?;
         options.exclude.extend(rule_lines(&file)?);
@@ -321,7 +324,10 @@ async fn save_job(ctx: &Context, name: &str, spec: &Spec, out: &mut Output) -> R
         syncjobs::save(&store, job)
     })
     .await?;
-    out.notice(&trf("bb: saved sync job '{name}'", &[("name", &saved.name)]));
+    out.notice(&trf(
+        "bb: saved sync job '{name}'",
+        &[("name", &saved.name)],
+    ));
     Ok(())
 }
 
@@ -518,10 +524,9 @@ async fn execute(
         Ok(summary) => summary,
         Err(err) => {
             reporter.close();
-            return Err(
-                err.with_context(trf("sync plan {plan_id}", &[("plan_id", &plan_id)]))
-                    .into(),
-            );
+            return Err(err
+                .with_context(trf("sync plan {plan_id}", &[("plan_id", &plan_id)]))
+                .into());
         }
     };
     // A plan that ran to the end is not needed any more; one with failed or
@@ -658,11 +663,7 @@ impl Layout {
         let (local, remote) = (self.local(&row.rel_path), self.remote(&row.rel_path));
         let source = self.source_uri(&row.rel_path).unwrap_or_default();
         let template = |would: &'static str, done: &'static str| {
-            if dry_run {
-                would
-            } else {
-                done
-            }
+            if dry_run { would } else { done }
         };
         match self.operation(row) {
             Operation::Copy => trf(
@@ -670,7 +671,10 @@ impl Layout {
                     "would copy {source} to {destination}",
                     "copied {source} to {destination}",
                 ),
-                &[("source", source.as_str()), ("destination", remote.as_str())],
+                &[
+                    ("source", source.as_str()),
+                    ("destination", remote.as_str()),
+                ],
             ),
             Operation::Upload => trf(
                 template(
@@ -1193,7 +1197,10 @@ mod tests {
         let dst = "s3://bucket/backup/a/b.txt";
         assert_eq!(
             layout.success_line(&upload, false),
-            trf("uploaded {source} to {destination}", &[("source", src.as_str()), ("destination", dst)])
+            trf(
+                "uploaded {source} to {destination}",
+                &[("source", src.as_str()), ("destination", dst)]
+            )
         );
         assert_eq!(
             layout.success_line(&upload, true),
@@ -1213,12 +1220,18 @@ mod tests {
         let remote_delete = row("old.txt", SyncAction::Delete, Some(Side::Remote));
         assert_eq!(
             layout.success_line(&remote_delete, true),
-            trf("would delete {source}", &[("source", "s3://bucket/backup/old.txt")])
+            trf(
+                "would delete {source}",
+                &[("source", "s3://bucket/backup/old.txt")]
+            )
         );
         let local_delete = row("gone.txt", SyncAction::Delete, Some(Side::Local));
         assert_eq!(
             layout.success_line(&local_delete, false),
-            trf("deleted {source}", &[("source", local("gone.txt").as_str())])
+            trf(
+                "deleted {source}",
+                &[("source", local("gone.txt").as_str())]
+            )
         );
 
         let mut failed = upload;
@@ -1227,14 +1240,21 @@ mod tests {
             layout.failure_line(&failed),
             trf(
                 "failed to upload {source} to {destination}: {why}",
-                &[("source", src.as_str()), ("destination", dst), ("why", "access denied")]
+                &[
+                    ("source", src.as_str()),
+                    ("destination", dst),
+                    ("why", "access denied")
+                ]
             )
         );
         let mut unplanned = row("c.txt", SyncAction::Failed, None);
         unplanned.error = Some("cannot be read".to_owned());
         assert_eq!(
             layout.failure_line(&unplanned),
-            trf("cannot sync {path}: {why}", &[("path", "c.txt"), ("why", "cannot be read")])
+            trf(
+                "cannot sync {path}: {why}",
+                &[("path", "c.txt"), ("why", "cannot be read")]
+            )
         );
     }
 

@@ -83,7 +83,10 @@ pub async fn run(ctx: &Context, args: &ScanArgs, out: &mut Output) -> Result<(),
             out.row(&record, || {
                 trf(
                     "error    {bucket}  {message}",
-                    &[("bucket", &scan.bucket), ("message", error.message.as_str())],
+                    &[
+                        ("bucket", &scan.bucket),
+                        ("message", error.message.as_str()),
+                    ],
                 )
             })?;
         }

@@ -127,12 +127,10 @@ async fn lock_set_dry_run_sends_nothing_and_usage_errors_come_first() {
         "--dry-run",
     ]));
     out.expect_code(0);
-    assert!(
-        out.stdout.contains(&trf(
-            "would turn the legal hold of {uri} {word}",
-            &[("uri", "s3://b/k"), ("word", tr("on").as_str())]
-        ))
-    );
+    assert!(out.stdout.contains(&trf(
+        "would turn the legal hold of {uri} {word}",
+        &[("uri", "s3://b/k"), ("word", tr("on").as_str())]
+    )));
     assert!(mock.requests().iter().all(|r| r.method == "GET"));
 
     let before = mock.requests().len();

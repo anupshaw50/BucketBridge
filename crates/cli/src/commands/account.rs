@@ -119,9 +119,10 @@ async fn add(
     })
 }
 
-fn required(value: &Option<String>, flag: &str) -> Result<String> {    value.clone().ok_or_else(|| {
-        Error::Usage(trf("{flag} is required", &[("flag", flag)]))
-    })
+fn required(value: &Option<String>, flag: &str) -> Result<String> {
+    value
+        .clone()
+        .ok_or_else(|| Error::Usage(trf("{flag} is required", &[("flag", flag)])))
 }
 
 /// The assumed-role source of `bb account add --assume-role`.

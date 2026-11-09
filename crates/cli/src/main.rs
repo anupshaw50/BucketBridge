@@ -5,8 +5,8 @@ use std::io::Write;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use bucketbridge_cli::{Io, Secrets};
 use bucketbridge_cli::i18n::trf;
+use bucketbridge_cli::{Io, Secrets};
 use bucketbridge_core::ErrorKind;
 
 /// After a cancelled transfer, how long background clean-up (such as the
@@ -33,7 +33,10 @@ fn main() -> ExitCode {
             let _ = writeln!(
                 std::io::stderr(),
                 "{}",
-                trf("bb: error: starting the command: {error}", &[("error", &err.to_string())])
+                trf(
+                    "bb: error: starting the command: {error}",
+                    &[("error", &err.to_string())]
+                )
             );
             ExitCode::from(2)
         }
@@ -50,7 +53,10 @@ fn run_command() -> ExitCode {
             let _ = writeln!(
                 std::io::stderr(),
                 "{}",
-                trf("bb: error: starting the async runtime: {error}", &[("error", &err.to_string())])
+                trf(
+                    "bb: error: starting the async runtime: {error}",
+                    &[("error", &err.to_string())]
+                )
             );
             return ExitCode::from(2);
         }

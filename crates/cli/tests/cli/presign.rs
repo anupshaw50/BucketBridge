@@ -123,11 +123,7 @@ async fn invalid_durations_and_targets_are_usage_errors() {
         } else {
             tr("invalid duration")
         };
-        assert!(
-            out.stderr.contains(&reason),
-            "{expires:?}: {}",
-            out.stderr
-        );
+        assert!(out.stderr.contains(&reason), "{expires:?}: {}", out.stderr);
     }
     env.run(&["presign", "--expires", "-1h", &uri])
         .expect_code(1);
@@ -197,7 +193,11 @@ async fn shorten_is_off_unless_asked_and_needs_a_provider() {
         )
         .await;
     out.expect_code(1);
-    assert!(out.stderr.contains(&tr("no URL shortener")), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&tr("no URL shortener")),
+        "{}",
+        out.stderr
+    );
     assert!(server.requests().is_empty());
 }
 
@@ -217,7 +217,11 @@ async fn shorten_prints_the_short_link_and_says_where_it_went() {
         .await;
     out.expect_code(0);
     assert_eq!(out.stdout.trim(), "https://bit.example/q");
-    assert!(out.stderr.contains("Bitly") && out.stderr.contains(&tr("sent to")), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("Bitly") && out.stderr.contains(&tr("sent to")),
+        "{}",
+        out.stderr
+    );
     let requests = server.requests();
     assert_eq!(requests.len(), 1);
     assert!(requests[0].body_text().contains("X-Amz-Signature"));

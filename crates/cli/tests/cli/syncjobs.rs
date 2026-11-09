@@ -274,7 +274,7 @@ async fn s3_to_s3_usage_errors() {
     let nested = format!("s3://{bucket}/a/b");
     let out = env.run(&["sync", &a, &nested]).await;
     out.expect_code(1);
-        assert!(
+    assert!(
         out.stderr.contains("exclusion") || out.stderr.contains("contain each other"),
         "{}",
         out.stderr
@@ -352,7 +352,8 @@ async fn saved_jobs_are_created_listed_shown_run_and_deleted() {
         .await;
     out.expect_code(0);
     assert!(
-        out.stderr.contains(&trf("bb: saved sync job '{name}'", &[("name", "Nightly")])),
+        out.stderr
+            .contains(&trf("bb: saved sync job '{name}'", &[("name", "Nightly")])),
         "{}",
         out.stderr
     );
@@ -376,9 +377,24 @@ async fn saved_jobs_are_created_listed_shown_run_and_deleted() {
 
     let out = bb.run(&["sync", "jobs", "show", "nightly"]).await;
     out.expect_code(0);
-        assert!(out.stdout.contains(&trf("name: {name}", &[("name", "Nightly")])), "{}", out.stdout);
-        assert!(out.stdout.contains(&trf("exclude: {list}", &[("list", "*.tmp")])), "{}", out.stdout);
-        assert!(out.stdout.contains(&trf("parallelism: {count}", &[("count", "2")])), "{}", out.stdout);
+    assert!(
+        out.stdout
+            .contains(&trf("name: {name}", &[("name", "Nightly")])),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .contains(&trf("exclude: {list}", &[("list", "*.tmp")])),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .contains(&trf("parallelism: {count}", &[("count", "2")])),
+        "{}",
+        out.stdout
+    );
 
     // Run the job: a new file is picked up, the excluded one is not. The job needs
     // no --account.
@@ -423,7 +439,11 @@ async fn saved_jobs_are_created_listed_shown_run_and_deleted() {
         .run(&["sync", "jobs", "delete", "Nightly", "--yes"])
         .await;
     out.expect_code(0);
-        assert!(out.stdout.contains(&tr("deleted sync job")), "{}", out.stdout);
+    assert!(
+        out.stdout.contains(&tr("deleted sync job")),
+        "{}",
+        out.stdout
+    );
     assert!(bb.run(&["sync", "jobs", "list"]).await.stdout.is_empty());
 
     // A job that does not exist is an error, and the job commands take no account.

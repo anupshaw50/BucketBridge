@@ -322,7 +322,10 @@ pub async fn unlock(session: &Session, inputs: &Inputs) -> Result<()> {
     }
     let password = match inputs.env.get(env::MASTER_PASSWORD)? {
         Some(password) => SecretString::new(password),
-        None => match inputs.console.read_secret(&crate::i18n::tr("Master password: ")) {
+        None => match inputs
+            .console
+            .read_secret(&crate::i18n::tr("Master password: "))
+        {
             Ok(Some(password)) => SecretString::new(password),
             _ => return Err(Error::Locked),
         },

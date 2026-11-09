@@ -175,10 +175,7 @@ pub async fn lock_set(ctx: &Context, args: &LockSetArgs, out: &mut Output) -> Re
                             ("mode", objectlock::mode_name(mode)),
                             (
                                 "until",
-                                until
-                                    .format("%Y-%m-%dT%H:%M:%SZ")
-                                    .to_string()
-                                    .as_str(),
+                                until.format("%Y-%m-%dT%H:%M:%SZ").to_string().as_str(),
                             ),
                         ],
                     ),

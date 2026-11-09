@@ -135,14 +135,14 @@ async fn a_new_access_key_secret_is_printed_once_with_a_warning() {
 
     let out = run(&bb, &["iam", "keys", "create", "alice"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains(&trf(
-        "secret access key: {secret}",
-        &[("secret", SECRET)]
-    )));
-    assert!(out.stdout.contains(&trf(
-        "access key ID: {key_id}",
-        &[("key_id", KEY_ID)]
-    )));
+    assert!(
+        out.stdout
+            .contains(&trf("secret access key: {secret}", &[("secret", SECRET)]))
+    );
+    assert!(
+        out.stdout
+            .contains(&trf("access key ID: {key_id}", &[("key_id", KEY_ID)]))
+    );
     assert!(out.stderr.contains(&tr("shown only now")), "{}", out.stderr);
 
     // --quiet does not hide a secret; --json has it as a field and no warning.
@@ -357,7 +357,10 @@ async fn login_profiles() {
 
     let out = run(&bb, &["iam", "login-profile", "show", "alice"]).await;
     out.expect_code(0);
-    assert!(out.stdout.contains(&tr("must be changed at the next sign-in")));
+    assert!(
+        out.stdout
+            .contains(&tr("must be changed at the next sign-in"))
+    );
 }
 
 #[tokio::test]

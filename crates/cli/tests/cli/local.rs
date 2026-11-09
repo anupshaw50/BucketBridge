@@ -96,7 +96,10 @@ async fn single_files_go_up_and_down() {
             "downloaded {source} to {destination}",
             &[
                 ("source", &format!("s3://{bucket}/docs/renamed.txt")),
-                ("destination", &Path::new("in").join("renamed.txt").display().to_string()),
+                (
+                    "destination",
+                    &Path::new("in").join("renamed.txt").display().to_string()
+                ),
             ],
         )
     );
@@ -315,14 +318,24 @@ async fn dry_runs_write_nothing() {
                 "would download {source} to {destination}",
                 &[
                     ("source", &format!("s3://{bucket}/remote/")),
-                    ("destination", &Path::new("out").join("remote").display().to_string()),
+                    (
+                        "destination",
+                        &Path::new("out").join("remote").display().to_string()
+                    ),
                 ],
             ),
             trf(
                 "would download {source} to {destination}",
                 &[
                     ("source", &format!("s3://{bucket}/remote/r.txt")),
-                    ("destination", &Path::new("out").join("remote").join("r.txt").display().to_string()),
+                    (
+                        "destination",
+                        &Path::new("out")
+                            .join("remote")
+                            .join("r.txt")
+                            .display()
+                            .to_string()
+                    ),
                 ],
             )
         )
@@ -482,8 +495,10 @@ async fn unreadable_files_are_reported_and_the_rest_is_transferred() {
     // The summary of an I/O failure carries the first one's cause.
     let message = out.error_record()["message"].as_str().unwrap().to_owned();
     assert!(
-        message.starts_with(&format!("{}: ", batch_summary(1, 5, "files", "could not be uploaded")))
-            && message.contains("c.jpg"),
+        message.starts_with(&format!(
+            "{}: ",
+            batch_summary(1, 5, "files", "could not be uploaded")
+        )) && message.contains("c.jpg"),
         "{message}"
     );
     assert_eq!(env.keys(&bucket).await.len(), 3);
@@ -502,10 +517,11 @@ async fn unreadable_files_are_reported_and_the_rest_is_transferred() {
         out.stderr
     );
     assert!(
-        out.stderr
-            .contains("bb: error: ")
-            && out.stderr
-                .contains(&format!("{}: ", batch_summary(1, 5, "files", "could not be uploaded"))),
+        out.stderr.contains("bb: error: ")
+            && out.stderr.contains(&format!(
+                "{}: ",
+                batch_summary(1, 5, "files", "could not be uploaded")
+            )),
         "{}",
         out.stderr
     );
@@ -533,7 +549,11 @@ async fn usage_errors_and_missing_sources() {
         args = fixed.iter().map(String::as_str).collect();
         let out = env.run_in(dir, &args);
         out.expect_code(code);
-        assert!(out.stderr.contains(&tr(expected)), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(&tr(expected)),
+            "{args:?}: {}",
+            out.stderr
+        );
     }
     // A file where a folder is needed.
     fs::write(dir.join("file"), "x").unwrap();

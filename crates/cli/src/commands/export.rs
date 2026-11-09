@@ -54,10 +54,7 @@ fn line(record: &ExportRecord) -> String {
     let rows = if record.rows == 1 {
         tr("1 row")
     } else {
-        trf(
-            "{rows} rows",
-            &[("rows", record.rows.to_string().as_str())],
-        )
+        trf("{rows} rows", &[("rows", record.rows.to_string().as_str())])
     };
     trf(
         "exported {rows} from {source} to {file} ({format}, {bytes} bytes)",
@@ -99,7 +96,10 @@ mod tests {
                 ],
             )
         };
-        assert_eq!(line(&record), expected(&trf("{rows} rows", &[("rows", "12")]), 345));
+        assert_eq!(
+            line(&record),
+            expected(&trf("{rows} rows", &[("rows", "12")]), 345)
+        );
         record.rows = 1;
         assert_eq!(line(&record), expected(&tr("1 row"), 345));
     }

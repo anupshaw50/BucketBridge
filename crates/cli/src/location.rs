@@ -104,7 +104,10 @@ pub fn check_recursive_pair(src: &S3Uri, dst: &S3Uri) -> Result<()> {
     if dst_prefix == parent_prefix(src.key()) {
         return Err(Error::Usage(crate::i18n::trf(
             "copying {source} to {destination} would put every object onto itself",
-            &[("source", &src.to_string()), ("destination", &dst.to_string())],
+            &[
+                ("source", &src.to_string()),
+                ("destination", &dst.to_string()),
+            ],
         )));
     }
     if dst_prefix.starts_with(src.key()) {
@@ -221,9 +224,7 @@ mod tests {
             )
         );
         assert_eq!(
-            check("s3://b/", "s3://b/")
-                .unwrap_err()
-                .to_string(),
+            check("s3://b/", "s3://b/").unwrap_err().to_string(),
             crate::i18n::trf(
                 "copying {source} to {destination} would put every object onto itself",
                 &[("source", "s3://b/"), ("destination", "s3://b/")],
@@ -242,9 +243,7 @@ mod tests {
             )
         );
         assert_eq!(
-            check("s3://b/", "s3://b/copy/")
-                .unwrap_err()
-                .to_string(),
+            check("s3://b/", "s3://b/copy/").unwrap_err().to_string(),
             crate::i18n::trf(
                 "the destination {destination} is inside the source {source}",
                 &[("destination", "s3://b/copy/"), ("source", "s3://b/")],

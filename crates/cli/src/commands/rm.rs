@@ -181,7 +181,11 @@ async fn delete_keys(
                 batch.failed(error.code, error.message.clone());
                 let message = trf(
                     "failed to delete s3://{bucket}/{key}: {message}",
-                    &[("bucket", bucket), ("key", key), ("message", &error.message)],
+                    &[
+                        ("bucket", bucket),
+                        ("key", key),
+                        ("message", &error.message),
+                    ],
                 );
                 record.error = Some(error);
                 out.item_failed(&record, || message)?;
@@ -260,7 +264,9 @@ async fn delete_versions(
         }
     }
     if !found && !recursive {
-        return Err(Error::NotFound(trf("{uri} has no versions", &[("uri", &uri.to_string())])).into());
+        return Err(
+            Error::NotFound(trf("{uri} has no versions", &[("uri", &uri.to_string())])).into(),
+        );
     }
     batch.finish("versions", "could not be deleted")
 }
@@ -272,7 +278,13 @@ mod tests {
 
     #[test]
     fn lines() {
-        assert_eq!(line("b", "k", None, false), trf("deleted s3://{bucket}/{key}", &[("bucket", "b"), ("key", "k")]));
+        assert_eq!(
+            line("b", "k", None, false),
+            trf(
+                "deleted s3://{bucket}/{key}",
+                &[("bucket", "b"), ("key", "k")]
+            )
+        );
         assert_eq!(
             line("b", "k", Some("v1"), true),
             trf(

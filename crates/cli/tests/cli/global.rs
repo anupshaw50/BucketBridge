@@ -3,8 +3,8 @@
 
 use std::process::Stdio;
 
-use bucketbridge_cli::i18n::{tr, trf};
 use super::*;
+use bucketbridge_cli::i18n::{tr, trf};
 
 #[test]
 fn help_and_version_exit_with_0() {

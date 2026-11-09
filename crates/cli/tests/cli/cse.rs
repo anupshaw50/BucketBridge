@@ -357,11 +357,7 @@ async fn encrypt_and_decrypt_rewrite_objects_in_place() {
         ],
     );
     out.expect_code(0);
-    assert!(
-        out.stdout.contains(&tr("skipped s3://")),
-        "{}",
-        out.stdout
-    );
+    assert!(out.stdout.contains(&tr("skipped s3://")), "{}", out.stdout);
     assert!(is_envelope(&env.s3.get(&bucket, "docs/b.txt").await));
 
     let out = run_with(&env, "wrong", &["decrypt", &a]);

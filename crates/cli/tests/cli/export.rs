@@ -66,7 +66,10 @@ async fn one_folder_level_or_everything_below_the_prefix() {
                 ("source", &format!("s3://{bucket}/")),
                 ("file", file_arg),
                 ("format", "csv"),
-                ("bytes", std::fs::metadata(&file).unwrap().len().to_string().as_str()),
+                (
+                    "bytes",
+                    std::fs::metadata(&file).unwrap().len().to_string().as_str()
+                ),
             ],
         )
     );

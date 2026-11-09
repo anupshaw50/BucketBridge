@@ -129,12 +129,8 @@ fn needs_recursive_folder(verb: &str, path: &str) -> String {
 /// Reports an expansion conflict: `nothing was <past>`, per verb.
 fn cannot_template(verb: &str, source: &str, message: &str, more: &str, past: &str) -> String {
     let full = match verb {
-        "upload" => {
-            "cannot upload {source}: {message}{more}; nothing was uploaded"
-        }
-        "download" => {
-            "cannot download {source}: {message}{more}; nothing was downloaded"
-        }
+        "upload" => "cannot upload {source}: {message}{more}; nothing was uploaded",
+        "download" => "cannot download {source}: {message}{more}; nothing was downloaded",
         "copy" => "cannot copy {source}: {message}{more}; nothing was copied",
         _ => "cannot move {source}: {message}{more}; nothing was moved",
     };
@@ -173,9 +169,9 @@ fn route(args: &CopyArgs) -> Result<Route<'_>> {
         (Location::Local(path), Location::S3(dst)) => Ok(Route::Upload { path, dst }),
         (Location::S3(src), Location::Local(path)) => Ok(Route::Download { src, path }),
         (Location::S3(src), Location::S3(dst)) => Ok(Route::Copy { src, dst }),
-        (Location::Local(_), Location::Local(_)) => Err(Error::Usage(
-            crate::i18n::tr("both locations are local paths; bb uploads files to S3, downloads objects from S3 and copies objects between S3 locations"),
-        )),
+        (Location::Local(_), Location::Local(_)) => Err(Error::Usage(crate::i18n::tr(
+            "both locations are local paths; bb uploads files to S3, downloads objects from S3 and copies objects between S3 locations",
+        ))),
     }
 }
 
@@ -279,7 +275,8 @@ impl CseOp {
 }
 
 /// Refuses a local file that already holds an encrypted envelope.
-async fn refuse_encrypted(path: &Path) -> Result<()> {    let file = path.to_path_buf();
+async fn refuse_encrypted(path: &Path) -> Result<()> {
+    let file = path.to_path_buf();
     let head = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
         use std::io::Read;
         let mut head = Vec::with_capacity(cse::HEADER_LEN);
@@ -638,8 +635,11 @@ impl Planner<'_> {
                 .next()
                 .map(|item| item.path)
                 .ok_or_else(|| {
-                Error::Internal(trf("no download was planned for {source}", &[("source", &src.to_string())]))
-            })?
+                    Error::Internal(trf(
+                        "no download was planned for {source}",
+                        &[("source", &src.to_string())],
+                    ))
+                })?
         } else {
             path.to_path_buf()
         };
@@ -658,14 +658,15 @@ impl Planner<'_> {
     async fn download_prefix(&self, src: &S3Uri, path: &Path) -> Result<Plan> {
         if let Ok(metadata) = tokio::fs::metadata(path).await
             && !metadata.is_dir()
-        {        return Err(Error::Usage(trf(
-            if self.mode == Mode::Move {
-                "'{path}' is a file; a recursive move needs a folder to put the objects in"
-            } else {
-                "'{path}' is a file; a recursive download needs a folder to put the objects in"
-            },
-            &[("path", &path.display().to_string())],
-        )));
+        {
+            return Err(Error::Usage(trf(
+                if self.mode == Mode::Move {
+                    "'{path}' is a file; a recursive move needs a folder to put the objects in"
+                } else {
+                    "'{path}' is a file; a recursive download needs a folder to put the objects in"
+                },
+                &[("path", &path.display().to_string())],
+            )));
         }
         let keys = if src.is_bucket_root() {
             top_level_keys(self.engine.s3(), src.bucket()).await?
@@ -825,14 +826,12 @@ impl Planner<'_> {
 
 /// Metadata of a local source; a missing path is an `io` error.
 async fn local_metadata(path: &Path) -> Result<std::fs::Metadata> {
-    tokio::fs::metadata(path)
-        .await
-        .map_err(|err| {
-            Error::io(
-                trf("reading '{path}'", &[("path", &path.display().to_string())]),
-                err,
-            )
-        })
+    tokio::fs::metadata(path).await.map_err(|err| {
+        Error::io(
+            trf("reading '{path}'", &[("path", &path.display().to_string())]),
+            err,
+        )
+    })
 }
 
 async fn is_local_dir(path: &Path) -> bool {
@@ -864,14 +863,12 @@ async fn named(path: &Path) -> Result<PathBuf> {
     if path.file_name().is_some() {
         return Ok(path.to_path_buf());
     }
-    let resolved = tokio::fs::canonicalize(path)
-        .await
-        .map_err(|err| {
-            Error::io(
-                trf("reading '{path}'", &[("path", &path.display().to_string())]),
-                err,
-            )
-        })?;
+    let resolved = tokio::fs::canonicalize(path).await.map_err(|err| {
+        Error::io(
+            trf("reading '{path}'", &[("path", &path.display().to_string())]),
+            err,
+        )
+    })?;
     utf8_name(&resolved)?;
     Ok(resolved)
 }
@@ -1158,7 +1155,8 @@ impl<'o> Report<'o> {
 
     fn finish(self) -> std::result::Result<(), Failure> {
         let (mode, direction) = (self.mode, self.direction);
-        self.close()?.finish(direction.noun(), &past_failure(mode, direction))
+        self.close()?
+            .finish(direction.noun(), &past_failure(mode, direction))
     }
 }
 
@@ -1509,7 +1507,10 @@ impl Runner<'_> {
             verify_copy(&before, &after).map_err(|err| {
                 err.with_context(trf(
                     "the source {source} was kept because the copy {landed} could not be verified",
-                    &[("source", &src.to_string()), ("landed", &landed.to_string())],
+                    &[
+                        ("source", &src.to_string()),
+                        ("landed", &landed.to_string()),
+                    ],
                 ))
             })?;
         }
@@ -1529,7 +1530,10 @@ impl Runner<'_> {
                 };
                 removed.map_err(|err| {
                     Error::io(
-                        trf("deleting '{path}'", &[("path", &path.display().to_string())]),
+                        trf(
+                            "deleting '{path}'",
+                            &[("path", &path.display().to_string())],
+                        ),
                         err,
                     )
                 })
@@ -1587,19 +1591,37 @@ mod tests {
         // The values are data; the expectations go through the same
         // templates as the code and hold in both languages.
         for (mode, direction, dry_run, template) in [
-            (Mode::Copy, Direction::Copy, false, "copied {source} to {destination}"),
-            (Mode::Move, Direction::Upload, true, "would move {source} to {destination}"),
+            (
+                Mode::Copy,
+                Direction::Copy,
+                false,
+                "copied {source} to {destination}",
+            ),
+            (
+                Mode::Move,
+                Direction::Upload,
+                true,
+                "would move {source} to {destination}",
+            ),
             (
                 Mode::Copy,
                 Direction::Download,
                 true,
                 "would download {source} to {destination}",
             ),
-            (Mode::Copy, Direction::Upload, false, "uploaded {source} to {destination}"),
+            (
+                Mode::Copy,
+                Direction::Upload,
+                false,
+                "uploaded {source} to {destination}",
+            ),
         ] {
             assert_eq!(
                 done_line(mode, direction, &record(dry_run)),
-                trf(template, &[("source", "s3://a/k"), ("destination", "s3://b/k")])
+                trf(
+                    template,
+                    &[("source", "s3://a/k"), ("destination", "s3://b/k")]
+                )
             );
         }
         assert_eq!(Direction::Upload.noun(), "files");

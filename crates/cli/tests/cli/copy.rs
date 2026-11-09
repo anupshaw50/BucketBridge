@@ -32,10 +32,13 @@ async fn cp_copies_one_object_to_an_exact_key_or_into_a_prefix() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        trf("copied {source} to {destination}", &[
-            ("source", &format!("s3://{src}/photos/2024/a.jpg")),
-            ("destination", &format!("s3://{dst}/renamed.jpg")),
-        ])
+        trf(
+            "copied {source} to {destination}",
+            &[
+                ("source", &format!("s3://{src}/photos/2024/a.jpg")),
+                ("destination", &format!("s3://{dst}/renamed.jpg")),
+            ]
+        )
     );
     assert_eq!(env.s3.get(&dst, "renamed.jpg").await, b"photos/2024/a.jpg");
 
@@ -177,10 +180,13 @@ async fn dry_run_writes_nothing() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        trf("would move {source} to {destination}", &[
-            ("source", &format!("s3://{src}/photos/2025/e.jpg")),
-            ("destination", &format!("s3://{dst}/e.jpg")),
-        ])
+        trf(
+            "would move {source} to {destination}",
+            &[
+                ("source", &format!("s3://{src}/photos/2025/e.jpg")),
+                ("destination", &format!("s3://{dst}/e.jpg")),
+            ]
+        )
     );
     assert!(env.keys(&dst).await.is_empty());
     assert_eq!(env.keys(&src).await.len(), 5);
@@ -345,7 +351,11 @@ async fn invalid_copies_are_usage_errors() {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = env.run(&args);
         out.expect_code(1);
-        assert!(out.stderr.contains(expected.as_str()), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(expected.as_str()),
+            "{args:?}: {}",
+            out.stderr
+        );
     }
     assert!(env.keys(&dst).await.is_empty());
     assert_eq!(env.keys(&src).await.len(), 5);

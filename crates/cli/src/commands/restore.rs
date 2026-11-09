@@ -75,7 +75,12 @@ mod tests {
             line(&record),
             trf(
                 "restored version {version} of s3://{bucket}/{key} (new version {new_version})",
-                &[("version", "v1"), ("bucket", "b"), ("key", "k"), ("new_version", "v9")]
+                &[
+                    ("version", "v1"),
+                    ("bucket", "b"),
+                    ("key", "k"),
+                    ("new_version", "v9")
+                ]
             )
         );
         record.version_id = None;

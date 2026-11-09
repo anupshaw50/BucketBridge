@@ -1438,9 +1438,7 @@ fn parse_until(text: &str) -> Result<DateTime<Utc>, String> {
 fn parse_tag(text: &str) -> Result<(String, String), String> {
     let (key, value) = text
         .split_once('=')
-        .ok_or_else(|| {
-            crate::i18n::trf("'{text}' is not KEY=VALUE", &[("text", text)])
-        })?;
+        .ok_or_else(|| crate::i18n::trf("'{text}' is not KEY=VALUE", &[("text", text)]))?;
     validate_tag(key, value).map_err(|err| err.to_string())?;
     Ok((key.to_owned(), value.to_owned()))
 }
@@ -1537,8 +1535,8 @@ mod tests {
         // translated command like `run` does.
         let mut command = Cli::command();
         translate_command(&mut command);
-        let matches = command
-            .try_get_matches_from(std::iter::once("bb").chain(args.iter().copied()))?;
+        let matches =
+            command.try_get_matches_from(std::iter::once("bb").chain(args.iter().copied()))?;
         let cli = Cli::from_arg_matches(&matches)?;
         Ok((cli, matches))
     }

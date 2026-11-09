@@ -286,10 +286,8 @@ async fn an_assumed_role_signs_with_the_role_session() {
     .await;
     out.expect_code(0);
     assert!(
-        out.stdout.starts_with(&trf(
-            "added account {label}",
-            &[("label", "Role")],
-        )),
+        out.stdout
+            .starts_with(&trf("added account {label}", &[("label", "Role")],)),
         "{}",
         out.stdout
     );
@@ -448,11 +446,7 @@ async fn the_instance_role_is_probed_and_signs_requests() {
         ])
         .await;
     out.expect_code(0);
-    assert!(
-        out.stderr.contains(&tr("found the role")),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains(&tr("found the role")), "{}", out.stderr);
     let out = bb.run(&["--account", "Box", "ls"]).await;
     out.expect_code(0);
     assert_eq!(out.lines(), [bucket.as_str()]);
@@ -633,11 +627,7 @@ async fn sso_sign_in_then_use_an_account() {
         .await;
     out.expect_code(0);
     assert!(out.stdout.contains("ABCD-EFGH"), "{}", out.stdout);
-    assert!(
-        out.stdout.contains(&tr("signed in to")),
-        "{}",
-        out.stdout
-    );
+    assert!(out.stdout.contains(&tr("signed in to")), "{}", out.stdout);
     let cache = bucketbridge_core::creds::sso::CacheKey::new(START_URL, Some("corp"))
         .path(files.sso_cache());
     let cached = std::fs::read_to_string(&cache).unwrap();

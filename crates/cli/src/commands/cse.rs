@@ -53,7 +53,10 @@ pub fn password(
     let text = if let Some(path) = file {
         let content = std::fs::read_to_string(path).map_err(|err| {
             Error::io(
-                trf("reading the password file '{path}'", &[("path", &path.display().to_string())]),
+                trf(
+                    "reading the password file '{path}'",
+                    &[("path", &path.display().to_string())],
+                ),
                 err,
             )
         })?;
@@ -69,7 +72,10 @@ pub fn password(
             )));
         };
         if confirm {
-            match inputs.console.read_secret(&tr("Confirm encryption password: ")) {
+            match inputs
+                .console
+                .read_secret(&tr("Confirm encryption password: "))
+            {
                 Ok(Some(again)) if again == first => {}
                 _ => return Err(Error::Usage(tr("the two passwords differ"))),
             }

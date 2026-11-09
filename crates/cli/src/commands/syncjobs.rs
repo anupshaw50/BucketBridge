@@ -108,16 +108,28 @@ fn details(job: &SyncJob) -> String {
         trf("name: {name}", &[("name", &job.name)]),
         trf("id: {id}", &[("id", &job.id)]),
         trf("account: {account}", &[("account", &job.account_id)]),
-        trf("direction: {direction}", &[("direction", direction_name(job.direction))]),
+        trf(
+            "direction: {direction}",
+            &[("direction", direction_name(job.direction))],
+        ),
         trf("from: {from}", &[("from", from_side(job))]),
         trf("to: {to}", &[("to", &job.s3_prefix)]),
-        trf("delete: {flag}", &[("flag", job.delete.to_string().as_str())]),
+        trf(
+            "delete: {flag}",
+            &[("flag", job.delete.to_string().as_str())],
+        ),
     ];
     if !options.include.is_empty() {
-        lines.push(trf("include: {list}", &[("list", options.include.join(", ").as_str())]));
+        lines.push(trf(
+            "include: {list}",
+            &[("list", options.include.join(", ").as_str())],
+        ));
     }
     if !options.exclude.is_empty() {
-        lines.push(trf("exclude: {list}", &[("list", options.exclude.join(", ").as_str())]));
+        lines.push(trf(
+            "exclude: {list}",
+            &[("list", options.exclude.join(", ").as_str())],
+        ));
     }
     if let Some(file) = &options.exclude_file {
         lines.push(trf("exclude file: {file}", &[("file", file)]));
@@ -130,7 +142,10 @@ fn details(job: &SyncJob) -> String {
         "skip duplicate content: {flag}",
         &[("flag", options.skip_duplicate_content.to_string().as_str())],
     ));
-    lines.push(trf("use cache: {flag}", &[("flag", options.use_cache.to_string().as_str())]));
+    lines.push(trf(
+        "use cache: {flag}",
+        &[("flag", options.use_cache.to_string().as_str())],
+    ));
     lines.push(trf(
         "parallelism: {count}",
         &[("count", options.parallelism.to_string().as_str())],

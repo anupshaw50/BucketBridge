@@ -80,11 +80,17 @@ fn check(command: &IamCommand) -> Result<()> {
         ),
         IamCommand::Inline(IamInlineCommand::Delete(args)) => (
             args.yes,
-            trf("deleting the inline policy {policy}", &[("policy", &args.policy)]),
+            trf(
+                "deleting the inline policy {policy}",
+                &[("policy", &args.policy)],
+            ),
         ),
         IamCommand::LoginProfile(IamLoginProfileCommand::Delete(args)) => (
             args.yes,
-            trf("removing the console password of {name}", &[("name", &args.name)]),
+            trf(
+                "removing the console password of {name}",
+                &[("name", &args.name)],
+            ),
         ),
         _ => return Ok(()),
     };
@@ -169,7 +175,10 @@ async fn user(
             }
             out.change(&outcome, || {
                 if outcome.deleted {
-                    trf("deleted user {name}", &[("name", outcome.user_name.as_str())])
+                    trf(
+                        "deleted user {name}",
+                        &[("name", outcome.user_name.as_str())],
+                    )
                 } else {
                     trf(
                         "did not delete user {name}",
@@ -207,10 +216,9 @@ fn section_lines<T>(
                 all.extend(rows.into_iter().map(|row| format!("  {row}")));
             }
         }
-        Section::Unsupported { message } => all.push(trf(
-            "  (not available: {message})",
-            &[("message", message)],
-        )),
+        Section::Unsupported { message } => {
+            all.push(trf("  (not available: {message})", &[("message", message)]))
+        }
         Section::Failed { error } => all.push(trf(
             "  (could not be read: {message})",
             &[("message", error.message.as_str())],
@@ -225,8 +233,14 @@ fn details_text(details: &UserDetails) -> String {
         trf("user: {name}", &[("name", user.name.as_str())]),
         trf("arn: {arn}", &[("arn", user.arn.as_str())]),
         trf("path: {path}", &[("path", user.path.as_str())]),
-        trf("created: {time}", &[("time", timestamp(user.created).as_str())]),
-        trf("password last used: {time}", &[("time", timestamp(user.password_last_used).as_str())]),
+        trf(
+            "created: {time}",
+            &[("time", timestamp(user.created).as_str())],
+        ),
+        trf(
+            "password last used: {time}",
+            &[("time", timestamp(user.password_last_used).as_str())],
+        ),
     ];
     lines.extend(section_lines(
         "managed policies",
@@ -590,9 +604,10 @@ async fn login_profile(
                 password_reset_required: profile.as_ref().map(|p| p.password_reset_required),
             };
             out.row(&record, || match &profile {
-                Some(profile) => {
-                    trf("{name}: {what}", &[("name", &args.name), ("what", login_text(profile).as_str())])
-                }
+                Some(profile) => trf(
+                    "{name}: {what}",
+                    &[("name", &args.name), ("what", login_text(profile).as_str())],
+                ),
                 None => trf("{name}: no console password", &[("name", &args.name)]),
             })
         }
@@ -667,11 +682,15 @@ fn report_password(
             trf(
                 "{verb} the console password of {user}",
                 &[
-                    ("verb", tr(match action {
-                        "created" => "created",
-                        "updated" => "updated",
-                        _ => "removed",
-                    }).as_str()),
+                    (
+                        "verb",
+                        tr(match action {
+                            "created" => "created",
+                            "updated" => "updated",
+                            _ => "removed",
+                        })
+                        .as_str(),
+                    ),
                     ("user", user),
                 ],
             )
@@ -689,11 +708,15 @@ fn report_password(
         trf(
             "{verb} the console password of {user}\npassword: {password}",
             &[
-                ("verb", tr(match action {
-                    "created" => "created",
-                    "updated" => "updated",
-                    _ => "removed",
-                }).as_str()),
+                (
+                    "verb",
+                    tr(match action {
+                        "created" => "created",
+                        "updated" => "updated",
+                        _ => "removed",
+                    })
+                    .as_str(),
+                ),
                 ("user", user),
                 ("password", password.expose()),
             ],
@@ -831,7 +854,10 @@ fn validate_policy(
                 .iter()
                 .map(|issue| {
                     if issue.path.is_empty() {
-                        trf("{name}: {message}", &[("name", &name), ("message", issue.message.as_str())])
+                        trf(
+                            "{name}: {message}",
+                            &[("name", &name), ("message", issue.message.as_str())],
+                        )
                     } else {
                         trf(
                             "{name}: {path}: {message}",

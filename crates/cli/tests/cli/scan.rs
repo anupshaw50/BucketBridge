@@ -26,7 +26,8 @@ async fn scan_lists_findings_and_never_fails_for_a_skipped_check() {
     let out = env.run(&["scan", "--bucket", &bucket]);
     out.expect_code(0);
     assert!(
-        out.stderr.contains(&trf("{scanned} buckets scanned", &[("scanned", "1")])),
+        out.stderr
+            .contains(&trf("{scanned} buckets scanned", &[("scanned", "1")])),
         "{}",
         out.stderr
     );
