@@ -1,6 +1,6 @@
 cask "bucketbridge" do
-  version "0.2.0"
-  sha256 "9b7baee49749963d01db37a5bb9aa6d81452260762c287e0930067743b3eb069"
+  version "0.3.0"
+  sha256 "14e064b159a36c0920f02d35725fba0eccaeaa412aed34cde97d4bd191d2489b"
 
   url "https://github.com/anupshaw50/BucketBridge/releases/download/v#{version}/BucketBridge_#{version}_macos_universal.dmg"
   name "BucketBridge"

@@ -1,0 +1,21 @@
+PackageIdentifier: AnupShaw.bb
+PackageVersion: 0.3.0
+PackageLocale: en-US
+Publisher: Anup Shaw
+PublisherUrl: https://github.com/anupshaw50
+PublisherSupportUrl: https://github.com/anupshaw50/BucketBridge/issues
+PackageName: bb
+PackageUrl: https://github.com/anupshaw50/BucketBridge
+License: GPL-3.0-only
+LicenseUrl: https://github.com/anupshaw50/BucketBridge/blob/main/LICENSE
+ShortDescription: Command line client for S3 and S3-compatible object storage
+Description: BucketBridge is an open-source desktop client for S3 and S3-compatible object storage. Browse buckets, move files and folders through a resumable transfer queue, and keep local folders in sync. It sends no telemetry.
+Tags:
+- s3
+- object-storage
+- cli
+- sync
+- open-source
+ReleaseNotesUrl: https://github.com/anupshaw50/BucketBridge/releases/tag/v0.3.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
