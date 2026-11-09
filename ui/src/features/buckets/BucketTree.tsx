@@ -1,17 +1,35 @@
-import { ActionIcon, Alert, Badge, Button, Group, Loader, Skeleton, Stack, Text, Tooltip } from "@mantine/core";
+import {
+  ActionIcon,
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Loader,
+  NativeSelect,
+  Popover,
+  Skeleton,
+  Stack,
+  Text,
+  TextInput,
+  Tooltip,
+} from "@mantine/core";
 import {
   IconAlertCircle,
   IconBucket,
   IconChevronDown,
   IconChevronRight,
+  IconFilter,
   IconFolder,
   IconLock,
   IconPlugConnected,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { bucketRegions, EMPTY_BUCKET_FILTER, filterBuckets, hasBucketFilter } from "../../lib/buckets";
+import { formatCount } from "../../lib/format";
 import type { Bucket, BucketKind } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { tr } from "../../i18n";
@@ -44,7 +62,7 @@ type TreeRow =
   | { type: "error"; id: string; level: number; bucket: string; prefix: string; message: string; more: boolean }
   | { type: "more"; id: string; level: number; bucket: string; prefix: string; busy: boolean };
 
-function buildRows(state: BrowserState): TreeRow[] {
+function buildRows(state: BrowserState, buckets: readonly Bucket[]): TreeRow[] {
   const rows: TreeRow[] = [];
   const addChildren = (bucket: string, prefix: string, level: number) => {
     const key = treeKey(bucket, prefix);
@@ -83,7 +101,7 @@ function buildRows(state: BrowserState): TreeRow[] {
       rows.push({ type: "error", id: `${key}:more-error`, level, bucket, prefix, message: node.error, more: true });
     }
   };
-  for (const bucket of state.bucketList.buckets) {
+  for (const bucket of buckets) {
     const key = treeKey(bucket.name, "");
     const node = state.tree[key];
     const knownEmpty = node?.status === "ready" && node.prefixes.length === 0 && node.nextToken === null;
@@ -175,7 +193,14 @@ export function BucketTree() {
   // Buckets picked together with Ctrl (Cmd on macOS) click; a menu on them acts on all of them.
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const markedBuckets = browser.bucketList.buckets.filter((bucket) => marked.has(bucket.name));
-  const rows = buildRows(browser);
+  const pageSize = useSlice(model.settings.store, (state) => state.settings.interface.bucket_page_size);
+  const matching = useMemo(
+    () => filterBuckets(browser.bucketList.buckets, browser.bucketFilter),
+    [browser.bucketList.buckets, browser.bucketFilter],
+  );
+  const shownCount = Math.min(matching.length, pageSize * browser.bucketPages);
+  const shownBuckets = matching.slice(0, shownCount);
+  const rows = buildRows(browser, shownBuckets);
   const accountId = browser.bucketList.accountId;
   const current =
     browser.listing.bucket === null ? null : treeKey(browser.listing.bucket, browser.listing.prefix);
@@ -394,6 +419,7 @@ export function BucketTree() {
         </Group>
       </Group>
       <BucketListState />
+      {browser.bucketList.buckets.length > 0 ? <BucketFilterBar matching={matching.length} /> : null}
       {rows.length > 0 ? (
         <div
           className="bb-tree"
@@ -418,6 +444,8 @@ export function BucketTree() {
                 }}
                 role="treeitem"
                 data-tree-id={row.id}
+                data-drop-bucket={row.type === "bucket" ? row.bucket.name : row.type === "folder" ? row.bucket : undefined}
+                data-drop-prefix={row.type === "bucket" ? "" : row.type === "folder" ? row.prefix : undefined}
                 aria-level={row.level}
                 aria-selected={isItem ? selected : undefined}
                 aria-expanded={isItem && row.expandable ? row.expanded : undefined}
@@ -509,7 +537,99 @@ export function BucketTree() {
           })}
         </div>
       ) : null}
+      {matching.length > shownCount ? (
+        <Group gap="xs" justify="center" p={6} wrap="nowrap">
+          <Text size="xs" c="dimmed">
+            {tr("Showing {shown} of {total} buckets", { shown: formatCount(shownCount), total: formatCount(matching.length) })}
+          </Text>
+          <Button size="compact-xs" variant="light" onClick={() => model.browser.showMoreBuckets()}>
+            {tr("Show more buckets")}
+          </Button>
+        </Group>
+      ) : null}
       <ContextMenu menu={menu.state} onClose={menu.close} />
     </div>
+  );
+}
+
+/** Narrows the bucket list by name, creation date and region. */
+function BucketFilterBar({ matching }: { matching: number }) {
+  const model = useModel();
+  const filter = useSlice(model.browser.store, (state) => state.bucketFilter);
+  const buckets = useSlice(model.browser.store, (state) => state.bucketList.buckets);
+  const regions = useMemo(() => bucketRegions(buckets), [buckets]);
+  const active = hasBucketFilter(filter);
+  const advanced = filter.region !== "" || filter.createdFrom !== "" || filter.createdTo !== "";
+  return (
+    <Stack gap={4} px="xs" py={4} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.stopPropagation()}>
+      <Group gap={4} wrap="nowrap">
+        <TextInput
+          size="xs"
+          style={{ flex: 1 }}
+          placeholder={tr("Filter buckets")}
+          aria-label={tr("Filter buckets")}
+          leftSection={<IconSearch size={13} />}
+          value={filter.name}
+          onChange={(event) => model.browser.setBucketFilter({ name: event.currentTarget.value })}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && filter.name.length > 0) {
+              event.stopPropagation();
+              model.browser.setBucketFilter({ name: "" });
+            }
+          }}
+        />
+        <Popover width={240} position="bottom-end" withArrow shadow="md" trapFocus>
+          <Popover.Target>
+            <Tooltip label={tr("Filter by region and creation date")}>
+              <ActionIcon
+                variant={advanced ? "light" : "subtle"}
+                size="md"
+                aria-label={tr("Filter by region and creation date")}
+              >
+                <IconFilter size={14} />
+              </ActionIcon>
+            </Tooltip>
+          </Popover.Target>
+          <Popover.Dropdown>
+            <Stack gap="xs">
+              <NativeSelect
+                size="xs"
+                label={tr("Region")}
+                value={filter.region}
+                data={[{ value: "", label: tr("Any region") }, ...regions.map((region) => ({ value: region, label: region }))]}
+                onChange={(event) => model.browser.setBucketFilter({ region: event.currentTarget.value })}
+              />
+              <TextInput
+                size="xs"
+                type="date"
+                label={tr("Created on or after")}
+                value={filter.createdFrom}
+                onChange={(event) => model.browser.setBucketFilter({ createdFrom: event.currentTarget.value })}
+              />
+              <TextInput
+                size="xs"
+                type="date"
+                label={tr("Created on or before")}
+                value={filter.createdTo}
+                onChange={(event) => model.browser.setBucketFilter({ createdTo: event.currentTarget.value })}
+              />
+            </Stack>
+          </Popover.Dropdown>
+        </Popover>
+      </Group>
+      {active ? (
+        <Group gap={6} justify="space-between" wrap="nowrap">
+          <Text size="xs" c="dimmed" aria-live="polite">
+            {tr("{matching} of {total} buckets match", {
+              matching: formatCount(matching),
+              total: formatCount(buckets.length),
+            })}
+          </Text>
+          <Button size="compact-xs" variant="subtle" onClick={() => model.browser.setBucketFilter(EMPTY_BUCKET_FILTER)}>
+            {tr("Clear filters")}
+          </Button>
+        </Group>
+      ) : null}
+    </Stack>
   );
 }

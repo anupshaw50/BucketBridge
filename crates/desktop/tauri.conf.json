@@ -47,6 +47,13 @@
       "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["bb"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg", "msi", "appimage", "deb"],

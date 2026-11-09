@@ -111,6 +111,85 @@ pub async fn set_default_account(state: State<'_, AppState>, id: String) -> Comm
     .await
 }
 
+/// Stores the arrangement of account folders and the order of accounts.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_account_layout(
+    state: State<'_, AppState>,
+    layout: bucketbridge_core::accountfile::AccountLayout,
+) -> CommandResult<AccountList> {
+    let core = state.core()?;
+    logged(
+        "arranging the accounts",
+        core.session.set_account_layout(layout),
+    )
+    .await
+}
+
+/// What `export_accounts` wrote.
+#[derive(Debug, serde::Serialize)]
+pub struct ExportAccountsOutcome {
+    path: String,
+    accounts: usize,
+    folders: usize,
+}
+
+/// Writes the account file (no secrets) for the named accounts, or all.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn export_accounts(
+    state: State<'_, AppState>,
+    path: String,
+    account_ids: Option<Vec<String>>,
+) -> CommandResult<ExportAccountsOutcome> {
+    let core = state.core()?;
+    logged("exporting the accounts", async {
+        super::require_absolute("the account file path", &path)?;
+        let export = core.session.export_accounts(account_ids).await?;
+        let outcome = ExportAccountsOutcome {
+            path: path.clone(),
+            accounts: export.accounts.len(),
+            folders: export.folders.len(),
+        };
+        super::blocking(move || {
+            bucketbridge_core::accountfile::write_export(&export, std::path::Path::new(&path))
+        })
+        .await?;
+        tracing::info!(
+            target: "bucketbridge::desktop",
+            "exported {} account(s) without secrets",
+            outcome.accounts
+        );
+        Ok(outcome)
+    })
+    .await
+}
+
+/// Adds the accounts of an account file; existing accounts are never changed.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn import_accounts(
+    state: State<'_, AppState>,
+    path: String,
+    duplicates: bucketbridge_core::accountfile::DuplicatePolicy,
+) -> CommandResult<bucketbridge_core::accountfile::ImportReport> {
+    let core = state.core()?;
+    logged("importing accounts", async {
+        super::require_absolute("the account file path", &path)?;
+        let export = super::blocking(move || {
+            bucketbridge_core::accountfile::read_export(std::path::Path::new(&path))
+        })
+        .await?;
+        let report = core.session.import_accounts(export, duplicates).await?;
+        tracing::info!(
+            target: "bucketbridge::desktop",
+            "imported {} account(s); {} duplicate(s), {} skipped",
+            report.imported.len(),
+            report.duplicates.len(),
+            report.skipped.len()
+        );
+        Ok(report)
+    })
+    .await
+}
+
 /// Logs the account in with the current code of its MFA device; the STS
 /// session is kept in memory until it expires.
 #[tauri::command(rename_all = "snake_case")]

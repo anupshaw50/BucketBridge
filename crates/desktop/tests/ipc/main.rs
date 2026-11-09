@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod accountfile;
 mod accounts;
 mod app;
 mod bookmarks;
@@ -16,6 +17,7 @@ mod cloudfront;
 mod credentials;
 mod cse;
 mod edit;
+mod everyday;
 mod harness;
 mod iam;
 mod objectlock;
@@ -26,5 +28,6 @@ mod sync;
 mod syncjobs;
 mod tools;
 mod transfers;
+mod usage;
 mod versions;
 mod windows;

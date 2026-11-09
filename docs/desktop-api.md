@@ -85,7 +85,15 @@ interface AccountUpdate {           // update_account: null = keep current value
   clear_mfa_serial: boolean;
 }
 
-interface AccountList { accounts: Account[]; default_account_id: string | null }
+interface AccountFolder {
+  name: string;                     // unique, case-insensitively; 1 to 100 characters
+  account_ids: string[];            // the accounts in the folder, in order
+}
+interface AccountList {
+  accounts: Account[];              // in their order; this is also the order of accounts in no folder
+  default_account_id: string | null;
+  folders: AccountFolder[];         // in their order; [] before folders were used
+}
 interface SecurityStatus { master_password_set: boolean; unlocked: boolean }
 
 // ---- buckets and objects ----
@@ -227,12 +235,22 @@ interface Settings {
     confirm_delete: boolean;              // true
     default_download_dir: string | null;  // null = ask every time
     open_with_recent: string[];           // [] ; "Open with" applications, newest first, at most 8
+    keep_awake: boolean;                  // true ; keep the computer awake while transfers or a sync run work
+    quit_with_tasks: "ask" | "wait" | "quit"; // "ask" ; quitting while tasks are active, see "Everyday use"
   };
   interface: {
     theme: "system" | "light" | "dark";   // "system"
     flat_browsing: boolean;               // false
     show_transfer_panel: boolean;         // true
     show_log_panel: boolean;              // false
+    sort_column: "name" | "size" | "modified" | "class"; // "name"; sort of the object list, restored at start
+    sort_direction: "asc" | "desc";       // "asc"
+    column_widths: {                      // pixels of the resizable object list columns, each 40..=600
+      size: number;                       // 96
+      modified: number;                   // 160
+      class: number;                      // 140
+    };
+    bucket_page_size: number;             // 1000, 10..=100000; buckets shown at once in the bucket list ("Show more" adds the next page)
   };
   advanced: {
     max_attempts: number;                 // 5, 1..=20 (SDK standard retry mode)
@@ -248,6 +266,8 @@ interface Settings {
     level: LogLevel;                      // "information" (minimum level recorded)
     file_logging: boolean;                // true
     max_file_mib: number;                 // 10, 1..=1024
+    keep_days: number;                    // 30, 1..=3650: rotated log files older than this are deleted
+    max_total_mib: number;                // 100, 1..=102400: oldest rotated files go while all log files exceed this
   };
   proxy: {
     enabled: boolean;                     // false
@@ -305,7 +325,82 @@ has an `mfa_serial` but no MFA session.
 | `update_account` | `id: string, update: AccountUpdate` | `Account` |
 | `remove_account` | `id: string` | `void` (also deletes its secrets) |
 | `set_default_account` | `id: string` | `void` |
+| `set_account_layout` | `layout: AccountLayout` | `AccountList` (the stored one) |
+| `export_accounts` | `path: string, account_ids: string[] \| null` | `ExportAccountsOutcome` |
+| `import_accounts` | `path: string, duplicates: DuplicatePolicy` | `ImportReport` |
 | `mfa_login` | `account_id: string, code: string` | `void` (STS session kept in memory until expiry) |
+
+### Account folders, order, export and import
+
+```ts
+interface AccountLayout {
+  folders: AccountFolder[];         // the folders in order, each with its accounts in order
+  accounts: string[];               // every account id, in the order the accounts are listed
+}
+interface ExportAccountsOutcome { path: string; accounts: number; folders: number }
+type DuplicatePolicy = "skip" | "rename";
+interface ImportedAccount { id: string; label: string; renamed_from: string | null; needs_secret: boolean }
+interface ImportDuplicate { label: string; existing: string; reason: "label" | "same_account" }
+interface ImportSkipped { label: string; reason: string }
+interface ImportReport {
+  imported: ImportedAccount[];
+  duplicates: ImportDuplicate[];
+  skipped: ImportSkipped[];
+  folders_created: string[];
+}
+```
+
+- Folders and the order of accounts are stored in `config.toml` (`account_folders`,
+  and the order of `accounts`). An account carries no folder field. A configuration
+  from before folders existed has none: `folders` is `[]` and no account is in a folder.
+  Accounts in no folder are shown after the folders, in `accounts` order.
+- `set_account_layout` replaces the whole arrangement at once; creating, renaming and
+  deleting a folder and moving or reordering accounts are all layouts. `layout.accounts`
+  must name exactly the stored accounts (otherwise `conflict`: they changed since the
+  list was loaded). A folder name is 1 to 100 characters, without control characters,
+  unique case-insensitively (`usage` or `conflict`); an account is in at most one folder
+  (`usage`). It touches no secret and works while locked. Removing an account removes it
+  from its folder.
+- `export_accounts` writes the versioned JSON account file to `path` (absolute;
+  replaced atomically). `account_ids: null` exports every account; otherwise the named
+  ones (`not_found` for an unknown id), plus the source account of any account that assumes
+  a role. The file never holds a secret: no secret access key, session token, proxy
+  password or secret reference. Static-key accounts carry their access key ID. Accounts
+  that assume a role name their source account by label. Works while locked.
+- `import_accounts` reads the file at `path` (absolute; `usage` for a file that is not an
+  account file, is larger than 8 MiB, has more than 1000 accounts, or has a newer
+  `version`) and adds its accounts in one configuration update. It never overwrites or
+  changes an existing account. An account is a duplicate when an existing account has the
+  same label (case-insensitively; `reason: "label"`) or is the same account (same access
+  key ID, endpoint and region, or the same non-key source; `reason: "same_account"`).
+  `duplicates: "skip"` leaves duplicates out and reports them; `"rename"` imports a label
+  duplicate as `Label (2)` (`renamed_from` names the old label) and still leaves out a
+  same-account duplicate. Invalid accounts, and roles whose source account is neither in
+  the file nor here, are listed in `skipped`. Imported static-key accounts have no secret
+  (`needs_secret: true`; their `secret_ref` is empty): using one rejects with `usage`
+  ("has no secret access key yet") until `update_account` gives it a
+  `secret_access_key`. Imported accounts that arrive in a folder create it
+  (`folders_created`). It touches no secret and works while locked.
+
+File format (`format: "bucketbridge-accounts"`, `version: 1`):
+
+```json
+{
+  "format": "bucketbridge-accounts",
+  "version": 1,
+  "exported_at": "2026-11-09T10:00:00Z",
+  "folders": ["Work"],
+  "accounts": [
+    { "label": "Main", "folder": "Work", "access_key_id": "AKIA...", "region": "eu-west-1",
+      "endpoint": null, "path_style": false, "request_payer": false, "mfa_serial": null,
+      "source": { "type": "static_keys" } }
+  ]
+}
+```
+
+`source` is `static_keys`, `aws_profile { profile }`, `assume_role { source_account, role_arn,
+session_name, duration_secs, external_id?, mfa_serial? }` (`source_account` is a label),
+`sso { start_url, sso_region, account_id, role_name, sso_session? }` or `instance_role`.
 
 ### Browsing
 
@@ -839,7 +934,7 @@ interface DeleteFailure { key: string; version_id: string | null; code: string |
 interface DeleteOutcome { deleted: number; failures: DeleteFailure[] }
 
 // ---- preview ----
-type PreviewKind = "text" | "json" | "image" | "binary" | "too_large" | "empty";
+type PreviewKind = "text" | "json" | "image" | "binary" | "too_large" | "empty" | "table";
 
 interface ObjectPreview {
   key: string;
@@ -858,6 +953,15 @@ interface ObjectPreview {
   text: string | null;             // text and JSON
   formatted: boolean;              // JSON that was pretty-printed (its text is not the object's bytes)
   image_base64: string | null;     // images: the whole image
+  table: PreviewTable | null;      // tables: one page of rows
+}
+
+interface PreviewTable {
+  columns: string[];               // CSV/TSV: the first row; Parquet: the schema (200 at most)
+  rows: (string | null)[][];       // this page; null is a Parquet null
+  total_rows: number;              // rows of the table (of the part that was read when truncated)
+  truncated: boolean;              // only the start of a CSV/TSV above the preview limit was read
+  columns_cut: boolean;            // columns beyond the 200th are left out
 }
 ```
 
@@ -931,6 +1035,26 @@ interface ObjectPreview {
   `length`.
 - A client shows `text` as text only, never as markup, and an image from a `blob:` or `data:`
   URL (the content security policy allows both); WebP needs no conversion, the web view draws it.
+- XML (the content type says XML, or the key ends in `.xml`, `.xsd`, `.xsl`, `.xslt`, `.rss`,
+  `.atom`, `.wsdl`, `.kml`, `.gpx` or `.plist`; the text starts with `<`) that fits in the first
+  page and is well-formed (every tag closes in order, one root element) is re-indented with two
+  spaces: `kind: "text"`, `media_type: "application/xml"`, `formatted: true`. The formatter is
+  text processing only: entity references are not expanded, a document type is not loaded and no
+  `SYSTEM` or `PUBLIC` identifier is followed. Anything else stays plain text, page by page.
+- Tables. A key ending in `.csv`, `.tsv`, `.tab`, `.parquet` or `.parq` (any page, any content)
+  is read as a table when its content fits: one ranged read of the first 8 MiB (the image
+  budget). The answer has `kind: "table"`, `media_type` `text/csv`, `text/tab-separated-values` or
+  `application/vnd.apache.parquet`, and `table`. For a table `page_size` is the rows per page
+  (200), `page_count` the pages of rows, `offset` the index of the page's first row and `length`
+  the rows on the page; `text` is null. CSV and TSV: the first record is the column header;
+  quotes, doubled quotes and line breaks inside quotes are honoured; a file above the budget
+  shows its start (cut at the last complete line, `truncated: true`). Parquet is decoded in Rust
+  with the `parquet` crate's record reader (Snappy is the only compression codec built in): one
+  row group is decoded at a time and row groups before the page are skipped; a file above the
+  budget is `too_large` (the footer is at its end). Cells are cut at 500 characters (ending in
+  an ellipsis), columns at 200. A key with a table name whose content is not a table (binary
+  bytes in a `.csv`, a `.parquet` that is not Parquet or uses another codec) is previewed like
+  any other object, and an empty one is `empty`. A page past the last is `usage`.
 - `version_id: null` is the current version. `not_found`: no such key or version, or the key's
   current entry is a delete marker; `usage`: a folder key, an empty version ID, a delete marker
   version, a page size out of range; `conflict`: an archived object (restore it first).
@@ -1461,8 +1585,52 @@ interface Bookmark {
   (percent-encoded) and the UI opens that account and folder once it has
   loaded; an unknown account falls back to a normal start. A `location` without
   `account_id` or `bucket` is rejected by the IPC layer. Closing a window does
-  not stop the app; closing the last one does. Window size and position are not
-  restored between runs.
+  not stop the app; closing the last one does. The size, position and maximised
+  state of the first window (`main`) are restored, see "Everyday use".
+
+### Drag and drop
+
+Dragging objects inside a window and dropping files from the operating system need no
+command: the UI queues the drop with the existing `enqueue_copy`, `enqueue_move` (with
+`dst_account_id` when the two sides are different accounts) and `enqueue_upload`, under the
+overwrite policy of the settings. Only a drag that leaves one main window and ends over another
+needs the backend, because a web view cannot hand a drag to another window.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `relay_drag` | `phase: "over" \| "drop" \| "leave", items: DragItems \| null, move_items: boolean` | `boolean`: another main window is under the screen cursor |
+
+```ts
+interface DragItems { account_id: string; bucket: string; keys: string[] } // 1 to 10,000 keys
+
+// Event drag://incoming, sent to one window at a time (emit_to)
+interface DragIncoming {
+  phase: "over" | "drop" | "leave";
+  x: number; y: number;            // CSS pixels from the top left of the receiving window
+  items: DragItems | null;         // null for "leave"
+  move: boolean;                   // the move key was held
+}
+```
+
+- The window that holds the pointer calls `relay_drag` while the pointer is outside it
+  (`over`, repeatedly), when the button is released there (`drop`), and when the drag returns
+  or ends elsewhere (`leave`). The backend finds the main window (`main`, `main-N`) other than
+  the caller whose client area holds the screen cursor (`App::cursor_position`) and sends it
+  `drag://incoming` with the position converted to that window's CSS pixels. Every other main
+  window except the caller gets `phase: "leave"`. A `drop` that returns `true` is carried out by
+  the receiving window; the caller does nothing more.
+- The receiving window turns the position into a drop target (a folder row, a bucket or the
+  open folder), highlights it for `over` and queues the transfer for `drop`: a copy, or a move
+  when `move` is true, into the folder of its own active account. When the account differs from
+  `items.account_id` the transfer is a cross-account copy (`dst_account_id`).
+- `usage`: a phase other than the three, `over` or `drop` without items, an empty items list, more
+  than 10,000 keys. Windows other than `main` and `main-*` never take part.
+- Dropping files from the file manager is the web view's file-drop event (the main window
+  has `dragDropEnabled`); the UI listens with `onDragDropEvent`, divides the physical position by
+  `devicePixelRatio` and calls `enqueue_upload`. Objects are dragged with pointer events, not
+  HTML5 drag and drop, because `dragDropEnabled` breaks the latter inside the page on Windows.
+  Dragging objects out of the app to the file manager is not supported.
+
 ## Mount as drive (T04)
 
 A read-only mount of a bucket (or one prefix): FUSE on Linux and macOS, Dokan on Windows
@@ -1649,6 +1817,7 @@ Errors:
 | Event | Payload | When |
 |---|---|---|
 | `edit://changed` | `EditSession` | Every change of a session: started (`watching`), `uploading`, `uploaded`, `conflict`, `error`; and once with `state: "stopped"` when it ends (it is no longer listed by `list_edits`). |
+| `drag://incoming` | `DragIncoming` | A drag of objects from another main window is over this window, was released over it, or left it (see "Drag and drop"). Sent to one window only. |
 
 ## Transfers: overwrite policy, modification times, cross-account copy (v0.2.0)
 
@@ -1715,6 +1884,62 @@ when a task starts to wait, `{ type: "resolved", task_id }` when it no longer
 does.
 
 Errors: `not_found` (`answer_conflict`), plus those of the enqueue commands.
+
+## Bucket usage (properties dialog)
+
+How much a bucket or prefix holds, computed by listing (core:
+`crates/core/src/usage.rs`; desktop: `commands/usage.rs`; UI: the "Usage" tab of
+the bucket properties dialog). The CLI equivalent is `bb du` (docs/cli.md).
+
+```ts
+interface NoncurrentUsage {
+  versions: number;                 // non-current versions, delete markers excluded
+  bytes: number;                    // their total size
+  delete_markers: number;           // all delete markers, current or not
+}
+interface MultipartUsage {
+  uploads: number;                  // unfinished multipart uploads
+  parts: number;                    // parts uploaded so far
+  bytes: number;                    // size of those parts
+}
+interface BucketUsage {
+  objects: number;                  // current objects (folder markers included)
+  bytes: number;                    // their total size
+  noncurrent: NoncurrentUsage | null;   // null unless `versions` was asked for
+  multipart: MultipartUsage | null;     // null unless `multipart` was asked for
+}
+interface UsageProgressEvent {
+  job_id: string;
+  phase: "objects" | "multipart";   // listing keys, or sizing multipart uploads
+  usage: BucketUsage;               // the totals so far
+}
+```
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `compute_bucket_usage` | `account_id: string, bucket: string, prefix: string, versions: boolean, multipart: boolean, job_id: string` | `BucketUsage` |
+| `cancel_bucket_usage` | `job_id: string` | `void` |
+
+| Event | Payload | When |
+|---|---|---|
+| `usage://progress` | `UsageProgressEvent` | after every listed page (1000 keys) and after every multipart upload that was sized |
+
+- `compute_bucket_usage` lists `s3://bucket/prefix` (`prefix` may be empty) and
+  resolves with the totals when the listing is complete. `job_id` is chosen by
+  the UI (1 to 64 characters; an id that is still running is `conflict`) and
+  names the run in the events and in `cancel_bucket_usage`.
+- With `versions: false` a plain listing counts the current objects. With
+  `versions: true` the version listing is walked once: current versions are
+  `objects` and `bytes`, older versions and delete markers fill `noncurrent`.
+  The UI asks for versions when the bucket's versioning is enabled or
+  suspended.
+- With `multipart: true` the unfinished multipart uploads under the prefix are
+  listed and the parts of each are added up (one `ListParts` request per
+  upload).
+- `cancel_bucket_usage` stops the run; the pending `compute_bucket_usage`
+  rejects with `cancelled`. An unknown or finished `job_id` is not an error.
+- A failing page fails the whole call (a total with a hole would mislead).
+  Invalid bucket names are `usage`.
 
 ## Credential sources (v0.2.0)
 
@@ -1926,3 +2151,103 @@ rows whose last attempt failed and `pending` rows not attempted (a cancelled run
 
 No setting was added. Jobs are stored in `config.toml` as `[[sync_jobs]]` (omitted while
 empty, so older files load unchanged). The listing cache lives in `data_dir/sync-cache/`.
+
+## Everyday use (v0.3.0)
+
+### Links: `bb://`
+
+A `bb://` link opens the app at an account, a bucket and a folder. A link only
+navigates: it never uploads, downloads, deletes or changes anything, and it
+never carries credentials.
+
+```
+bb://<account>[/<bucket>[/<folder>/...]]
+```
+
+- `<account>` is the account label or the account id (percent-encoded; the id
+  is tried first, then the label, case-insensitive).
+- `<bucket>` is optional; without it the app shows the account's bucket list.
+- `<folder>` segments are the key prefix. The prefix is always a folder: a
+  trailing `/` is added when missing, and a link never points at one object.
+- Rejected with an error message (nothing opens): a scheme other than `bb`, a
+  query (`?`) or fragment (`#`), an empty account, an empty segment (`//`), a
+  `.` or `..` segment, a segment that is not valid percent-encoded UTF-8 or
+  holds a control character, a bucket name that is too long (over 255
+  characters) or a link longer than 4096 characters. An unknown account is an
+  error too.
+- Examples: `bb://work/reports`, `bb://work/reports/2026/q1/`,
+  `bb://My%20Backups/photos/trips/rome%202024/`.
+
+The scheme is registered by the installer (Windows MSI, macOS app bundle,
+Linux desktop file) from `plugins.deep-link` in `tauri.conf.json`. A link
+received while the app runs (the single-instance plugin forwards the second
+launch's arguments) or at start-up is resolved by the host against the stored
+accounts, kept as the pending link of the window that receives it (the first
+`main` window, else the first window by label), and announced with `link://pending`.
+
+```ts
+type LinkAction =
+  | { type: "open"; account_id: string; bucket: string | null; prefix: string }
+  | { type: "error"; message: string };
+```
+
+| Command | Arguments | Result |
+|---|---|---|
+| `take_pending_link` | none | the `LinkAction` waiting for the calling window, or `null`; it is removed |
+
+The UI calls `take_pending_link` once after it started (a link that launched
+the app) and again on every `link://pending`. `open` switches to the account
+and opens the bucket and folder (a locked session asks for the master password
+first, as for any listing); `error` is shown as an error notification.
+
+### Tray, progress and keeping the computer awake
+
+The app has a system tray icon (menu: Show window, Pause all, Resume all,
+Quit) whose tooltip shows the active transfers and sync runs with the overall
+progress. While transfers run, the taskbar button (Windows) and the Dock icon
+(macOS) show the same progress. These are host features with no commands. Pause
+all and Resume all are `stop_all` and `start_all` of the queue. The tray menu is
+in English. Where the desktop has no tray, the app runs without one.
+
+`settings.general.keep_awake` (default `true`): while a transfer is `queued` or
+`running`, or a sync run is executing, the computer is kept from going idle to
+sleep (the display may still turn off). It is released as soon as the work ends
+or when the setting is turned off.
+
+### Quitting while tasks are active
+
+The window close button (of the last window), the tray Quit item and the
+system quit (Cmd-Q) all go through one decision, by
+`settings.general.quit_with_tasks` and whether a transfer is `queued` or
+`running` or a sync run is executing:
+
+| Setting | With active tasks |
+|---|---|
+| `ask` | the host emits `quit://requested` and the UI asks: finish running tasks first and then quit, quit now, or cancel |
+| `wait` | like "finish first" below |
+| `quit` | quits at once; transfers stay `stopped` and resumable, sync runs are cancelled |
+
+Without active tasks the app quits at once.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `quit_app` | `mode: "now" \| "when_idle"` | `void`; `now` quits at once, `when_idle` hides the windows and quits when no transfer is `queued` or `running` and no sync run executes |
+
+Cancel is the UI doing nothing: the app keeps running. While the app waits to
+quit, Show window (tray menu, or starting the app again) brings the window back
+and cancels the pending quit.
+
+| Event | Payload | When |
+|---|---|---|
+| `link://pending` | `null` | a `bb://` link is waiting, see `take_pending_link` |
+| `quit://requested` | `{ active_transfers: number, active_syncs: number }` | quit was requested with active tasks and `quit_with_tasks` is `ask` |
+
+### Window state
+
+The size, position and maximised state of the `main` window are saved to
+`window-state.json` in the data folder when the window closes and at exit, and
+restored at the next start. Extra windows (`main-1`, ...) are not restored.
+A saved position that no longer shows a usable part of any connected monitor
+(a monitor was removed or the layout changed) is replaced: the window is
+centred on the primary monitor, and a window larger than that monitor is made
+to fit. No commands or events are involved.

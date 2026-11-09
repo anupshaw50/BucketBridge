@@ -13,7 +13,9 @@ mod bucketrules;
 mod cloudfront;
 mod credentials;
 mod cse;
+mod drag;
 mod edit;
+mod everyday;
 mod iam;
 pub(crate) mod mount;
 mod objectlock;
@@ -25,6 +27,7 @@ mod sync;
 mod syncjobs;
 mod tools;
 mod transfer;
+mod usage;
 mod versions;
 mod window;
 
@@ -50,6 +53,9 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         security::update_account,
         security::remove_account,
         security::set_default_account,
+        security::set_account_layout,
+        security::export_accounts,
+        security::import_accounts,
         security::mfa_login,
         browse::list_buckets,
         browse::list_objects,
@@ -150,6 +156,9 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         bookmarks::rename_bookmark,
         bookmarks::remove_bookmark,
         window::open_new_window,
+        everyday::take_pending_link,
+        everyday::quit_app,
+        drag::relay_drag,
         app::get_settings,
         app::save_settings,
         app::set_proxy_password,
@@ -166,6 +175,8 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         tools::save_filter,
         tools::delete_filter,
         tools::export_listing,
+        usage::compute_bucket_usage,
+        usage::cancel_bucket_usage,
         scan::run_security_scan,
         scan::export_scan_report,
         objectmeta::get_object_details,

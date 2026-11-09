@@ -12,6 +12,7 @@ import { AccelerationTab } from "./AccelerationTab";
 import { LoggingTab } from "./LoggingTab";
 import { PolicyTab } from "./PolicyTab";
 import { PublicAccessTab } from "./PublicAccessTab";
+import { UsageTab } from "./UsageTab";
 import { VersioningTab } from "./VersioningTab";
 import { WebsiteTab } from "./WebsiteTab";
 
@@ -24,6 +25,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "logging", label: "Logging" },
   { id: "website", label: "Website" },
   { id: "acceleration", label: "Acceleration" },
+  { id: "usage", label: "Usage" },
 ];
 
 function isTab(value: string): value is TabId {
@@ -40,6 +42,7 @@ const FIRST_REVISIONS: Revisions = {
   logging: 0,
   website: 0,
   acceleration: 0,
+  usage: 0,
 };
 
 interface BucketRef {
@@ -77,6 +80,8 @@ async function readSection(api: Backend, tab: TabId, ref: BucketRef): Promise<Pa
       return { website: await settle(() => api.get_bucket_website(ref)) };
     case "acceleration":
       return { acceleration: await settle(() => api.get_bucket_acceleration(ref)) };
+    case "usage":
+      return {};
   }
 }
 
@@ -231,6 +236,9 @@ export function BucketPropertiesDialog({
             section={config.acceleration}
             reload={() => reload("acceleration")}
           />
+        </Tabs.Panel>
+        <Tabs.Panel value="usage" pt="md">
+          <UsageTab accountId={accountId} bucket={bucket} versioning={config.versioning} />
         </Tabs.Panel>
       </Tabs>
     );

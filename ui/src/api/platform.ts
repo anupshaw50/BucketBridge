@@ -19,6 +19,15 @@ export interface SavePathOptions {
  * official plugins; in a plain browser the mock environment provides them.
  * Every picker resolves `null` when the user cancels.
  */
+/** Files dragged in from the system file manager. Positions are CSS pixels of the window. */
+export interface FileDropEvent {
+  phase: "over" | "drop" | "leave";
+  x: number;
+  y: number;
+  /** Absolute paths; only set for "drop". */
+  paths: string[];
+}
+
 export interface Platform {
   readonly kind: "tauri" | "browser";
   pickFiles(title: string): Promise<string[] | null>;
@@ -33,4 +42,6 @@ export interface Platform {
    * presigned links and passwords so clipboard history and sync skip them.
    */
   copyText(text: string, options?: CopyOptions): Promise<void>;
+  /** Listens for files dragged from the system file manager onto the window. Browsers have no paths, so they never report any. */
+  onFileDrop(handler: (event: FileDropEvent) => void): () => void;
 }

@@ -8,11 +8,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod account;
+mod accountfile;
 mod buckets;
 mod cloudfront;
 mod copy;
 mod credentials;
 mod cse;
+mod du;
 mod edit;
 mod export;
 mod global;

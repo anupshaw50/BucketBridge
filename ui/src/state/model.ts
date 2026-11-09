@@ -2,7 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import { withSessionGuard } from "../api/guard";
 import type { Platform } from "../api/platform";
-import type { AppInfo, WindowLocation } from "../api/types";
+import type { AppInfo, LinkAction, WindowLocation } from "../api/types";
 import { tr } from "../i18n";
 import { BookmarkController } from "./bookmarks";
 import { mountSupported } from "../features/mount/support";
@@ -113,6 +113,8 @@ export class AppModel {
       api.listen("security://changed", (security) => this.session.setSecurity(security)),
       api.listen("bookmarks://changed", (items) => this.bookmarks.set(items)),
       api.listen("edit://changed", (session) => this.edits.onChanged(session)),
+      api.listen("link://pending", () => void this.openPendingLink()),
+      api.listen("quit://requested", (request) => this.dialogs.open({ kind: "quit", request })),
       this.transfers.onFlush((changed) => this.browser.onTasksChanged(changed)),
       this.session.onActiveChange((accountId) => {
         // A finished or never-run plan belongs to the previous account; a running one stays
@@ -129,6 +131,7 @@ export class AppModel {
         if (next.interface.flat_browsing !== previous.interface.flat_browsing) {
           this.browser.applyFlat(next.interface.flat_browsing);
         }
+        this.browser.applySort({ column: next.interface.sort_column, direction: next.interface.sort_direction });
       }),
     ];
     // Whether the build can mount drives decides if the bucket menu offers it.
@@ -209,6 +212,36 @@ export class AppModel {
     if (alive()) {
       await this.openStartLocation(alive);
       this.app.setState({ ready: true });
+      // A `bb://` link that started the app.
+      await this.openPendingLink();
+    }
+  }
+
+  /** Takes the `bb://` link waiting for this window, if any, and navigates to it. A link only navigates. */
+  async openPendingLink(): Promise<void> {
+    let action: LinkAction | null;
+    try {
+      action = await this.api.take_pending_link();
+    } catch (error) {
+      this.status.error(error);
+      return;
+    }
+    if (action === null) {
+      return;
+    }
+    if (action.type === "error") {
+      this.status.error(new Error(action.message), { notify: tr("The link could not be opened") });
+      return;
+    }
+    const known = this.session.store.getState().accounts.some((account) => account.id === action.account_id);
+    if (!known) {
+      this.status.error(new Error(tr("The link could not be opened")));
+      return;
+    }
+    this.session.setActive(action.account_id);
+    await this.browser.switchAccount(action.account_id);
+    if (action.bucket !== null) {
+      await this.browser.openLocation(action.bucket, action.prefix);
     }
   }
 

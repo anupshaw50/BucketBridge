@@ -15,7 +15,7 @@ fn accounts_lifecycle() {
 
     assert_eq!(
         h.ok("list_accounts", json!({})),
-        json!({ "accounts": [], "default_account_id": null })
+        json!({ "accounts": [], "default_account_id": null, "folders": [] })
     );
 
     let account = h.ok(
@@ -100,7 +100,7 @@ fn accounts_lifecycle() {
     assert_eq!(h.ok("remove_account", json!({ "id": id })), Value::Null);
     assert_eq!(
         h.ok("list_accounts", json!({})),
-        json!({ "accounts": [], "default_account_id": null })
+        json!({ "accounts": [], "default_account_id": null, "folders": [] })
     );
 }
 
@@ -244,6 +244,7 @@ fn a_failed_startup_is_reported_by_every_command() {
         ("security_status", json!({})),
         ("list_accounts", json!({})),
         ("get_settings", json!({})),
+        ("take_pending_link", json!({})),
         (
             "get_log",
             json!({ "levels": null, "text": null, "limit": null }),

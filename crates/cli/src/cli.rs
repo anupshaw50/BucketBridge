@@ -78,6 +78,8 @@ pub struct GlobalArgs {
 pub enum Command {
     /// List buckets, or the folders and objects under an S3 prefix.
     Ls(LsArgs),
+    /// Add up the size and number of objects under a bucket or prefix.
+    Du(DuArgs),
     /// Make a bucket.
     Mb(MbArgs),
     /// Remove an empty bucket.
@@ -463,6 +465,20 @@ pub struct LsArgs {
     /// Show modification time, size and storage class (creation date and region for buckets).
     #[arg(short, long)]
     pub long: bool,
+}
+
+/// `bb du`
+#[derive(Debug, Args)]
+pub struct DuArgs {
+    /// `s3://bucket` or `s3://bucket/prefix`.
+    #[arg(value_name = "S3_URI", value_parser = parse_s3_uri)]
+    pub uri: S3Uri,
+    /// Walk all versions: also add up non-current versions and count delete markers.
+    #[arg(long)]
+    pub versions: bool,
+    /// Also add up the parts of unfinished multipart uploads.
+    #[arg(long)]
+    pub multipart: bool,
 }
 
 /// `bb mb`
@@ -937,6 +953,22 @@ pub enum AccountCommand {
     Remove(AccountSelector),
     /// Make a stored account the default.
     Default(AccountSelector),
+    /// Enter the secret access key of an account that has none (an imported
+    /// account). Like `add`, it is read from standard input (--secret-stdin),
+    /// from BB_SECRET_ACCESS_KEY, or asked on the terminal.
+    SetSecret(AccountSetSecretArgs),
+    /// Put an account in a folder, take it out of its folder, or move it in the list.
+    Move(AccountMoveArgs),
+    /// List, add, rename and remove account folders.
+    #[command(subcommand)]
+    Folder(AccountFolderCommand),
+    /// Write accounts to a JSON file, without any secret (secret keys, session
+    /// tokens and passwords are never written).
+    Export(AccountExportArgs),
+    /// Add the accounts of a file written by `bb account export`. Existing
+    /// accounts are never changed; imported accounts with keys need their
+    /// secret access key before they can be used.
+    Import(AccountImportArgs),
     /// Import profiles of the AWS config and credentials files as accounts
     /// that stay linked to the files (no key is copied). Name profiles with
     /// --profile; without it every usable profile is imported.
@@ -944,6 +976,95 @@ pub enum AccountCommand {
     /// Sign in to AWS IAM Identity Center (SSO) with the device
     /// authorization flow; the token goes to the AWS CLI cache.
     SsoLogin(AccountSsoLoginArgs),
+}
+
+/// `bb account set-secret`
+#[derive(Debug, Args)]
+pub struct AccountSetSecretArgs {
+    /// Label or ID of the account.
+    #[arg(value_name = "LABEL|ID")]
+    pub label_or_id: String,
+    /// Read the secret access key from the first line of standard input (a
+    /// second line, if present, is a session token).
+    #[arg(long)]
+    pub secret_stdin: bool,
+}
+
+/// `bb account move`
+#[derive(Debug, Args)]
+#[command(group(ArgGroup::new("where").required(true).multiple(true).args(["folder", "no_folder", "before", "first"])))]
+pub struct AccountMoveArgs {
+    /// Label or ID of the account to move.
+    #[arg(value_name = "LABEL|ID")]
+    pub label_or_id: String,
+    /// Put the account in this folder (created when it does not exist).
+    #[arg(long, value_name = "NAME", conflicts_with = "no_folder")]
+    pub folder: Option<String>,
+    /// Take the account out of its folder.
+    #[arg(long)]
+    pub no_folder: bool,
+    /// Place the account before this account (label or ID) in the list.
+    #[arg(long, value_name = "LABEL|ID", conflicts_with = "first")]
+    pub before: Option<String>,
+    /// Place the account first in the list.
+    #[arg(long)]
+    pub first: bool,
+}
+
+/// `bb account folder`
+#[derive(Debug, Subcommand)]
+pub enum AccountFolderCommand {
+    /// List the folders and the accounts in them.
+    List,
+    /// Create an empty folder.
+    Add(AccountFolderNameArgs),
+    /// Rename a folder.
+    Rename(AccountFolderRenameArgs),
+    /// Remove a folder; its accounts are kept and are no longer in a folder.
+    Remove(AccountFolderNameArgs),
+}
+
+/// A folder named on the command line.
+#[derive(Debug, Args)]
+pub struct AccountFolderNameArgs {
+    /// Folder name.
+    #[arg(value_name = "NAME")]
+    pub name: String,
+}
+
+/// `bb account folder rename`
+#[derive(Debug, Args)]
+pub struct AccountFolderRenameArgs {
+    /// Current folder name.
+    #[arg(value_name = "OLD_NAME")]
+    pub old_name: String,
+    /// New folder name.
+    #[arg(value_name = "NEW_NAME")]
+    pub new_name: String,
+}
+
+/// `bb account export`
+#[derive(Debug, Args)]
+pub struct AccountExportArgs {
+    /// The file to write (replaced if it exists).
+    #[arg(value_name = "FILE")]
+    pub file: PathBuf,
+    /// Only these accounts (label or ID); default: every account. An account that
+    /// assumes a role brings its source account along.
+    #[arg(value_name = "LABEL|ID")]
+    pub accounts: Vec<String>,
+}
+
+/// `bb account import`
+#[derive(Debug, Args)]
+pub struct AccountImportArgs {
+    /// The file written by `bb account export`.
+    #[arg(value_name = "FILE")]
+    pub file: PathBuf,
+    /// Import an account whose label is taken under a free label (`Label (2)`)
+    /// instead of leaving it out.
+    #[arg(long)]
+    pub rename_duplicates: bool,
 }
 
 /// `bb account sso-login`

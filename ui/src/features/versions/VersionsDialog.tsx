@@ -14,10 +14,13 @@ import {
   Text,
   TextInput,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import {
   IconAlertCircle,
   IconArrowBackUp,
+  IconChevronDown,
+  IconChevronUp,
   IconDownload,
   IconEye,
   IconFileText,
@@ -25,7 +28,7 @@ import {
   IconTrash,
   IconTrashX,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { DeleteMarkerMode, ObjectVersion, VersionFilter, VersionGroup, VersionRef } from "../../api/types";
 import { useModel } from "../../app/context";
@@ -34,6 +37,15 @@ import { tr } from "../../i18n";
 import { formatBytes, formatCount, formatDateTime } from "../../lib/format";
 import { s3Uri } from "../../lib/s3keys";
 import { DEFAULT_FILTER, DEFAULT_FORM, toVersionFilter, versionFileName, versionId, type VersionFilterForm } from "./filters";
+import {
+  flatVersions,
+  newestDeleteMarkerIds,
+  nextVersionSort,
+  nonCurrentIds,
+  sortGroups,
+  type VersionSort,
+  type VersionSortColumn,
+} from "./sort";
 
 export interface VersionsDialogProps {
   accountId: string;
@@ -54,6 +66,7 @@ interface Loaded {
 }
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+const NO_GROUPS: VersionGroup[] = [];
 
 function FilterPanel({
   form,
@@ -164,6 +177,8 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
   const [moreError, setMoreError] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ id: number; keys: ReadonlySet<string> }>({ id: 0, keys: EMPTY_SELECTION });
   const [working, setWorking] = useState(false);
+  const [view, setView] = useState<"grouped" | "flat">("grouped");
+  const [sort, setSort] = useState<VersionSort | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -187,7 +202,7 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
   }, [model, accountId, bucket, prefix, exact, query]);
 
   const loading = loaded?.id !== query.id;
-  const groups = loading ? [] : loaded.groups;
+  const groups = loading ? NO_GROUPS : loaded.groups;
   const selected = selection.id === query.id ? selection.keys : EMPTY_SELECTION;
   const everyVersion = groups.flatMap((group) => group.versions);
   const allSelected = everyVersion.length > 0 && everyVersion.every((v) => selected.has(versionId(v.key, v.version_id)));
@@ -215,6 +230,8 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
     }
     setSelection({ id: query.id, keys: next });
   };
+  const addToSelection = (ids: readonly string[]) =>
+    setSelection({ id: query.id, keys: new Set([...selected, ...ids]) });
   const toggleAll = () =>
     setSelection({
       id: query.id,
@@ -359,9 +376,13 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
       );
     });
 
+  const sortBy = (column: VersionSortColumn) => setSort((current) => nextVersionSort(current, column));
+
   const preview = (version: ObjectVersion) =>
     model.dialogs.open({ kind: "preview", accountId, bucket, key: version.key, versionId: version.version_id });
 
+  const shownGroups = useMemo(() => sortGroups(groups, sort), [groups, sort]);
+  const flatList = useMemo(() => flatVersions(groups, sort), [groups, sort]);
   const entries = groups.reduce((sum, group) => sum + group.versions.length, 0);
   const selectedVersions = everyVersion.filter((v) => selected.has(versionId(v.key, v.version_id)));
 
@@ -400,16 +421,21 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
               <Table.Th w={32}>
                 <Checkbox size="xs" aria-label={tr("Select all shown")} checked={allSelected} onChange={toggleAll} />
               </Table.Th>
-              <Table.Th>{tr("Version")}</Table.Th>
-              <Table.Th>{tr("Modified")}</Table.Th>
-              <Table.Th ta="right">{tr("Size")}</Table.Th>
+              {view === "flat" ? <SortHeader column="key" label={tr("Key")} sort={sort} onSort={sortBy} /> : null}
+              <SortHeader column="version" label={tr("Version")} sort={sort} onSort={sortBy} />
+              <SortHeader column="modified" label={tr("Modified")} sort={sort} onSort={sortBy} />
+              <SortHeader column="size" label={tr("Size")} sort={sort} onSort={sortBy} align="right" />
               <Table.Th w={150}>{tr("Actions")}</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {groups.map((group) => (
+            {(view === "flat"
+              ? [{ key: "", versions: flatList, total: flatList.length, matching: flatList.length, is_deleted: false, truncated: false }]
+              : shownGroups
+            ).map((group) => (
               <GroupRows
                 key={group.key}
+                flat={view === "flat"}
                 group={group}
                 selected={selected}
                 busy={working}
@@ -443,6 +469,44 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
           {exact ? tr("Versions of") : tr("Versions under")} {s3Uri(bucket, prefix)}
         </Text>
         <FilterPanel form={form} onChange={setForm} error={formError} onApply={apply} onReset={reset} />
+        {!loading && loaded.error === null && groups.length > 0 ? (
+          <Group gap="xs" wrap="wrap" aria-label={tr("View and selection")} role="group">
+            <SegmentedControl<"grouped" | "flat">
+              size="xs"
+              aria-label={tr("View")}
+              value={view}
+              onChange={setView}
+              data={[
+                { value: "grouped", label: tr("Grouped by key") },
+                { value: "flat", label: tr("Flat list") },
+              ]}
+            />
+            <Button
+              size="compact-xs"
+              variant="default"
+              onClick={() => addToSelection(newestDeleteMarkerIds(groups))}
+              disabled={newestDeleteMarkerIds(groups).length === 0}
+            >
+              {tr("Select newest delete markers")}
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="default"
+              onClick={() => addToSelection(nonCurrentIds(groups))}
+              disabled={nonCurrentIds(groups).length === 0}
+            >
+              {tr("Select all non-current versions")}
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              onClick={() => setSelection({ id: query.id, keys: EMPTY_SELECTION })}
+              disabled={selected.size === 0}
+            >
+              {tr("Clear selection")}
+            </Button>
+          </Group>
+        ) : null}
         {body}
         {moreError !== null ? (
           <Text size="xs" c="red" role="alert">
@@ -488,7 +552,38 @@ export function VersionsDialog({ accountId, bucket, prefix, exact, onClose }: Ve
   );
 }
 
+function SortHeader({
+  column,
+  label,
+  sort,
+  onSort,
+  align,
+}: {
+  column: VersionSortColumn;
+  label: string;
+  sort: VersionSort | null;
+  onSort: (column: VersionSortColumn) => void;
+  align?: "right";
+}) {
+  const active = sort?.column === column;
+  return (
+    <Table.Th ta={align} aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}>
+      <UnstyledButton
+        className="bb-sort-button"
+        onClick={() => onSort(column)}
+        aria-label={tr("Sort by {column}", { column: label })}
+      >
+        <Text size="sm" fw={700} span>
+          {label}
+        </Text>
+        {active ? sort.direction === "asc" ? <IconChevronUp size={12} aria-hidden /> : <IconChevronDown size={12} aria-hidden /> : null}
+      </UnstyledButton>
+    </Table.Th>
+  );
+}
+
 function GroupRows({
+  flat,
   group,
   selected,
   busy,
@@ -498,6 +593,7 @@ function GroupRows({
   onDownload,
   onPreview,
 }: {
+  flat: boolean;
   group: VersionGroup;
   selected: ReadonlySet<string>;
   busy: boolean;
@@ -509,6 +605,7 @@ function GroupRows({
 }) {
   return (
     <>
+      {flat ? null : (
       <Table.Tr className="bb-version-group" aria-label={tr("Key {key}", { key: group.key })}>
         <Table.Td colSpan={5}>
           <Group gap="xs" wrap="nowrap">
@@ -536,17 +633,18 @@ function GroupRows({
           </Group>
         </Table.Td>
       </Table.Tr>
+      )}
       {group.versions.map((version) => {
         const marker = version.is_delete_marker;
         return (
           <Table.Tr
-            key={version.version_id}
+            key={`${version.key}\u0000${version.version_id}`}
             className="bb-version-row"
             data-marker={marker || undefined}
             aria-label={
               marker
-                ? tr("Delete marker {id} of {key}", { id: version.version_id, key: group.key })
-                : tr("Version {id} of {key}", { id: version.version_id, key: group.key })
+                ? tr("Delete marker {id} of {key}", { id: version.version_id, key: version.key })
+                : tr("Version {id} of {key}", { id: version.version_id, key: version.key })
             }
           >
             <Table.Td>
@@ -557,6 +655,13 @@ function GroupRows({
                 onChange={() => onToggle(version.key, version.version_id)}
               />
             </Table.Td>
+            {flat ? (
+              <Table.Td>
+                <Text ff="monospace" size="xs" className="bb-ellipsis" title={version.key}>
+                  {version.key}
+                </Text>
+              </Table.Td>
+            ) : null}
             <Table.Td>
               <Group gap={6} wrap="nowrap">
                 {marker ? <IconTrashX size={14} aria-hidden /> : <IconFileText size={14} aria-hidden />}

@@ -243,21 +243,39 @@ describe("mock previews", () => {
     });
   }
 
+  it("shows CSV and Parquet as pages of 200 rows, XML formatted and a GIF as a GIF", async () => {
+    const backend = create();
+    const csv = await preview(backend, "demo-logs", "sales.csv");
+    expect(csv).toMatchObject({ kind: "table", media_type: "text/csv", page: 0, page_count: 5, page_size: 200, offset: 0, length: 200, text: null });
+    expect(csv.table?.total_rows).toBe(1000);
+    expect(csv.table?.rows[0]).toEqual(["0", null, "0.00"]);
+    const last = await preview(backend, "demo-logs", "sales.csv", 4);
+    expect(last).toMatchObject({ page: 4, offset: 800, length: 200 });
+    expect((await rejection(preview(backend, "demo-logs", "sales.csv", 5))).code).toBe("usage");
+    const parquet = await preview(backend, "demo-logs", "events.parquet");
+    expect(parquet).toMatchObject({ kind: "table", media_type: "application/vnd.apache.parquet", page_count: 2 });
+    expect(parquet.table?.columns).toEqual(["id", "region", "amount"]);
+    const xml = await preview(backend, "demo-logs", "catalog.xml");
+    expect(xml).toMatchObject({ kind: "text", media_type: "application/xml", formatted: true });
+    expect(xml.text).toContain("<catalog>\n  <book");
+    expect(await preview(backend, "demo-logs", "spinner.gif")).toMatchObject({ kind: "image", media_type: "image/gif" });
+  });
+
   it("shows text in pages that tile the object, and the kind of everything else", async () => {
     const backend = create();
-    const first = await preview(backend, "demo-logs", "audit-export.csv");
+    const first = await preview(backend, "demo-logs", "audit-export.log");
     expect(first).toMatchObject({ kind: "text", size: 614_400, page: 0, page_count: 5, offset: 0, length: 131_072, page_size: 131_072 });
     expect(first.text?.length).toBe(131_072);
-    expect(first.text?.startsWith("audit-export.csv:")).toBe(true);
-    const last = await preview(backend, "demo-logs", "audit-export.csv", 4);
+    expect(first.text?.startsWith("audit-export.log:")).toBe(true);
+    const last = await preview(backend, "demo-logs", "audit-export.log", 4);
     expect(last).toMatchObject({ page: 4, offset: 524_288, length: 90_112 });
     expect(last.text).toContain("line 0008192");
     let collected = "";
     for (let page = 0; page < 5; page += 1) {
-      collected += (await preview(backend, "demo-logs", "audit-export.csv", page)).text ?? "";
+      collected += (await preview(backend, "demo-logs", "audit-export.log", page)).text ?? "";
     }
     expect(collected.length).toBe(614_400);
-    expect((await rejection(preview(backend, "demo-logs", "audit-export.csv", 5))).code).toBe("usage");
+    expect((await rejection(preview(backend, "demo-logs", "audit-export.log", 5))).code).toBe("usage");
 
     expect(await preview(backend, "demo-logs", "empty.txt")).toMatchObject({ kind: "empty", size: 0, text: null });
     expect(await preview(backend, "demo-photos", "documents/report-q3.pdf")).toMatchObject({ kind: "binary", text: null });

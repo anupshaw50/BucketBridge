@@ -307,6 +307,31 @@ and a "Choose application..." button for the native picker
 or `http(s)://` URL is refused before saving. Open in browser (one bucket)
 calls `open_bucket_in_browser`, so the opener capability needs no URL scope.
 
+## Address bar, bucket list, sorting and Copy as
+
+- **Address bar** (`features/objects/AddressBar.tsx`, `lib/address.ts`): the breadcrumbs have an
+  Edit path button (also Ctrl or Cmd+L) that turns them into a text field holding
+  `s3://bucket/prefix`. Enter opens a pasted `s3://bucket/folder/` or plain `bucket/folder` path
+  (a path without a trailing slash is a folder); Escape cancels. With no bucket open the field is
+  always shown. An invalid path, or a bucket the account cannot list (checked with one
+  `list_objects` call when the bucket is not in the bucket list, so a bucket only shared with the
+  account still opens), is explained under the field, which stays open.
+- **Bucket list** (`lib/buckets.ts`): bucket names sort naturally (`bucket2` before `bucket10`).
+  A filter row narrows the list by name, region and creation date (inclusive days, local time; a
+  bucket without a date never matches a date filter). The list shows
+  `interface.bucket_page_size` buckets at a time with a Show more buckets button.
+- **Sort order and column widths**: the object list sort is saved in
+  `interface.sort_column` and `interface.sort_direction`, the widths of the Size, Last modified
+  and Storage class columns in `interface.column_widths` (40 to 600 pixels), and both are applied
+  when the settings load. Columns are resized by dragging the grip on the left edge of a header
+  (or with the arrow keys on it); the width is saved when the drag ends. Names sort in natural
+  order (`file2` before `file10`).
+- **Copy as** (menu `copy-as`, actions `copy.*` in `features/menus`): Name, Key, S3 URI,
+  Virtual-hosted URL and Path-style URL of the selected buckets, folders or objects, one per
+  line. URLs use the bucket's region on AWS and the account's endpoint otherwise
+  (`styledUrl` in `lib/bucketUrl.ts`); the virtual-hosted entry is hidden for a custom endpoint
+  that uses path-style addressing, and Key only appears for objects and folders.
+
 ## Edit in place (`features/edit`)
 
 - **Edit** in the file menu (one object; several selected objects do not offer
@@ -353,6 +378,14 @@ blob URLs are unavailable; only `image/*` types), the states too large, binary a
 messages, and for long text First, Previous, Next and Last, a page number and a page size that
 takes effect with Apply.
 
+Above the table, a Grouped by key and Flat list switch changes between the grouped rows and one
+flat list with a Key column. The Version, Modified and Size headers (and Key in the flat view)
+sort the loaded entries: ascending, descending, then the order the server sent (`sort.ts`; in the
+grouped view the sort applies inside each key). Select newest delete markers adds the delete
+markers that are the newest entry of their key (the keys that look deleted) to the selection,
+Select all non-current versions adds every entry that is not the current version of its key, and
+Clear selection empties it. These work on the entries loaded so far.
+
 The mock backend (`mock/versions.ts`) keeps a version history per key (what happened to the
 live objects since, such as an overwrite or a delete, is added when a key is read) and
 generates preview content: `documents/notes.txt`, `documents/old-draft.txt` (deleted),
@@ -372,6 +405,8 @@ the contract) before calling `save_settings`, and marks the pages with problems:
 | advanced.read_timeout_secs | 1 to 3600 |
 | advanced.list_page_size | 1 to 1000 |
 | logging.max_file_mib | 1 to 1024 |
+| logging.keep_days | 1 to 3650 |
+| logging.max_total_mib | 1 to 102400 |
 | proxy.port | 1 to 65535 |
 | transfer.max_concurrent_tasks, max_parts_per_task | 1 to 32 |
 | transfer.multipart_threshold_mib, part_size_mib | 5 to 5120 |
@@ -622,3 +657,61 @@ of the toolbar the same entry.
   whose sign-in completes after `pendingPolls` pending answers. Accounts of every
   source browse the demo identity; a role with an MFA device asks for the demo
   code.
+
+## Drag and drop (`features/objects/dragDrop.ts`, `lib/dnd.ts`)
+
+- **Objects.** Press on a row and move more than 5 px to drag the selected rows (or the pressed
+  row when it is not selected). Pointer events are used, not HTML5 drag and drop, because the
+  host's file-drop handling (`dragDropEnabled`) breaks in-page HTML5 drag and drop on Windows.
+  Targets are marked with `data-drop-bucket` and `data-drop-prefix`: folder rows, the breadcrumbs,
+  and the bucket tree; anywhere else in the list is the open folder. A label follows the pointer and
+  the target is outlined. Escape cancels. The release does not count as a click.
+- **Copy or move.** A drop copies; with Command (macOS) or Shift (elsewhere) held it moves. The
+  label names the key. `planDrop` (`lib/dnd.ts`) decides: the same folder is a silent no-op, a
+  folder into itself or two items with one name is refused with the message of Paste, and a target
+  in another account of the window becomes a cross-account transfer (`dst_account_id`). The
+  transfer is `transferKeys`, the function Paste uses, so the overwrite policy applies.
+- **Files from the file manager.** `Platform.onFileDrop` (Tauri `onDragDropEvent`; the browser
+  build never reports one) gives the paths and a position in CSS pixels; the folder under it gets
+  `enqueue_upload`. Dragging objects out to the file manager is not supported.
+- **Between windows.** While the pointer is outside the window the dragging window calls
+  `relay_drag` (`over`, then `drop` or `leave`); the window under the pointer receives
+  `drag://incoming` and drops with the same code as an in-window drop. The mock records the
+  `relay_drag` calls (`relayedDrags`) and has `deliverDrag` to play the receiving side.
+- **Keyboard.** Copy, Cut and Paste remain the keyboard way to do the same.
+
+## Account folders, order, export and import (`features/accounts`)
+
+- **Account manager.** The table shows the folders first (a header row with the
+  folder name, the number of accounts, move up and down, Rename and Remove), each
+  with its accounts, then the accounts that are in no folder (under "Not in a
+  folder" once there are folders). Every account row has a folder select ("No
+  folder" or a folder) and move up and down buttons; they move inside the
+  folder, or among the accounts in no folder. Every change sends the whole
+  arrangement with `set_account_layout` (`lib/accountGroups.ts` builds it) and
+  reloads the list. "New folder..." and "Rename" open `AccountFolderDialog`
+  (names are unique, case-insensitively, at most 100 characters). Removing a
+  folder asks first and keeps its accounts.
+- **Account switcher** (toolbar): the same grouping, with a label per folder.
+- **Export accounts...** asks for a file and calls `export_accounts` for every
+  account; the status bar says the file holds no secrets.
+- **Import accounts...** (`ImportAccountsDialog`): choose the file, choose what
+  to do with an account whose label is taken (leave it out, or import it as
+  `Label (2)`), then see the report: what was imported, the accounts that need
+  their secret access key (they show a "Needs secret" badge in the manager; Edit
+  gives them the key), duplicates, and accounts left out.
+- **Mock** (`mock/accountFilesMock.ts`): folders and the file format of the
+  contract. A file an export wrote is kept as text by path, so that an import in
+  the same session reads it; tests use `mock.readAccountFile(path)` and
+  `mock.seedAccountFile(path, text)`.
+
+## Bucket usage (`features/bucketcfg/UsageTab.tsx`)
+
+The "Usage" tab of the bucket properties dialog adds up the bucket by listing it
+(`compute_bucket_usage`). "Include all versions and delete markers" starts on
+when the bucket's versioning is enabled or suspended; "Include unfinished
+multipart uploads" starts on. While it runs the totals grow
+(`usage://progress`) and Cancel stops it. The result lists objects, their size,
+non-current versions and their size, delete markers, and the unfinished uploads
+with their size. The mock (`mock/usageMock.ts`) reports after every 1000 keys
+and every upload and rejects with `cancelled` after `cancel_bucket_usage`.

@@ -65,6 +65,9 @@ export function withSessionGuard(base: Backend, prompts: SessionPrompts): Backen
     update_account: (args) => guard(() => base.update_account(args)),
     remove_account: (args) => guard(() => base.remove_account(args)),
     set_default_account: (args) => guard(() => base.set_default_account(args)),
+    set_account_layout: (args) => guard(() => base.set_account_layout(args)),
+    export_accounts: (args) => guard(() => base.export_accounts(args)),
+    import_accounts: (args) => guard(() => base.import_accounts(args)),
     // An MFA prompt for mfa_login itself would recurse, so only `locked` is recovered here.
     mfa_login: (args) => guard(() => base.mfa_login(args)),
 
@@ -107,6 +110,7 @@ export function withSessionGuard(base: Backend, prompts: SessionPrompts): Backen
     rename_bookmark: (args) => base.rename_bookmark(args),
     remove_bookmark: (args) => base.remove_bookmark(args),
     open_new_window: (args) => base.open_new_window(args),
+    relay_drag: (args) => base.relay_drag(args),
     get_bucket_rules: (args) => guard(() => base.get_bucket_rules(args), args.account_id),
     get_bucket_lifecycle: (args) => guard(() => base.get_bucket_lifecycle(args), args.account_id),
     put_bucket_lifecycle: (args) => guard(() => base.put_bucket_lifecycle(args), args.account_id),
@@ -184,6 +188,9 @@ export function withSessionGuard(base: Backend, prompts: SessionPrompts): Backen
     app_info: () => guard(() => base.app_info()),
     last_crash_report: () => guard(() => base.last_crash_report()),
     dismiss_crash_report: (args) => guard(() => base.dismiss_crash_report(args)),
+    // Links and quitting need no secrets.
+    take_pending_link: () => base.take_pending_link(),
+    quit_app: (args) => base.quit_app(args),
 
     // Diagnostics of an unsaved account (account_id null) never needs the session.
     run_diagnostics: (args) => guard(() => base.run_diagnostics(args), args.account_id),
@@ -208,6 +215,8 @@ export function withSessionGuard(base: Backend, prompts: SessionPrompts): Backen
     iam_create_login_profile: (args) => guard(() => base.iam_create_login_profile(args), args.account_id),
     iam_update_login_profile: (args) => guard(() => base.iam_update_login_profile(args), args.account_id),
     iam_delete_login_profile: (args) => guard(() => base.iam_delete_login_profile(args), args.account_id),
+    compute_bucket_usage: (args) => guard(() => base.compute_bucket_usage(args), args.account_id),
+    cancel_bucket_usage: (args) => base.cancel_bucket_usage(args),
     list_multipart_uploads: (args) => guard(() => base.list_multipart_uploads(args), args.account_id),
     abort_multipart_uploads: (args) => guard(() => base.abort_multipart_uploads(args), args.account_id),
     list_filters: () => guard(() => base.list_filters()),

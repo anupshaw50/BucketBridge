@@ -1,10 +1,12 @@
 //! One module per command.
 
 pub mod account;
+pub mod accountfile;
 pub mod bucket;
 pub mod cloudfront;
 pub mod copy;
 pub mod cse;
+pub mod du;
 pub mod edit;
 pub mod export;
 pub mod iam;

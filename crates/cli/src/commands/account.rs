@@ -11,14 +11,17 @@
 use std::io::BufRead;
 
 use bucketbridge_core::model::{
-    Account, AccountInput, CredentialSource, DEFAULT_ROLE_DURATION_SECS, DEFAULT_ROLE_SESSION_NAME,
+    Account, AccountInput, AccountUpdate, CredentialSource, DEFAULT_ROLE_DURATION_SECS,
+    DEFAULT_ROLE_SESSION_NAME,
 };
 use bucketbridge_core::secrets::SecretString;
 use bucketbridge_core::session::SsoLoginPoll;
 use bucketbridge_core::{Error, Result, Session};
 
+use super::accountfile;
 use crate::cli::{
-    AccountAddArgs, AccountCommand, AccountSelector, AccountSsoLoginArgs, GlobalArgs,
+    AccountAddArgs, AccountCommand, AccountSelector, AccountSetSecretArgs, AccountSsoLoginArgs,
+    GlobalArgs,
 };
 use crate::context::{Inputs, dirs, env, find_account, open_session, unlock};
 use crate::i18n::{tr, trf};
@@ -53,6 +56,11 @@ pub async fn run(
         AccountCommand::List => list(&session, out).await,
         AccountCommand::Remove(selector) => remove(&session, selector, out).await,
         AccountCommand::Default(selector) => set_default(&session, selector, out).await,
+        AccountCommand::SetSecret(args) => set_secret(&session, args, inputs, out).await,
+        AccountCommand::Move(args) => accountfile::move_account(&session, args, out).await,
+        AccountCommand::Folder(command) => accountfile::folder(&session, command, out).await,
+        AccountCommand::Export(args) => accountfile::export(&session, args, out).await,
+        AccountCommand::Import(args) => accountfile::import(&session, args, out).await,
         AccountCommand::ImportAws => import_aws(&session, &global.profile, out).await,
         AccountCommand::SsoLogin(args) => sso_login(&session, args, inputs, out).await,
     }
@@ -92,7 +100,7 @@ async fn add(
     } else {
         // Storing a secret under a master password needs the key.
         unlock(session, inputs).await?;
-        let (secret, session_token) = read_secrets(args, inputs)?;
+        let (secret, session_token) = read_secrets(args.secret_stdin, inputs)?;
         input.access_key_id = required(&args.access_key_id, "--access-key-id")?;
         input.secret_access_key = secret.expose().to_owned();
         input.session_token = session_token
@@ -106,6 +114,8 @@ async fn add(
     let list = session.list_accounts().await?;
     let record = AccountRecord {
         is_default: list.default_account_id.as_deref() == Some(account.id.as_str()),
+        folder: accountfile::folder_of(&list, &account.id).map(str::to_owned),
+        needs_secret: account.needs_secret(),
         account,
     };
     out.change(&record, || {
@@ -159,10 +169,10 @@ async fn role_source(
 
 /// The secret access key and an optional session token.
 fn read_secrets(
-    args: &AccountAddArgs,
+    secret_stdin: bool,
     inputs: &Inputs,
 ) -> Result<(SecretString, Option<SecretString>)> {
-    if args.secret_stdin {
+    if secret_stdin {
         let mut stdin = inputs
             .stdin
             .lock()
@@ -205,13 +215,31 @@ fn read_line(reader: &mut dyn BufRead) -> Result<Option<SecretString>> {
 
 async fn list(session: &Session, out: &mut Output) -> std::result::Result<(), Failure> {
     let list = session.list_accounts().await?;
-    for account in list.accounts {
+    // Folders first, in their order, then the accounts in no folder: the
+    // order of the account manager.
+    let mut ordered: Vec<&Account> = Vec::new();
+    for folder in &list.folders {
+        ordered.extend(
+            folder
+                .account_ids
+                .iter()
+                .filter_map(|id| list.accounts.iter().find(|account| account.id == *id)),
+        );
+    }
+    ordered.extend(
+        list.accounts
+            .iter()
+            .filter(|account| accountfile::folder_of(&list, &account.id).is_none()),
+    );
+    for account in ordered {
         let record = AccountRecord {
             is_default: list.default_account_id.as_deref() == Some(account.id.as_str()),
-            account,
+            folder: accountfile::folder_of(&list, &account.id).map(str::to_owned),
+            needs_secret: account.needs_secret(),
+            account: account.clone(),
         };
         out.row(&record, || {
-            format!(
+            let mut line = format!(
                 "{} {:<24}  {:<14}  {:<30}  {:<14}  {}",
                 if record.is_default { "*" } else { " " },
                 record.account.label,
@@ -219,7 +247,14 @@ async fn list(session: &Session, out: &mut Output) -> std::result::Result<(), Fa
                 record.account.endpoint.as_deref().unwrap_or("-"),
                 source_label(&record.account),
                 record.account.id
-            )
+            );
+            if let Some(folder) = &record.folder {
+                line.push_str(&trf("  [folder: {folder}]", &[("folder", folder)]));
+            }
+            if record.needs_secret {
+                line.push_str(&tr("  (needs its secret access key)"));
+            }
+            line
         })?;
     }
     Ok(())
@@ -263,6 +298,8 @@ async fn import_aws(
     for account in &outcome.imported {
         let record = AccountRecord {
             is_default: list.default_account_id.as_deref() == Some(account.id.as_str()),
+            folder: accountfile::folder_of(&list, &account.id).map(str::to_owned),
+            needs_secret: account.needs_secret(),
             account: account.clone(),
         };
         out.change(&record, || {
@@ -428,6 +465,52 @@ fn open_in_browser(url: &str) -> std::result::Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| error.to_string())
+}
+
+/// `bb account set-secret`: the secret of an account that has none yet, or a
+/// new one for an account that has.
+async fn set_secret(
+    session: &Session,
+    args: &AccountSetSecretArgs,
+    inputs: &Inputs,
+    out: &mut Output,
+) -> std::result::Result<(), Failure> {
+    let list = session.list_accounts().await?;
+    let account = find_account(&list.accounts, &args.label_or_id)
+        .ok_or_else(|| {
+            Error::NotFound(trf(
+                "account '{selector}' not found; `bb account list` shows the stored accounts",
+                &[("selector", args.label_or_id.as_str())],
+            ))
+        })?
+        .clone();
+    if !account.has_static_keys() {
+        return Err(Error::Usage(trf(
+            "account {label} gets its credentials from another source and has no secret access key",
+            &[("label", account.label.as_str())],
+        ))
+        .into());
+    }
+    unlock(session, inputs).await?;
+    let (secret, session_token) = read_secrets(args.secret_stdin, inputs)?;
+    let mut update = AccountUpdate::default();
+    update.secret_access_key = Some(secret.expose().to_owned());
+    update.session_token = session_token
+        .as_ref()
+        .map(|token| token.expose().to_owned());
+    drop(secret);
+    drop(session_token);
+    session.update_account(&account.id, update).await?;
+    let record = AccountChangeRecord {
+        id: account.id.clone(),
+        label: account.label.clone(),
+    };
+    out.change(&record, || {
+        trf(
+            "stored the secret access key of account {label} ({id})",
+            &[("label", &record.label), ("id", &record.id)],
+        )
+    })
 }
 
 async fn remove(

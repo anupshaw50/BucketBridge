@@ -101,6 +101,15 @@ export async function uploadFiles(model: AppModel, at?: Place): Promise<void> {
   if (paths === null || paths.length === 0) {
     return;
   }
+  await uploadPaths(model, paths, at);
+}
+
+/** Queues the upload of local files and folders into a folder (default: the open folder). */
+export async function uploadPaths(model: AppModel, paths: string[], at?: Place): Promise<void> {
+  const location = locationOf(model, at);
+  if (location === null || paths.length === 0) {
+    return;
+  }
   await enqueue(model, "Upload", () =>
     model.api.enqueue_upload({
       account_id: location.accountId,

@@ -2,6 +2,16 @@
 export const zhBuckets: Record<string, string> = {
   // ---- BucketTree.tsx ----
   "Failed to load.": "加载失败。",
+  "Filter buckets": "筛选存储桶",
+  "Filter by region and creation date": "按区域和创建日期筛选",
+  Region: "区域",
+  "Any region": "任意区域",
+  "Created on or after": "创建日期不早于",
+  "Created on or before": "创建日期不晚于",
+  "{matching} of {total} buckets match": "{total} 个存储桶中有 {matching} 个匹配",
+  "Clear filters": "清除筛选",
+  "Showing {shown} of {total} buckets": "显示 {shown} 个，共 {total} 个存储桶",
+  "Show more buckets": "显示更多存储桶",
   "Loading buckets": "正在加载存储桶",
   "Buckets unavailable": "存储桶不可用",
   Unlock: "解锁",

@@ -343,3 +343,77 @@ describe("the versions of an object", () => {
     await within(dialog).findByRole("row", { name: tr("Version {id} of {key}", { id: "v-readme-2", key: "readme.md" }) });
   });
 });
+
+describe("flat view, sorting and bulk selection", () => {
+  const rowKeys = (dialog: HTMLElement): string[] =>
+    within(dialog)
+      .getAllByRole("row")
+      .filter((row) => row.classList.contains("bb-version-row"))
+      .map((row) => row.getAttribute("aria-label") ?? "");
+
+  it("shows one list without group rows, with a key column, and goes back to groups", async () => {
+    const { user } = await renderApp();
+    const dialog = await openVersions(user, "documents");
+    await within(dialog).findByRole("row", { name: tr("Key {key}", { key: "documents/old-draft.txt" }) });
+    expect(within(dialog).queryByRole("columnheader", { name: tr("Sort by {column}", { column: tr("Key") }) })).toBeNull();
+    await user.click(within(dialog).getByText(tr("Flat list")));
+    expect(within(dialog).queryByRole("row", { name: tr("Key {key}", { key: "documents/old-draft.txt" }) })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: tr("Sort by {column}", { column: tr("Key") }) })).toBeInTheDocument();
+    const flat = rowKeys(dialog);
+    expect(flat.some((label) => label.includes("documents/notes.txt"))).toBe(true);
+    expect(flat.some((label) => label.includes("documents/old-draft.txt"))).toBe(true);
+    await user.click(within(dialog).getByText(tr("Grouped by key")));
+    expect(within(dialog).getByRole("row", { name: tr("Key {key}", { key: "documents/old-draft.txt" }) })).toBeInTheDocument();
+  });
+
+  it("sorts by a column and returns to the original order on the third click", async () => {
+    const { user } = await renderApp();
+    const dialog = await openVersions(user, "documents");
+    await within(dialog).findByRole("row", { name: tr("Key {key}", { key: "documents/old-draft.txt" }) });
+    await user.click(within(dialog).getByText(tr("Flat list")));
+    const original = rowKeys(dialog);
+    const button = () => within(dialog).getByRole("button", { name: tr("Sort by {column}", { column: tr("Key") }) });
+    await user.click(button());
+    const ascending = rowKeys(dialog);
+    expect(button().closest("th")).toHaveAttribute("aria-sort", "ascending");
+    const keyOf = (label: string) => /documents\/.+?\.(?:xlsx|txt|pdf)/.exec(label)?.[0] ?? label;
+    expect(ascending.map(keyOf)).toEqual([...ascending.map(keyOf)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
+    await user.click(button());
+    expect(button().closest("th")).toHaveAttribute("aria-sort", "descending");
+    expect(rowKeys(dialog).map(keyOf)).toEqual([...ascending.map(keyOf)].reverse().sort((a, b) => b.localeCompare(a, undefined, { numeric: true })));
+    await user.click(button());
+    expect(button().closest("th")).toHaveAttribute("aria-sort", "none");
+    expect(rowKeys(dialog)).toEqual(original);
+  });
+
+  it("selects the newest delete markers and all non-current versions", async () => {
+    const { user } = await renderApp();
+    const dialog = await openVersions(user, "documents");
+    await within(dialog).findByRole("row", { name: tr("Key {key}", { key: "documents/old-draft.txt" }) });
+    const checked = () =>
+      within(dialog)
+        .getAllByRole("checkbox")
+        .filter((box) => (box as HTMLInputElement).checked && box.getAttribute("aria-label") !== tr("Select all shown"))
+        .map((box) => box.getAttribute("aria-label"));
+
+    await user.click(within(dialog).getByRole("button", { name: tr("Select newest delete markers") }));
+    expect(checked()).toEqual([tr("Select delete marker {id}", { id: "dm-draft" })]);
+    expect(within(dialog).getByRole("button", { name: sentence("Purge selected ({count})...", { count: 1 }) })).toBeEnabled();
+
+    await user.click(within(dialog).getByRole("button", { name: tr("Clear selection") }));
+    expect(checked()).toEqual([]);
+
+    await user.click(within(dialog).getByRole("button", { name: tr("Select all non-current versions") }));
+    const nonCurrent = checked();
+    expect(nonCurrent.length).toBeGreaterThan(0);
+    // The newest entry of every key stays unselected, so the current versions are safe.
+    const latest = within(dialog)
+      .getAllByRole("row")
+      .filter((row) => row.classList.contains("bb-version-row") && within(row).queryByText(tr("Latest")) !== null);
+    expect(latest.length).toBeGreaterThan(0);
+    for (const row of latest) {
+      expect(within(row).getByRole<HTMLInputElement>("checkbox").checked).toBe(false);
+    }
+    expect(nonCurrent).not.toContain(tr("Select delete marker {id}", { id: "dm-draft" }));
+  });
+});

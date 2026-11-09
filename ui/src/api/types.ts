@@ -164,9 +164,53 @@ export interface SsoAccount {
   email_address: string | null;
 }
 
+export interface AccountFolder {
+  name: string; // unique, case-insensitively; 1 to 100 characters
+  account_ids: string[]; // the accounts in the folder, in order
+}
+
 export interface AccountList {
-  accounts: Account[];
+  accounts: Account[]; // in their order; also the order of the accounts in no folder
   default_account_id: string | null;
+  folders: AccountFolder[]; // in their order; [] before folders were used
+}
+
+export interface AccountLayout {
+  folders: AccountFolder[]; // the folders in order, each with its accounts in order
+  accounts: string[]; // every account id, in the order the accounts are listed
+}
+
+export interface ExportAccountsOutcome {
+  path: string;
+  accounts: number;
+  folders: number;
+}
+
+export type DuplicatePolicy = "skip" | "rename";
+
+export interface ImportedAccount {
+  id: string;
+  label: string;
+  renamed_from: string | null;
+  needs_secret: boolean; // a static-key account without a secret access key yet
+}
+
+export interface ImportDuplicate {
+  label: string;
+  existing: string;
+  reason: "label" | "same_account";
+}
+
+export interface ImportSkipped {
+  label: string;
+  reason: string;
+}
+
+export interface ImportReport {
+  imported: ImportedAccount[];
+  duplicates: ImportDuplicate[];
+  skipped: ImportSkipped[];
+  folders_created: string[];
 }
 
 export interface SecurityStatus {
@@ -421,6 +465,7 @@ export interface SavedFilter {
 export type LogLevel = "error" | "warning" | "information";
 export type ChecksumAlgorithm = "crc32" | "crc32c" | "crc64nvme" | "sha1" | "sha256" | "none";
 export type ThemeSetting = "system" | "light" | "dark";
+export type QuitWithTasks = "ask" | "wait" | "quit";
 export type ProxyKind = "http" | "socks5";
 export type ShortenerProvider = "none" | "bitly" | "tinyurl";
 
@@ -429,12 +474,18 @@ export interface Settings {
     confirm_delete: boolean; // true
     default_download_dir: string | null; // null = ask every time
     open_with_recent: string[]; // applications chosen in "Open with", most recent first (at most 8)
+    keep_awake: boolean; // true: keep the computer awake while transfers or a sync run work
+    quit_with_tasks: QuitWithTasks; // "ask"
   };
   interface: {
     theme: ThemeSetting; // "system"
     flat_browsing: boolean; // false
     show_transfer_panel: boolean; // true
     show_log_panel: boolean; // false
+    sort_column: "name" | "size" | "modified" | "class"; // "name": sort of the object list
+    sort_direction: "asc" | "desc"; // "asc"
+    column_widths: { size: number; modified: number; class: number }; // 96, 160, 140 (each 40..=600)
+    bucket_page_size: number; // 1000 (10..=100000): buckets shown at once in the bucket list
   };
   advanced: {
     max_attempts: number; // 5 (SDK standard retry mode)
@@ -451,6 +502,8 @@ export interface Settings {
     level: LogLevel; // "information" (minimum level recorded)
     file_logging: boolean; // true
     max_file_mib: number; // 10
+    keep_days: number; // 30, old log files older than this are deleted
+    max_total_mib: number; // 100, old log files are deleted while the total is larger
   };
   proxy: {
     enabled: boolean; // false
@@ -608,6 +661,31 @@ export interface DiagnosticsReport {
   steps: DiagnosticStep[]; // always the six steps, in the order of DiagnosticStepId
 }
 
+export interface NoncurrentUsage {
+  versions: number; // non-current versions, delete markers excluded
+  bytes: number; // their total size
+  delete_markers: number; // all delete markers, current or not
+}
+
+export interface MultipartUsage {
+  uploads: number; // unfinished multipart uploads
+  parts: number; // parts uploaded so far
+  bytes: number; // size of those parts
+}
+
+export interface BucketUsage {
+  objects: number; // current objects (folder markers included)
+  bytes: number; // their total size
+  noncurrent: NoncurrentUsage | null; // null unless versions were asked for
+  multipart: MultipartUsage | null; // null unless multipart uploads were asked for
+}
+
+export interface UsageProgressEvent {
+  job_id: string;
+  phase: "objects" | "multipart"; // listing keys, or sizing multipart uploads
+  usage: BucketUsage; // the totals so far
+}
+
 export interface UploadRow {
   bucket: string;
   key: string;
@@ -702,7 +780,16 @@ export interface DeleteOutcome {
   failures: DeleteFailure[];
 }
 
-export type PreviewKind = "text" | "json" | "image" | "binary" | "too_large" | "empty";
+export type PreviewKind = "text" | "json" | "image" | "binary" | "too_large" | "empty" | "table";
+
+/** One page of a CSV, TSV or Parquet table. */
+export interface PreviewTable {
+  columns: string[];
+  rows: (string | null)[][];
+  total_rows: number;
+  truncated: boolean; // only the start of a large CSV/TSV was read
+  columns_cut: boolean; // columns beyond the 200th are left out
+}
 
 export interface ObjectPreview {
   key: string;
@@ -721,6 +808,7 @@ export interface ObjectPreview {
   text: string | null; // text and JSON
   formatted: boolean; // JSON that was pretty-printed
   image_base64: string | null; // images
+  table: PreviewTable | null; // tables: one page of rows
 }
 
 // ---- object metadata (T06) ----
@@ -1188,6 +1276,22 @@ export interface EditConflict {
   remote_modified: string | null; // RFC 3339
 }
 
+/** The objects of a drag between windows (relay_drag). */
+export interface DragItems {
+  account_id: string;
+  bucket: string;
+  keys: string[];
+}
+
+/** Payload of drag://incoming: a drag of another window is over this one. Positions are CSS pixels of this window. */
+export interface DragIncoming {
+  phase: "over" | "drop" | "leave";
+  x: number;
+  y: number;
+  items: DragItems | null;
+  move: boolean;
+}
+
 /** One edit session; also the payload of edit://changed. */
 export interface EditSession {
   id: string;
@@ -1211,4 +1315,18 @@ export type EditResolution = "overwrite" | "save_copy" | "discard" | "retry";
 export interface EditResolved {
   session: EditSession | null; // null when the resolution ended the session
   copy_key: string | null; // key of the copy, for save_copy
+}
+
+/** What a `bb://` link asks the UI to do (the result of `take_pending_link`). */
+export type LinkAction =
+  | { type: "open"; account_id: string; bucket: string | null; prefix: string }
+  | { type: "error"; message: string };
+
+/** How `quit_app` quits: now, or once no transfer or sync run is active. */
+export type QuitMode = "now" | "when_idle";
+
+/** Payload of `quit://requested`. */
+export interface QuitRequest {
+  active_transfers: number;
+  active_syncs: number;
 }

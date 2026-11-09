@@ -92,6 +92,11 @@ pub struct AppConfig {
     /// Saved sync jobs (see [`crate::syncjobs`]). Left out of the file while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sync_jobs: Vec<crate::syncjobs::SyncJob>,
+    /// Named groups of accounts (see [`crate::accountfile`]). Accounts in no
+    /// folder are not listed here; a file without this key (written before
+    /// folders existed) has no folders. Left out of the file while empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub account_folders: Vec<crate::accountfile::AccountFolder>,
 }
 
 impl Default for AppConfig {
@@ -108,6 +113,7 @@ impl Default for AppConfig {
             invalidation_path_sets: Vec::new(),
             bookmarks: Vec::new(),
             sync_jobs: Vec::new(),
+            account_folders: Vec::new(),
         }
     }
 }

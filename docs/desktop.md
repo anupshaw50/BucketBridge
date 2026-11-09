@@ -412,6 +412,12 @@ layer. It records:
   `bucketbridge::app`, `bucketbridge::desktop`, `bucketbridge::sync`);
 - warnings and errors from dependencies.
 
+Old log files are removed at start-up and then every 24 hours by a background
+thread (`state.rs`, `EventLog::cleanup_old_files`): rotated files
+(`bucketbridge.log.N`) older than `logging.keep_days` (default 30) go, then the
+oldest ones while all log files together exceed `logging.max_total_mib`
+(default 100). The current `bucketbridge.log` is never deleted.
+
 No command logs its arguments, and passwords are `Secret` values, so no secret
 reaches the log.
 
@@ -502,7 +508,40 @@ Shift+Cmd+Z only when the application menu has the matching Edit items.
 - Window: Minimize, Zoom, Close Window.
 
 Windows and Linux get no menu bar, because their web views handle these
-shortcuts without one. Closing the window quits the app on every platform.
+shortcuts without one. Closing the window quits the app on every platform
+(with active tasks it asks first, see below).
+
+### Everyday use: tray, links, quitting, window state
+
+The contract is in docs/desktop-api.md, "Everyday use". The host side:
+
+- `src/activity.rs`: `summarize` turns the queue's tasks and the number of
+  sync runs into an `Activity` (counts, overall percent, tooltip text, progress
+  bar state). A thread (`bb-activity`) looks at it once a second and, only when
+  it changed, sets the tray tooltip and the progress bar of every window
+  (`set_progress_bar`: Windows taskbar, macOS Dock, Unity on Linux), takes or
+  drops the keep-awake hold (the `keepawake` crate: IOKit power assertion on
+  macOS, `SetThreadExecutionState` on Windows, the logind / ScreenSaver
+  inhibit over D-Bus on Linux; idle sleep only, the display may turn off), and
+  completes a pending "quit when idle".
+- `src/tray.rs`: the tray icon (Tauri `tray-icon` feature; on Linux it needs
+  `libayatana-appindicator3`, already in the build packages). If it cannot be
+  created the app runs without it and never hides its windows to wait for a
+  quit.
+- `src/quit.rs`: `decide` (setting and activity to quit, wait or ask) and
+  `request_quit`, used by the close button of the last window
+  (`WindowEvent::CloseRequested`, prevented only while tasks are active), the
+  tray Quit item and `RunEvent::ExitRequested` without a code (Cmd-Q). Exits
+  with a code (`quit_app`, the monitor) are never intercepted.
+- `src/deeplink.rs`: strict `bb://` parsing and account resolution (pure,
+  unit tested); `tauri-plugin-deep-link` receives links at start-up and while
+  running (the single-instance plugin forwards the arguments of a second
+  launch). The scheme is declared in `plugins.deep-link` of `tauri.conf.json`;
+  development builds on Windows and Linux register it at run time.
+- `src/window_state.rs`: `window-state.json` in the data folder, written when
+  the main window closes and at exit, read at `RunEvent::Ready`. `fit` is pure:
+  a saved window whose title bar is not at least 100 x 20 pixels on a
+  connected monitor is centred on the primary monitor and shrunk to fit it.
 
 ## Content Security Policy
 

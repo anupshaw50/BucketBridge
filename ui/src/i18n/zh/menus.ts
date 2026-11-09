@@ -4,6 +4,7 @@ export const zhMenus: Record<string, string> = {
   "{what} copied.": "{what} 已复制。",
   Path: "路径",
   URL: "URL",
+  "S3 URI": "S3 URI",
   "Copying failed": "复制失败",
   "Opened {url} in the browser.": "已在浏览器中打开 {url}。",
   "The bucket could not be opened in the browser": "无法在浏览器中打开该存储桶",

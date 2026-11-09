@@ -16,6 +16,9 @@ import type {
   PathSet,
   AccelerationStatus,
   AbortResult,
+  BucketUsage,
+  ExportAccountsOutcome,
+  ImportReport,
   Account,
   AwsProfileEntry,
   CredentialSource,
@@ -32,6 +35,9 @@ import type {
   RuleIssue,
   Bookmark,
   WindowLocation,
+  LinkAction,
+  QuitMode,
+  QuitRequest,
   TieringConfig,
   AccountList,
   AppInfo,
@@ -44,6 +50,7 @@ import type {
   DiagnosticsReport,
   ExportOutcome,
   EditResolved,
+  DragIncoming,
   EditSession,
   DeleteOutcome,
   LogEntry,
@@ -81,6 +88,8 @@ import { basename, joinPath, type MockFile, type MockFs, normalizePath } from ".
 import { checkUserPolicy, IamMock } from "./iamMock";
 import { reportBytes, scanReport } from "./scanMock";
 import { ToolsMock } from "./toolsMock";
+import { UsageMock } from "./usageMock";
+import { AccountFilesMock } from "./accountFilesMock";
 import { EditMock } from "./editMock";
 import { CseMock } from "./cse";
 import { CredentialsMock, checkSource } from "./credentialsMock";
@@ -259,6 +268,12 @@ export class MockBackend implements Backend {
   private readonly syncJobs = new MockSyncJobs();
   /** Locations of the windows opened with `open_new_window` (null: no location), for tests. */
   readonly openedWindows: (WindowLocation | null)[] = [];
+  /** The `quit_app` modes asked for, in order, for tests. */
+  readonly quitCalls: QuitMode[] = [];
+  private pendingLink: LinkAction | null = null;
+  /** The `relay_drag` calls, for tests, and whether another window is reported to be under the pointer. */
+  readonly relayedDrags: CommandArgs["relay_drag"][] = [];
+  relayReaches = false;
   /** Accounts whose ListBuckets is refused (AccessDenied). */
   private readonly listingDenied = new Set<string>();
   private readonly versions = new MockVersions();
@@ -284,6 +299,13 @@ export class MockBackend implements Backend {
     bucket: (accountId, name) => this.bucketFor(this.connect(accountId), name),
     latency: () => this.latency(),
     log: (message) => this.addLog("information", "s3", message),
+  });
+  private readonly accountFiles = new AccountFilesMock();
+  private readonly usage = new UsageMock({
+    bucket: (accountId, name) => this.bucketFor(this.connect(accountId), name),
+    uploads: (accountId, bucket) => this.tools.listUploads({ account_id: accountId, buckets: [bucket] }).uploads,
+    versions: this.versions,
+    emit: (event) => this.emit("usage://progress", event),
   });
   private readonly mounts = new Map<string, MountInfo>();
   private readonly edits = new EditMock({
@@ -410,6 +432,17 @@ export class MockBackend implements Backend {
 
   // ---------------------------------------------------------------- test and demo helpers
 
+  /** A `bb://` link reached the app: keeps the resolved action and announces it, like the host. */
+  receiveLink(action: LinkAction): void {
+    this.pendingLink = action;
+    this.emit("link://pending", null);
+  }
+
+  /** The app was asked to quit while tasks are active (the setting is "ask"): announces it like the host. */
+  requestQuit(request: QuitRequest): void {
+    this.emit("quit://requested", request);
+  }
+
   /** Runs the transfer and sync simulation for `ms` milliseconds of simulated time. */
   advance(ms: number): void {
     let remaining = ms;
@@ -500,7 +533,11 @@ export class MockBackend implements Backend {
 
   async list_accounts(): Promise<AccountList> {
     await this.latency();
-    return clone({ accounts: this.accounts, default_account_id: this.defaultAccountId });
+    return clone({
+      accounts: this.accounts,
+      default_account_id: this.defaultAccountId,
+      folders: this.accountFiles.list(this.accounts),
+    });
   }
 
   async add_account(args: CommandArgs["add_account"]): Promise<Account> {
@@ -615,7 +652,12 @@ export class MockBackend implements Backend {
     }
     if (update.label !== null) account.label = update.label.trim();
     if (update.access_key_id !== null) account.access_key_id = update.access_key_id.trim();
-    if (update.secret_access_key !== null) this.secrets.set(account.secret_ref, update.secret_access_key);
+    if (update.secret_access_key !== null) {
+      if (account.secret_ref === "") {
+        account.secret_ref = `bucketbridge/account/${account.id}/secret`;
+      }
+      this.secrets.set(account.secret_ref, update.secret_access_key);
+    }
     if (update.clear_session_token && account.session_token_ref !== null) {
       this.secrets.delete(account.session_token_ref);
       account.session_token_ref = null;
@@ -647,7 +689,9 @@ export class MockBackend implements Backend {
     if (dependent !== undefined) {
       fail("conflict", `account "${dependent.label}" assumes a role through this account: remove it first`);
     }
-    this.secrets.delete(account.secret_ref);
+    if (account.secret_ref !== "") {
+      this.secrets.delete(account.secret_ref);
+    }
     if (account.session_token_ref !== null) {
       this.secrets.delete(account.session_token_ref);
     }
@@ -668,6 +712,38 @@ export class MockBackend implements Backend {
     const account = this.getAccount(args.id);
     this.defaultAccountId = account.id;
     this.addLog("information", "accounts", `Account "${account.label}" is now the default.`);
+  }
+
+  async set_account_layout(args: CommandArgs["set_account_layout"]): Promise<AccountList> {
+    await this.latency();
+    this.accounts = this.accountFiles.setLayout(this.accounts, args.layout);
+    return this.list_accounts();
+  }
+
+  async export_accounts(args: CommandArgs["export_accounts"]): Promise<ExportAccountsOutcome> {
+    await this.latency();
+    const outcome = this.accountFiles.export(this.accounts, args, this.fs);
+    this.addLog("information", "accounts", `Exported ${outcome.accounts} account(s) without secrets.`);
+    return outcome;
+  }
+
+  async import_accounts(args: CommandArgs["import_accounts"]): Promise<ImportReport> {
+    await this.latency();
+    const report = this.accountFiles.import(this.accounts, args, (account) => {
+      this.defaultAccountId ??= account.id;
+    });
+    this.addLog("information", "accounts", `Imported ${report.imported.length} account(s).`);
+    return clone(report);
+  }
+
+  /** The text of an account file that an export wrote (for tests). */
+  readAccountFile(path: string): string {
+    return this.accountFiles.read(path);
+  }
+
+  /** Puts an account file in place as if an export had written it (for tests). */
+  seedAccountFile(path: string, text: string): void {
+    this.accountFiles.seedFile(path, text);
   }
 
   // ------------------------------------------------- credential sources
@@ -1340,6 +1416,16 @@ export class MockBackend implements Backend {
     }
     this.bookmarks = this.bookmarks.filter((item) => item.id !== args.id);
     return this.bookmarksChanged();
+  }
+
+  relay_drag(args: CommandArgs["relay_drag"]): Promise<boolean> {
+    this.relayedDrags.push({ ...args });
+    return Promise.resolve(this.relayReaches);
+  }
+
+  /** Test hook: delivers a drag of another window to this one. */
+  deliverDrag(incoming: DragIncoming): void {
+    this.emit("drag://incoming", incoming);
   }
 
   async open_new_window(args: CommandArgs["open_new_window"]): Promise<string> {
@@ -2192,6 +2278,18 @@ export class MockBackend implements Backend {
     return this.crash === null ? null : clone(this.crash);
   }
 
+  async take_pending_link(): Promise<LinkAction | null> {
+    await this.latency();
+    const action = this.pendingLink;
+    this.pendingLink = null;
+    return action === null ? null : clone(action);
+  }
+
+  async quit_app(args: CommandArgs["quit_app"]): Promise<void> {
+    await this.latency();
+    this.quitCalls.push(args.mode);
+  }
+
   async dismiss_crash_report(args: CommandArgs["dismiss_crash_report"]): Promise<void> {
     await this.latency();
     if (this.crash?.path !== args.path) {
@@ -2205,6 +2303,16 @@ export class MockBackend implements Backend {
   async run_diagnostics(args: CommandArgs["run_diagnostics"]): Promise<DiagnosticsReport> {
     await this.latency();
     return this.tools.runDiagnostics(args);
+  }
+
+  async compute_bucket_usage(args: CommandArgs["compute_bucket_usage"]): Promise<BucketUsage> {
+    await this.latency();
+    return this.usage.compute(args);
+  }
+
+  async cancel_bucket_usage(args: CommandArgs["cancel_bucket_usage"]): Promise<void> {
+    await this.latency();
+    this.usage.cancel(args.job_id);
   }
 
   async list_multipart_uploads(args: CommandArgs["list_multipart_uploads"]): Promise<UploadListing> {
@@ -2517,6 +2625,9 @@ export class MockBackend implements Backend {
         fail("auth", "The credentials of this account could not be loaded.");
       }
       return { provider, owner: demo.owner };
+    }
+    if (account.secret_ref === "") {
+      fail("usage", `account "${account.label}" has no secret access key yet (it was imported without secrets): enter it in the account settings`);
     }
     const credential = provider.credentials.get(account.access_key_id);
     if (!credential) {

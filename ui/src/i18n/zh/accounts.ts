@@ -237,6 +237,58 @@ export const zhAccounts: Record<string, string> = {
   "Account {account}, role {role}.": "账户 {account}，角色 {role}。",
   "To use another role, add a new account.": "如需使用其他角色，请添加新账户。",
 
+  // ---- 账户文件夹、排序、导入与导出 ----
+  "New account folder": "新建账户文件夹",
+  "Rename folder": "重命名文件夹",
+  "The folder name must be at most {n} characters.": "文件夹名称最长 {n} 个字符。",
+  "A folder with this name already exists.": "已存在同名文件夹。",
+  "No account was imported.": "没有导入任何账户。",
+  "Imported {n} account.": "已导入 {n} 个账户。",
+  "Imported {n} accounts.": "已导入 {n} 个账户。",
+  "These accounts need their secret access key": "这些账户需要输入 Secret Access Key",
+  "The account file holds no secrets. Edit each account and enter its secret access key before you use it.":
+    "账户文件不含机密。使用前请编辑每个账户并输入其 Secret Access Key。",
+  Duplicates: "重复",
+  "{label}: the same account as {existing}; left out.": "{label}：与 {existing} 是同一个账户，已忽略。",
+  "{label}: the label is taken by {existing}; imported under another label.":
+    "{label}：标签已被 {existing} 占用，已改用其他标签导入。",
+  "{label}: the label is taken by {existing}; left out.": "{label}：标签已被 {existing} 占用，已忽略。",
+  "Choose an account file": "选择账户文件",
+  "Import accounts": "导入账户",
+  "Choose a file written by Export accounts. It holds no secrets: imported accounts with access keys need their secret access key before you can use them. Existing accounts are never changed.":
+    "选择由“导出账户”写出的文件。文件不含机密：带访问密钥的导入账户在使用前需要输入其 Secret Access Key。现有账户不会被更改。",
+  "Choose file...": "选择文件...",
+  "No file chosen": "未选择文件",
+  "An account whose label is already taken": "标签已被占用的账户",
+  "Leave it out": "跳过",
+  "Import it under another label": "改用其他标签导入",
+  "For example: Label (2).": "例如：Label (2)。",
+  "The accounts could not be arranged": "无法调整账户",
+  "Export accounts": "导出账户",
+  "Exported {n} accounts to {path}. The file holds no secrets.": "已将 {n} 个账户导出到 {path}。文件不含机密。",
+  "The accounts could not be exported": "无法导出账户",
+  "Remove folder": "删除文件夹",
+  "Remove the folder \"{name}\"? Its accounts are kept and are no longer in a folder.":
+    "删除文件夹“{name}”？其中的账户会保留，不再属于任何文件夹。",
+  "{n} account": "{n} 个账户",
+  "{n} accounts": "{n} 个账户",
+  "Move folder {name} up": "上移文件夹 {name}",
+  "Move folder {name} down": "下移文件夹 {name}",
+  "Rename folder {name}": "重命名文件夹 {name}",
+  "Remove folder {name}": "删除文件夹 {name}",
+  "Not in a folder": "不在文件夹中",
+  "Needs secret": "需要密钥",
+  "Imported without a secret: edit the account and enter its secret access key.":
+    "导入时不含机密：请编辑账户并输入其 Secret Access Key。",
+  "Folder of {label}": "{label} 的文件夹",
+  "No folder": "无文件夹",
+  "Move {label} up": "上移 {label}",
+  "Move {label} down": "下移 {label}",
+  "New folder...": "新建文件夹...",
+  "Export accounts...": "导出账户...",
+  "Import accounts...": "导入账户...",
+  Create: "创建",
+
   // ---- IAMDialog 等（用户名占位）----
   "user name": "用户名",
 };

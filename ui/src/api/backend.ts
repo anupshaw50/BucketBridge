@@ -20,6 +20,12 @@ import type {
   RetentionChange,
   AccelerationStatus,
   AbortResult,
+  AccountLayout,
+  DuplicatePolicy,
+  ExportAccountsOutcome,
+  ImportReport,
+  BucketUsage,
+  UsageProgressEvent,
   Account,
   AccountInput,
   AccountList,
@@ -46,6 +52,9 @@ import type {
   SyncOptions,
   SyncReport,
   WindowLocation,
+  LinkAction,
+  QuitMode,
+  QuitRequest,
   TieringConfig,
   IamAccessKey,
   IamDeleteOutcome,
@@ -95,6 +104,8 @@ import type {
   UploadListing,
   EditResolution,
   EditResolved,
+  DragIncoming,
+  DragItems,
   EditSession,
   MountChangedEvent,
   MountInfo,
@@ -119,6 +130,9 @@ export interface CommandArgs {
   update_account: { id: string; update: AccountUpdate };
   remove_account: { id: string };
   set_default_account: { id: string };
+  set_account_layout: { layout: AccountLayout };
+  export_accounts: { path: string; account_ids: string[] | null };
+  import_accounts: { path: string; duplicates: DuplicatePolicy };
   mfa_login: { account_id: string; code: string };
 
   list_buckets: { account_id: string };
@@ -169,6 +183,7 @@ export interface CommandArgs {
   rename_bookmark: { id: string; label: string };
   remove_bookmark: { id: string };
   open_new_window: { location: WindowLocation | null };
+  relay_drag: { phase: "over" | "drop" | "leave"; items: DragItems | null; move_items: boolean };
   get_bucket_rules: { account_id: string; bucket: string };
   get_bucket_lifecycle: { account_id: string; bucket: string };
   put_bucket_lifecycle: { account_id: string; bucket: string; config: LifecycleConfig };
@@ -294,6 +309,7 @@ export interface CommandArgs {
   get_log: { levels: LogLevel[] | null; text: string | null; limit: number | null };
   export_log: { path: string; format: LogExportFormat };
   dismiss_crash_report: { path: string };
+  quit_app: { mode: QuitMode };
 
   // Tools and export (T12). list_filters takes no arguments.
   run_diagnostics: { account_id: string | null; input: AccountInput | null; bucket: string | null };
@@ -320,6 +336,15 @@ export interface CommandArgs {
   iam_create_login_profile: { account_id: string; user: string; password: string; reset_required: boolean };
   iam_update_login_profile: { account_id: string; user: string; password: string | null; reset_required: boolean | null };
   iam_delete_login_profile: { account_id: string; user: string; confirm: string };
+  compute_bucket_usage: {
+    account_id: string;
+    bucket: string;
+    prefix: string;
+    versions: boolean;
+    multipart: boolean;
+    job_id: string;
+  };
+  cancel_bucket_usage: { job_id: string };
   list_multipart_uploads: { account_id: string; buckets: string[] };
   abort_multipart_uploads: { account_id: string; uploads: UploadRef[] };
   save_filter: { filter: SavedFilter; replaces: string | null };
@@ -447,6 +472,10 @@ export interface BackendEvents {
   "bookmarks://changed": Bookmark[];
   "mount://changed": MountChangedEvent;
   "edit://changed": EditSession;
+  "link://pending": null;
+  "quit://requested": QuitRequest;
+  "drag://incoming": DragIncoming;
+  "usage://progress": UsageProgressEvent;
 }
 
 export type BackendEventName = keyof BackendEvents;
@@ -465,6 +494,10 @@ export const BACKEND_EVENT_NAMES: readonly BackendEventName[] = [
   "bookmarks://changed",
   "mount://changed",
   "edit://changed",
+  "link://pending",
+  "quit://requested",
+  "drag://incoming",
+  "usage://progress",
 ];
 
 /**
@@ -482,6 +515,9 @@ export interface Backend {
   update_account: (args: CommandArgs["update_account"]) => Promise<Account>;
   remove_account: (args: CommandArgs["remove_account"]) => Promise<void>;
   set_default_account: (args: CommandArgs["set_default_account"]) => Promise<void>;
+  set_account_layout: (args: CommandArgs["set_account_layout"]) => Promise<AccountList>;
+  export_accounts: (args: CommandArgs["export_accounts"]) => Promise<ExportAccountsOutcome>;
+  import_accounts: (args: CommandArgs["import_accounts"]) => Promise<ImportReport>;
   mfa_login: (args: CommandArgs["mfa_login"]) => Promise<void>;
 
   // Browsing
@@ -524,6 +560,7 @@ export interface Backend {
   remove_bookmark: (args: CommandArgs["remove_bookmark"]) => Promise<Bookmark[]>;
   /** Opens another main window and returns its label. */
   open_new_window: (args: CommandArgs["open_new_window"]) => Promise<string>;
+  relay_drag: (args: CommandArgs["relay_drag"]) => Promise<boolean>;
   get_bucket_rules: (args: CommandArgs["get_bucket_rules"]) => Promise<BucketRules>;
   get_bucket_lifecycle: (args: CommandArgs["get_bucket_lifecycle"]) => Promise<LifecycleConfig | null>;
   put_bucket_lifecycle: (args: CommandArgs["put_bucket_lifecycle"]) => Promise<void>;
@@ -607,6 +644,9 @@ export interface Backend {
   app_info: () => Promise<AppInfo>;
   last_crash_report: () => Promise<CrashReport | null>;
   dismiss_crash_report: (args: CommandArgs["dismiss_crash_report"]) => Promise<void>;
+  /** The `bb://` link waiting for this window, removed by the call. */
+  take_pending_link: () => Promise<LinkAction | null>;
+  quit_app: (args: CommandArgs["quit_app"]) => Promise<void>;
 
   // Tools and export (T12)
   run_diagnostics: (args: CommandArgs["run_diagnostics"]) => Promise<DiagnosticsReport>;
@@ -633,6 +673,8 @@ export interface Backend {
   iam_create_login_profile: (args: CommandArgs["iam_create_login_profile"]) => Promise<void>;
   iam_update_login_profile: (args: CommandArgs["iam_update_login_profile"]) => Promise<void>;
   iam_delete_login_profile: (args: CommandArgs["iam_delete_login_profile"]) => Promise<void>;
+  compute_bucket_usage: (args: CommandArgs["compute_bucket_usage"]) => Promise<BucketUsage>;
+  cancel_bucket_usage: (args: CommandArgs["cancel_bucket_usage"]) => Promise<void>;
   list_multipart_uploads: (args: CommandArgs["list_multipart_uploads"]) => Promise<UploadListing>;
   abort_multipart_uploads: (args: CommandArgs["abort_multipart_uploads"]) => Promise<AbortResult[]>;
   list_aws_profiles: () => Promise<AwsProfileEntry[]>;
@@ -699,6 +741,9 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   update_account: true,
   remove_account: true,
   set_default_account: true,
+  set_account_layout: true,
+  export_accounts: true,
+  import_accounts: true,
   mfa_login: true,
   list_buckets: true,
   list_objects: true,
@@ -736,6 +781,7 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   rename_bookmark: true,
   remove_bookmark: true,
   open_new_window: true,
+  relay_drag: true,
   get_bucket_rules: true,
   get_bucket_lifecycle: true,
   put_bucket_lifecycle: true,
@@ -808,6 +854,8 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   app_info: true,
   last_crash_report: true,
   dismiss_crash_report: true,
+  take_pending_link: true,
+  quit_app: true,
   run_diagnostics: true,
   iam_status: true,
   iam_list_users: true,
@@ -830,6 +878,8 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   iam_create_login_profile: true,
   iam_update_login_profile: true,
   iam_delete_login_profile: true,
+  compute_bucket_usage: true,
+  cancel_bucket_usage: true,
   list_multipart_uploads: true,
   abort_multipart_uploads: true,
   list_filters: true,

@@ -105,9 +105,33 @@ usage error.
 | `bb account list` | One line per account: `*` for the default, label, region, endpoint (`-` for AWS), credential source (`keys`, `aws-profile`, `assume-role`, `sso`, `instance-role`), ID. |
 | `bb account remove LABEL\|ID` | Removes the account and its secrets. Removing the default makes the first remaining account the default. |
 | `bb account default LABEL\|ID` | Makes the account the default. |
+| `bb account move LABEL\|ID [--folder NAME \| --no-folder] [--before LABEL\|ID \| --first]` | Puts the account in a folder (created when new), takes it out of its folder, or moves it in the list (inside its folder when it is in one). At least one option is required. |
+| `bb account folder list\|add NAME\|rename OLD NEW\|remove NAME` | Lists, creates, renames and removes account folders. Removing a folder keeps its accounts. Folder names are unique, case-insensitively. |
+| `bb account export FILE [LABEL\|ID]...` | Writes the accounts (all, or the named ones plus the source account of a role) to a JSON file **without any secret**. |
+| `bb account import FILE [--rename-duplicates]` | Adds the accounts of such a file. Never overwrites: a duplicate is reported and left out (`--rename-duplicates` imports a label duplicate as `Label (2)`). Imported accounts with keys need a secret before use. |
+| `bb account set-secret LABEL\|ID [--secret-stdin]` | Stores the secret access key of an account that has none (an imported one), or replaces it. Read like `account add`. |
 
 The account is an argument of these commands; `--account` and `--mfa-code`
 are usage errors with them.
+
+`bb account list` shows the accounts in the order of the account manager: the
+folders first (each with its accounts in order), then the accounts in no folder.
+Its `--json` records carry `folder` (the folder name or `null`) and
+`needs_secret` (`true` for an account with keys that has no secret yet) next to
+the fields of the desktop `Account`. The account file format is documented in
+docs/desktop-api.md ("Account folders, order, export and import"); it is the
+same file the desktop app writes and reads.
+
+`bb account import` prints one record per account of the file, then a summary.
+With `--json` the records have `kind` (`imported`, `duplicate` or `skipped`),
+`label`, and per kind `id`, `renamed_from`, `needs_secret`, `existing` and
+`reason` (`label` or `same_account` for a duplicate, the text for a skipped
+account); the summary has `imported`, `duplicates`, `skipped` and
+`folders_created`. A duplicate or a skipped account is not a failure (exit
+code 0); an unreadable or invalid file is a usage error (exit 1). An imported
+account with keys fails with a usage error until `bb account set-secret` (or
+the desktop app) gives it its secret access key. Nothing in the file or in the
+import touches the secret store.
 
 All endpoint options of `account add` (`--region`, `--endpoint`, `--path-style`,
 `--request-payer`) also apply to the accounts below. An account that gets its
@@ -179,6 +203,22 @@ are fetched with the `list_page_size` setting (default 1000).
 | buckets | `name`; with `-l`: creation date, region, name |
 | objects | `key`; with `-l`: last modified, size (`PRE` for folders), storage class, key |
 | versions | last modified, size (`DEL` for delete markers, `PRE` for folders), `latest` or `-`, version ID, key |
+
+### `bb du S3_URI [--versions] [--multipart]`
+
+Adds up the objects under `s3://bucket` or `s3://bucket/prefix` by listing
+them (one request per 1000 keys, so a large bucket takes a while; Ctrl-C
+stops it): the number of current objects and their total size. `--versions`
+walks all versions instead: current versions are counted as above, older
+versions are added up as non-current versions (number and size), and delete
+markers are counted. `--multipart` also lists the unfinished multipart
+uploads under the prefix and adds up the parts uploaded so far. Zero-byte
+folder markers count as objects.
+
+With `--json` one record is printed: `bucket`, `prefix`, `objects`, `bytes`,
+and `noncurrent_versions`, `noncurrent_bytes`, `delete_markers` (`null`
+without `--versions`) and `multipart_uploads`, `multipart_parts`,
+`multipart_bytes` (`null` without `--multipart`).
 
 ### `bb mb BUCKET [--region R]` and `bb rb BUCKET`
 

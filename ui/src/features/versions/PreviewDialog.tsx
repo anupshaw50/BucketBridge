@@ -9,6 +9,7 @@ import {
   IconFile,
   IconFileText,
   IconPhoto,
+  IconTable,
 } from "@tabler/icons-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toBbError } from "../../api/errors";
@@ -18,7 +19,9 @@ import { AppModal } from "../../components/AppModal";
 import { tr } from "../../i18n";
 import { formatBytes, formatCount, formatDateTime } from "../../lib/format";
 import { baseName, s3Uri } from "../../lib/s3keys";
+import { ImageViewer } from "./ImageViewer";
 import { imageSource } from "./imageUrl";
+import { PreviewTableView } from "./PreviewTableView";
 
 export interface PreviewDialogProps {
   accountId: string;
@@ -30,6 +33,7 @@ export interface PreviewDialogProps {
 }
 
 const DEFAULT_PAGE_SIZE = 131_072;
+const PARQUET_TYPE = "application/vnd.apache.parquet";
 const PAGE_SIZES = [
   { value: "65536", label: "64 KiB" },
   { value: "131072", label: "128 KiB" },
@@ -51,6 +55,8 @@ function KindIcon({ kind }: { kind: PreviewKind | null }) {
       return <IconPhoto size={18} aria-hidden />;
     case "json":
       return <IconBraces size={18} aria-hidden />;
+    case "table":
+      return <IconTable size={18} aria-hidden />;
     case "text":
       return <IconFileText size={18} aria-hidden />;
     case "binary":
@@ -117,7 +123,8 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
     }
   };
   const applySize = () => setRequest((r) => ({ id: r.id + 1, page: 0, pageSize: Number(sizeChoice) }));
-  const paged = preview !== null && (preview.kind === "text" || preview.kind === "json") && preview.page_count > 1 && !loading;
+  const pageable = preview !== null && (preview.kind === "text" || preview.kind === "json" || preview.kind === "table");
+  const paged = pageable && preview.page_count > 1 && !loading;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!paged || !event.altKey) {
       return;
@@ -160,6 +167,8 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
         {preview.text}
       </pre>
     );
+  } else if (preview.kind === "table" && preview.table !== null) {
+    body = <PreviewTableView table={preview.table} offset={preview.offset} label={tr("Contents of {name}", { name: baseName(objectKey) })} />;
   } else if (preview.kind === "image") {
     body =
       source === null || brokenImage === source.url ? (
@@ -169,22 +178,24 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
           })}
         </Alert>
       ) : (
-        <div className="bb-preview-frame">
-          <img
-            className="bb-preview-image"
-            src={source.url}
-            alt={tr("Preview of {name}", { name: baseName(objectKey) })}
-            onError={() => setBrokenImage(source.url)}
-          />
-        </div>
+        <ImageViewer
+          key={source.url}
+          url={source.url}
+          alt={tr("Preview of {name}", { name: baseName(objectKey) })}
+          onError={() => setBrokenImage(source.url)}
+        />
       );
   } else if (preview.kind === "too_large") {
     body = (
       <Alert color="yellow" icon={<IconAlertCircle size={16} />} title={tr("Too large to preview")} role="status">
-        {tr("This {type} is {size}. Images above 8 MiB are not previewed; download the object to open it.", {
-          type: preview.media_type ?? tr("image"),
-          size: formatBytes(preview.size),
-        })}
+        {preview.media_type === PARQUET_TYPE
+          ? tr("This Parquet file is {size}. Parquet files above 8 MiB are not previewed; download the object to open it.", {
+              size: formatBytes(preview.size),
+            })
+          : tr("This {type} is {size}. Images above 8 MiB are not previewed; download the object to open it.", {
+              type: preview.media_type ?? tr("image"),
+              size: formatBytes(preview.size),
+            })}
       </Alert>
     );
   } else if (preview.kind === "empty") {
@@ -231,7 +242,13 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
           {preview === null ? null : (
             <Group gap="xs" wrap="wrap">
               <Badge variant="outline" size="sm">
-                {preview.kind === "json" ? (preview.formatted ? tr("JSON (formatted)") : "JSON") : tr(preview.kind.replace("_", " "))}
+                {preview.kind === "json"
+                  ? preview.formatted
+                    ? tr("JSON (formatted)")
+                    : "JSON"
+                  : preview.media_type === "application/xml" && preview.formatted
+                    ? tr("XML (formatted)")
+                    : tr(preview.kind.replace("_", " "))}
               </Badge>
               <Text size="xs" c="dimmed">
                 {[
@@ -247,7 +264,7 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
           <div aria-busy={loading || undefined} style={loading && current !== null ? { opacity: 0.6 } : undefined}>
             {body}
           </div>
-          {preview !== null && (preview.kind === "text" || preview.kind === "json") ? (
+          {pageable ? (
             <Group justify="space-between" wrap="wrap" gap="xs">
               <Group gap={4} wrap="nowrap">
                 <Tooltip label={tr("First page (Alt+Home)")}>
@@ -321,7 +338,18 @@ export function PreviewDialog({ accountId, bucket, objectKey, versionId, onClose
                   {tr("Page {cur} of {count}", { cur: formatCount(preview.page + 1), count: formatCount(preview.page_count) })}
                 </Text>
               </Group>
-              <Group gap="xs" wrap="nowrap">
+              {preview.kind === "table" ? (
+                <Text size="xs" c="dimmed">
+                  {preview.length === 0
+                    ? tr("No rows")
+                    : tr("Rows {from} to {to} of {total}", {
+                        from: formatCount(preview.offset + 1),
+                        to: formatCount(preview.offset + preview.length),
+                        total: formatCount(preview.table?.total_rows ?? 0),
+                      })}
+                </Text>
+              ) : null}
+              <Group gap="xs" wrap="nowrap" style={preview.kind === "table" ? { display: "none" } : undefined}>
                 <Text size="xs" c="dimmed">
                   {tr("Bytes {from} to {to}", {
                     from: formatCount(preview.offset),

@@ -1,7 +1,7 @@
 import { t, tr } from "../../i18n";
 import { isFolderEntry } from "../../lib/objects";
-import { bucketUrl } from "../../lib/bucketUrl";
-import { s3Uri } from "../../lib/s3keys";
+import { bucketUrl, styledUrl, supportsVirtualHosted } from "../../lib/bucketUrl";
+import { baseName, s3Uri } from "../../lib/s3keys";
 import type { BucketPropertiesTab, BucketRulesTab, CloudFrontView, ObjectPropertiesTab } from "../../state/dialogs";
 import type { AppModel } from "../../state/model";
 import { makeDefault, removeAccount } from "../accounts/accountActions";
@@ -118,6 +118,39 @@ async function copyToClipboard(model: AppModel, text: string, what: string): Pro
   } catch (error) {
     model.status.error(error, { notify: tr("Copying failed") });
   }
+}
+
+/** One thing a "Copy as" entry copies: a bucket (empty key) or an object or folder of a bucket. */
+interface CopyTarget {
+  bucket: string;
+  region: string | null;
+  key: string;
+  name: string;
+}
+
+const hasCopyTargets = (ctx: MenuContext) => ctx.buckets.length > 0 || (ctx.items.length > 0 && ctx.bucket !== null);
+
+function copyTargets(ctx: MenuContext): CopyTarget[] {
+  if (ctx.items.length > 0 && ctx.bucket !== null) {
+    const bucket = ctx.bucket;
+    const region = ctx.model.browser.state.bucketList.buckets.find((known) => known.name === bucket)?.region ?? null;
+    return ctx.items.map((entry) => ({ bucket, region, key: entry.key, name: baseName(entry.key) }));
+  }
+  return ctx.buckets.map((bucket) => ({ bucket: bucket.name, region: bucket.region, key: "", name: bucket.name }));
+}
+
+/** Copies one line per selected bucket, folder or object. */
+function copyAs(
+  ctx: MenuContext,
+  what: string,
+  line: (target: CopyTarget, account: NonNullable<MenuContext["account"]>) => string,
+): Promise<void> | undefined {
+  const { account } = ctx;
+  if (account === null) {
+    return undefined;
+  }
+  const lines = copyTargets(ctx).map((target) => line(target, account));
+  return lines.length === 0 ? undefined : copyToClipboard(ctx.model, lines.join("\n"), what);
 }
 
 const LIVE: Record<LiveActionId, ActionDef> = {
@@ -303,6 +336,24 @@ const LIVE: Record<LiveActionId, ActionDef> = {
       const urls = ctx.buckets.map((bucket) => bucketUrl(account, bucket.name, bucket.region));
       return copyToClipboard(ctx.model, urls.join("\n"), "URL");
     },
+  },
+  // ---- Copy as ----
+  "copy.name": { many: true, visible: hasCopyTargets, run: (ctx) => copyAs(ctx, "Name", (t) => t.name) },
+  "copy.key": {
+    many: true,
+    visible: (ctx) => ctx.items.length > 0 && ctx.bucket !== null,
+    run: (ctx) => copyAs(ctx, "Key", (t) => t.key),
+  },
+  "copy.uri": { many: true, visible: hasCopyTargets, run: (ctx) => copyAs(ctx, "S3 URI", (t) => s3Uri(t.bucket, t.key)) },
+  "copy.url-virtual": {
+    many: true,
+    visible: (ctx) => hasCopyTargets(ctx) && ctx.account !== null && supportsVirtualHosted(ctx.account),
+    run: (ctx) => copyAs(ctx, "URL", (t, account) => styledUrl(account, t.bucket, t.region, t.key, "virtual")),
+  },
+  "copy.url-path": {
+    many: true,
+    visible: (ctx) => hasCopyTargets(ctx) && ctx.account !== null,
+    run: (ctx) => copyAs(ctx, "URL", (t, account) => styledUrl(account, t.bucket, t.region, t.key, "path")),
   },
   "bucket.remove-external": {
     danger: true,

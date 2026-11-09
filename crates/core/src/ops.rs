@@ -1013,6 +1013,57 @@ impl S3 {
         }
     }
 
+    /// Counts the parts uploaded so far to an uncompleted multipart upload
+    /// and adds up their sizes: `(parts, bytes)`. Follows pagination.
+    pub async fn multipart_upload_usage(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(u64, u64)> {
+        validate_bucket_name(bucket)?;
+        let client = self.client_for(bucket).await?;
+        let (mut parts, mut bytes) = (0u64, 0u64);
+        let mut marker: Option<String> = None;
+        let mut seen = SeenTokens::new();
+        loop {
+            let out = client
+                .list_parts()
+                .bucket(bucket)
+                .key(key)
+                .upload_id(upload_id)
+                .set_part_number_marker(marker.clone())
+                .set_request_payer(self.request_payer())
+                .customize()
+                .config_override(self.metadata_timeout())
+                .send()
+                .await
+                .map_err(|err| Error::from(err).with_context(format!("s3://{bucket}/{key}")))?;
+            for part in out.parts() {
+                parts += 1;
+                bytes += to_size(part.size());
+            }
+            if out.is_truncated() != Some(true) {
+                return Ok((parts, bytes));
+            }
+            let next = out
+                .next_part_number_marker()
+                .filter(|m| !m.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    Error::Remote(format!(
+                        "listing parts of s3://{bucket}/{key}: the server reported more results but sent no marker"
+                    ))
+                })?;
+            if !seen.first_time(&next) {
+                return Err(repeated_token(&format!(
+                    "listing parts of s3://{bucket}/{key}"
+                )));
+            }
+            marker = Some(next);
+        }
+    }
+
     /// Aborts an uncompleted multipart upload and frees its parts.
     pub async fn abort_multipart_upload(
         &self,

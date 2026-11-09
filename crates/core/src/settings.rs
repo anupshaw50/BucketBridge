@@ -54,6 +54,25 @@ pub struct GeneralSettings {
     /// Applications chosen in "Open with", most recent first (at most
     /// [`MAX_OPEN_WITH_RECENT`]). Default empty.
     pub open_with_recent: Vec<String>,
+    /// Keep the computer awake while transfers or a sync run work. Default
+    /// `true`; released as soon as the work ends.
+    pub keep_awake: bool,
+    /// What quitting does while transfers or sync runs are active. Default
+    /// `ask`.
+    pub quit_with_tasks: QuitWithTasks,
+}
+
+/// What quitting the app does while transfers or sync runs are active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuitWithTasks {
+    /// Ask: finish the active tasks first, quit now, or cancel.
+    #[default]
+    Ask,
+    /// Let the active tasks finish, then quit.
+    Wait,
+    /// Quit at once; unfinished transfers stay resumable.
+    Quit,
 }
 
 /// How many applications `GeneralSettings::open_with_recent` keeps.
@@ -76,6 +95,8 @@ impl Default for GeneralSettings {
             confirm_delete: true,
             default_download_dir: None,
             open_with_recent: Vec::new(),
+            keep_awake: true,
+            quit_with_tasks: QuitWithTasks::Ask,
         }
     }
 }
@@ -93,6 +114,55 @@ pub enum Theme {
     Dark,
 }
 
+/// Column the object list is sorted by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortColumn {
+    /// By name (natural order: `file2` before `file10`).
+    #[default]
+    Name,
+    /// By size.
+    Size,
+    /// By last modified time.
+    Modified,
+    /// By storage class.
+    Class,
+}
+
+/// Direction of the object list sort.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    /// Smallest first.
+    #[default]
+    Asc,
+    /// Largest first.
+    Desc,
+}
+
+/// Widths in pixels of the resizable object list columns (the name column
+/// takes the rest of the row).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ColumnWidths {
+    /// Size column. Default 96, range 40..=600.
+    pub size: u32,
+    /// Last modified column. Default 160, range 40..=600.
+    pub modified: u32,
+    /// Storage class column. Default 140, range 40..=600.
+    pub class: u32,
+}
+
+impl Default for ColumnWidths {
+    fn default() -> Self {
+        ColumnWidths {
+            size: 96,
+            modified: 160,
+            class: 140,
+        }
+    }
+}
+
 /// Interface settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -105,6 +175,15 @@ pub struct InterfaceSettings {
     pub show_transfer_panel: bool,
     /// Default `false`.
     pub show_log_panel: bool,
+    /// Sort column of the object list. Default `Name`.
+    pub sort_column: SortColumn,
+    /// Sort direction of the object list. Default `Asc`.
+    pub sort_direction: SortDirection,
+    /// Column widths of the object list.
+    pub column_widths: ColumnWidths,
+    /// Buckets shown at once in the bucket list; the rest is loaded with
+    /// "Show more". Default 1000, range 10..=100000.
+    pub bucket_page_size: u32,
 }
 
 impl Default for InterfaceSettings {
@@ -114,6 +193,10 @@ impl Default for InterfaceSettings {
             flat_browsing: false,
             show_transfer_panel: true,
             show_log_panel: false,
+            sort_column: SortColumn::Name,
+            sort_direction: SortDirection::Asc,
+            column_widths: ColumnWidths::default(),
+            bucket_page_size: 1000,
         }
     }
 }
@@ -250,6 +333,12 @@ pub struct LoggingSettings {
     pub file_logging: bool,
     /// Size at which a log file is rotated. Default 10, range 1..=1024.
     pub max_file_mib: u32,
+    /// Old (rotated) log files older than this many days are deleted at
+    /// start-up and then daily. Default 30, range 1..=3650.
+    pub keep_days: u32,
+    /// Old log files are deleted, oldest first, while the log folder's files
+    /// together exceed this many MiB. Default 100, range 1..=102400.
+    pub max_total_mib: u32,
 }
 
 impl Default for LoggingSettings {
@@ -258,6 +347,8 @@ impl Default for LoggingSettings {
             level: LogLevel::Information,
             file_logging: true,
             max_file_mib: 10,
+            keep_days: 30,
+            max_total_mib: 100,
         }
     }
 }
@@ -408,7 +499,40 @@ impl Settings {
         c.range("advanced.read_timeout_secs", a.read_timeout_secs, 1, 3600);
         c.range("advanced.list_page_size", a.list_page_size, 1, 1000);
 
+        let i = &self.interface;
+        c.range(
+            "interface.column_widths.size",
+            i.column_widths.size,
+            40,
+            600,
+        );
+        c.range(
+            "interface.column_widths.modified",
+            i.column_widths.modified,
+            40,
+            600,
+        );
+        c.range(
+            "interface.column_widths.class",
+            i.column_widths.class,
+            40,
+            600,
+        );
+        c.range(
+            "interface.bucket_page_size",
+            i.bucket_page_size,
+            10,
+            100_000,
+        );
+
         c.range("logging.max_file_mib", self.logging.max_file_mib, 1, 1024);
+        c.range("logging.keep_days", self.logging.keep_days, 1, 3650);
+        c.range(
+            "logging.max_total_mib",
+            self.logging.max_total_mib,
+            1,
+            102_400,
+        );
 
         let p = &self.proxy;
         c.range("proxy.port", p.port, 1, u16::MAX);
@@ -480,6 +604,21 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn everyday_use_settings_have_defaults_and_spellings() {
+        let general = GeneralSettings::default();
+        assert!(general.keep_awake);
+        assert_eq!(general.quit_with_tasks, QuitWithTasks::Ask);
+        let parsed: Settings =
+            serde_json::from_value(json!({ "general": { "quit_with_tasks": "wait" } })).unwrap();
+        assert_eq!(parsed.general.quit_with_tasks, QuitWithTasks::Wait);
+        assert!(parsed.general.keep_awake);
+        assert_eq!(
+            serde_json::to_value(QuitWithTasks::Quit).unwrap(),
+            json!("quit")
+        );
+    }
+
+    #[test]
     fn open_with_recent_is_most_recent_first_unique_and_bounded() {
         let mut general = GeneralSettings::default();
         assert!(general.open_with_recent.is_empty());
@@ -503,12 +642,22 @@ mod tests {
         assert_eq!(
             value,
             json!({
-                "general": { "confirm_delete": true, "default_download_dir": null, "open_with_recent": [] },
+                "general": {
+                    "confirm_delete": true,
+                    "default_download_dir": null,
+                    "open_with_recent": [],
+                    "keep_awake": true,
+                    "quit_with_tasks": "ask"
+                },
                 "interface": {
                     "theme": "system",
                     "flat_browsing": false,
                     "show_transfer_panel": true,
-                    "show_log_panel": false
+                    "show_log_panel": false,
+                    "sort_column": "name",
+                    "sort_direction": "asc",
+                    "column_widths": { "size": 96, "modified": 160, "class": 140 },
+                    "bucket_page_size": 1000
                 },
                 "advanced": {
                     "max_attempts": 5,
@@ -517,7 +666,7 @@ mod tests {
                     "list_page_size": 1000
                 },
                 "data_integrity": { "checksum_algorithm": "crc32", "validate_downloads": true, "preserve_mtime": true },
-                "logging": { "level": "information", "file_logging": true, "max_file_mib": 10 },
+                "logging": { "level": "information", "file_logging": true, "max_file_mib": 10, "keep_days": 30, "max_total_mib": 100 },
                 "proxy": {
                     "enabled": false,
                     "kind": "http",
@@ -603,6 +752,33 @@ mod tests {
         ] {
             assert!(text.contains(expected), "missing {expected:?} in {text}");
         }
+    }
+
+    #[test]
+    fn interface_display_settings_are_validated() {
+        let mut s = Settings::default();
+        s.interface.bucket_page_size = 9;
+        s.interface.column_widths.size = 39;
+        s.interface.column_widths.class = 601;
+        let text = s.validate().unwrap_err().to_string();
+        for expected in [
+            "interface.bucket_page_size must be between 10 and 100000 (got 9)",
+            "interface.column_widths.size must be between 40 and 600 (got 39)",
+            "interface.column_widths.class must be between 40 and 600 (got 601)",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?} in {text}");
+        }
+        let old: Settings =
+            serde_json::from_value(json!({ "interface": { "theme": "dark" } })).unwrap();
+        assert_eq!(old.interface.sort_column, SortColumn::Name);
+        assert_eq!(old.interface.column_widths, ColumnWidths::default());
+        let sorted: Settings = serde_json::from_value(
+            json!({ "interface": { "sort_column": "modified", "sort_direction": "desc" } }),
+        )
+        .unwrap();
+        assert_eq!(sorted.interface.sort_column, SortColumn::Modified);
+        assert_eq!(sorted.interface.sort_direction, SortDirection::Desc);
+        sorted.validate().unwrap();
     }
 
     #[test]

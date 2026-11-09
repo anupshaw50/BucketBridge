@@ -151,6 +151,30 @@ export const zhBucketcfg: Record<string, string> = {
   "Disable hosting": "关闭托管",
   "Website hosting of {bucket} was turned off.": "已关闭 {bucket} 的网站托管。",
 
+  // ---- UsageTab.tsx ----
+  Usage: "用量",
+  "Bucket usage": "存储桶用量",
+  "{size} ({bytes} bytes)": "{size}（{bytes} 字节）",
+  "Size of objects": "对象大小",
+  "Non-current versions": "非当前版本",
+  "Size of non-current versions": "非当前版本大小",
+  "Delete markers": "删除标记",
+  "Unfinished multipart uploads": "未完成的分段上传",
+  "Size of unfinished uploads": "未完成上传的大小",
+  "Adds up the size of the bucket by listing it. A bucket with many objects takes a while; you can cancel.":
+    "通过列出对象来统计存储桶的大小。对象很多时需要一些时间，可以随时取消。",
+  "Include all versions and delete markers": "包含所有版本和删除标记",
+  "Versioning has never been enabled on this bucket, so there is nothing more to find.":
+    "此存储桶从未启用版本控制，因此没有更多内容。",
+  "Include unfinished multipart uploads": "包含未完成的分段上传",
+  "Calculate size": "计算大小",
+  "Calculate again": "重新计算",
+  Calculating: "正在计算",
+  "Sizing unfinished multipart uploads...": "正在统计未完成的分段上传……",
+  "Counting objects: {count} so far": "已统计对象：{count}",
+  "The size could not be calculated": "无法计算大小",
+  "Cancelled. The totals are incomplete.": "已取消。合计不完整。",
+
   // ---- 动态取词（状态枚举、选项值经 tr() 查表）----
   enabled: "已启用",
   suspended: "已暂停",

@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
-import type { CopyOptions, Platform, SavePathOptions } from "../api/platform";
+import type { CopyOptions, FileDropEvent, Platform, SavePathOptions } from "../api/platform";
 import type { WindowLocation } from "../api/types";
 import { App } from "../app/App";
 import { tr } from "../i18n";
@@ -50,6 +50,22 @@ export class TestPlatform implements Platform {
     return Promise.resolve();
   }
 
+  private fileDropHandlers = new Set<(event: FileDropEvent) => void>();
+
+  onFileDrop(handler: (event: FileDropEvent) => void): () => void {
+    this.fileDropHandlers.add(handler);
+    return () => {
+      this.fileDropHandlers.delete(handler);
+    };
+  }
+
+  /** Test hook: a drag of files from the file manager. */
+  dropFiles(event: FileDropEvent): void {
+    for (const handler of [...this.fileDropHandlers]) {
+      handler(event);
+    }
+  }
+
   copyText(text: string, options?: CopyOptions): Promise<void> {
     this.copied.push(text);
     this.copiedSensitive.push(options?.sensitive ?? false);
@@ -68,6 +84,8 @@ export function disposeRenderedApps(): void {
 
 export interface RenderAppOptions {
   mock?: MockOptions;
+  /** Runs against the backend before the app starts (stored settings, extra buckets, a waiting link). */
+  prepare?: (mock: MockBackend) => void | Promise<void>;
   platform?: TestPlatform;
   /** Location the window starts at (a window opened with "Open in new window"). */
   startAt?: WindowLocation | null;
@@ -97,6 +115,7 @@ export async function renderApp(options: RenderAppOptions = {}): Promise<Rendere
     ...options.mock,
   });
   live.push(mock);
+  await options.prepare?.(mock);
   const platform = options.platform ?? new TestPlatform();
   const notices: Notice[] = [];
   const user = userEvent.setup();

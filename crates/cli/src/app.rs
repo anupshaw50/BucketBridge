@@ -255,6 +255,7 @@ async fn dispatch(
 ) -> Result<(), Failure> {
     match command {
         Command::Ls(args) => commands::ls::run(ctx, args, out).await,
+        Command::Du(args) => commands::du::run(ctx, args, out).await,
         Command::Mb(args) => commands::bucket::make(ctx, args, out).await,
         Command::Rb(args) => commands::bucket::remove(ctx, args, out).await,
         Command::Rm(args) => commands::rm::run(ctx, args, out).await,

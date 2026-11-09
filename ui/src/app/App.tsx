@@ -16,6 +16,7 @@ import { getLocale, subscribeLocale } from "../i18n";
 import { AppModel } from "../state/model";
 import type { FrameScheduler } from "../state/scheduler";
 import type { Notice, Notifier } from "../state/status";
+import { installObjectDrag } from "../features/objects/dragDrop";
 import { ModelContext, useModel, useSlice } from "./context";
 import { MainWindow } from "./MainWindow";
 import { appTheme } from "./theme";
@@ -82,6 +83,7 @@ export function App({ services, env = "default", notify, scheduler }: AppProps) 
       }),
   );
   useEffect(() => model.start(), [model]);
+  useEffect(() => installObjectDrag(model), [model]);
   // Re-renders every screen when the language changes (tr reads it).
   useSyncExternalStore(subscribeLocale, getLocale);
   return (

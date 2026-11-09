@@ -4,6 +4,8 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { OpenDialog } from "../state/dialogs";
 import { AboutDialog } from "./about/AboutDialog";
 import { AccountManagerDialog, AddAccountDialog, EditAccountDialog } from "./accounts/AccountDialogs";
+import { AccountFolderDialog } from "./accounts/AccountFolderDialog";
+import { ImportAccountsDialog } from "./accounts/ImportAccountsDialog";
 import { ImportAwsDialog } from "./accounts/ImportAwsDialog";
 import { MasterPasswordDialog } from "./accounts/MasterPasswordDialog";
 import { CreateBucketDialog, DeleteBucketDialog } from "./buckets/BucketDialogs";
@@ -13,6 +15,7 @@ import { BucketRulesDialog } from "./bucketrules/BucketRulesDialog";
 import { ExternalBucketDialog } from "./bucketcfg/ExternalBucketDialog";
 import { CloudFrontDialog } from "./cloudfront/CloudFrontDialog";
 import { CrashReportDialog } from "./crash/CrashReportDialog";
+import { QuitDialog } from "./quit/QuitDialog";
 import { DestinationPicker } from "./picker/DestinationPicker";
 import { NewFolderDialog, RenameDialog, ShareLinkDialog } from "./objects/ObjectDialogs";
 import { BucketLockDialog } from "./objectlock/BucketLockDialog";
@@ -47,6 +50,10 @@ function renderDialog(dialog: OpenDialog, close: () => void, answer: (confirmed:
       return <AddAccountDialog onClose={close} />;
     case "import-aws":
       return <ImportAwsDialog onClose={close} />;
+    case "import-accounts":
+      return <ImportAccountsDialog onClose={close} />;
+    case "account-folder":
+      return <AccountFolderDialog folder={dialog.folder} onClose={close} />;
     case "edit-account":
       return <EditAccountDialog accountId={dialog.accountId} focusMfa={dialog.focus === "mfa"} onClose={close} />;
     case "master-password":
@@ -172,6 +179,8 @@ function renderDialog(dialog: OpenDialog, close: () => void, answer: (confirmed:
       return <EditConflictDialog sessionId={dialog.sessionId} onClose={close} />;
     case "crash":
       return <CrashReportDialog report={dialog.report} onClose={close} />;
+    case "quit":
+      return <QuitDialog request={dialog.request} onClose={close} />;
     case "confirm":
       return <ConfirmDialog options={dialog.options} onAnswer={answer} />;
   }

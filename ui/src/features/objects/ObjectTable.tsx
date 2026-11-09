@@ -2,12 +2,15 @@ import { Text, UnstyledButton } from "@mantine/core";
 import { IconChevronDown, IconChevronUp, IconFile, IconFolderFilled } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   memo,
   type ReactNode,
   useCallback,
+  useEffect,
   useId,
+  useState,
   useMemo,
   useRef,
   useSyncExternalStore,
@@ -40,6 +43,7 @@ interface RowProps {
   entry: ObjectEntry;
   index: number;
   rowId: string;
+  bucket: string | null;
   name: string;
   selected: boolean;
   focused: boolean;
@@ -54,6 +58,7 @@ const ObjectRow = memo(function ObjectRow({
   entry,
   index,
   rowId,
+  bucket,
   name,
   selected,
   focused,
@@ -76,6 +81,9 @@ const ObjectRow = memo(function ObjectRow({
       data-selected={selected || undefined}
       data-focused={focused || undefined}
       data-cut={cut || undefined}
+      data-key={entry.key}
+      data-drop-bucket={folder && bucket !== null ? bucket : undefined}
+      data-drop-prefix={folder && bucket !== null ? entry.key : undefined}
       style={{ transform: `translateY(${top}px)`, height: OBJECT_ROW_HEIGHT }}
       onClick={(event) => (isContextClick(event) ? onContextMenu(event, entry) : onClick(event, entry.key))}
       onContextMenu={(event) => onContextMenu(event, entry)}
@@ -104,6 +112,76 @@ const ObjectRow = memo(function ObjectRow({
   );
 });
 
+type WidthColumn = "size" | "modified" | "class";
+type Widths = Record<WidthColumn, number>;
+const MIN_COLUMN_WIDTH = 40;
+const MAX_COLUMN_WIDTH = 600;
+const KEY_STEP = 8;
+
+function clampWidth(value: number): number {
+  return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(value)));
+}
+
+interface ResizeHandleProps {
+  column: WidthColumn;
+  label: string;
+  width: number;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}
+
+/**
+ * Grip on the left edge of a fixed-width column. Dragging it to the left widens the column (the name column
+ * gives way); the arrow keys do the same in steps. The width is saved when the drag or key press ends.
+ */
+function ResizeHandle({ column, label, width, onResize, onCommit }: ResizeHandleProps) {
+  const start = useRef<{ x: number; width: number } | null>(null);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={width}
+      aria-valuemin={MIN_COLUMN_WIDTH}
+      aria-valuemax={MAX_COLUMN_WIDTH}
+      tabIndex={0}
+      data-resize={column}
+      className="bb-col-resize"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Not every environment can capture the pointer; the drag still works while it stays over the grip.
+        }
+        start.current = { x: event.clientX, width };
+      }}
+      onPointerMove={(event) => {
+        if (start.current !== null) {
+          onResize(clampWidth(start.current.width + (start.current.x - event.clientX)));
+        }
+      }}
+      onPointerUp={(event) => {
+        if (start.current !== null) {
+          const next = clampWidth(start.current.width + (start.current.x - event.clientX));
+          start.current = null;
+          onCommit(next);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          event.stopPropagation();
+          const next = clampWidth(width + (event.key === "ArrowLeft" ? KEY_STEP : -KEY_STEP));
+          onResize(next);
+          onCommit(next);
+        }
+      }}
+    />
+  );
+}
+
 export interface ObjectTableProps {
   /** Shown instead of rows while loading, or when the folder is empty or nothing matches. */
   placeholder?: ReactNode;
@@ -120,6 +198,18 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
   const prefix = useSlice(model.browser.store, (state) => state.listing.prefix);
   const bucket = useSlice(model.browser.store, (state) => state.listing.bucket);
   const clipboard = useSlice(model.clipboard, (state) => state.contents);
+  const savedWidths = useSlice(model.settings.store, (state) => state.settings.interface.column_widths);
+  const [widths, setWidths] = useState<Widths>(savedWidths);
+  useEffect(() => {
+    setWidths(savedWidths);
+  }, [savedWidths]);
+  const saveWidth = (column: WidthColumn, width: number) => {
+    void model.settings
+      .update((draft) => {
+        draft.interface.column_widths = { ...draft.interface.column_widths, [column]: width };
+      })
+      .catch((error: unknown) => model.status.error(error));
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const gridId = useId();
   const virtualizer = useVirtualizer({
@@ -268,6 +358,13 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
       aria-rowcount={placeholder === null ? visible.length + 1 : 2}
       aria-multiselectable
       aria-busy={busy || undefined}
+      style={
+        {
+          "--bb-col-size": `${widths.size}px`,
+          "--bb-col-modified": `${widths.modified}px`,
+          "--bb-col-class": `${widths.class}px`,
+        } as CSSProperties
+      }
       aria-activedescendant={placeholder === null && focusIndex >= 0 ? `${gridId}-row-${focusIndex}` : undefined}
       tabIndex={0}
       onKeyDown={onKeyDown}
@@ -282,6 +379,7 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
         <div role="row" aria-rowindex={1} className="bb-row bb-head-row">
           {COLUMNS.map((column) => {
             const active = sort.column === column.id;
+            const resizable: WidthColumn | null = column.id === "name" ? null : column.id;
             return (
               <div
                 key={column.id}
@@ -305,6 +403,15 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
                     )
                   ) : null}
                 </UnstyledButton>
+                {resizable !== null ? (
+                  <ResizeHandle
+                    column={resizable}
+                    label={tr("Resize the {column} column", { column: tr(column.label) })}
+                    width={widths[resizable]}
+                    onResize={(width) => setWidths((current) => ({ ...current, [resizable]: width }))}
+                    onCommit={(width) => saveWidth(resizable, width)}
+                  />
+                ) : null}
               </div>
             );
           })}
@@ -330,6 +437,7 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
                 entry={entry}
                 index={item.index}
                 rowId={`${gridId}-row-${item.index}`}
+                bucket={bucket}
                 name={relativeName(entry.key, prefix)}
                 selected={selection.keys.has(entry.key)}
                 focused={item.index === focusIndex}

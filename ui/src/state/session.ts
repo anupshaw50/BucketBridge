@@ -1,11 +1,12 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import { errorText } from "../api/errors";
-import type { Account, SecurityStatus } from "../api/types";
+import type { Account, AccountFolder, SecurityStatus } from "../api/types";
 
 export interface SessionState {
   security: SecurityStatus | null;
   accounts: Account[];
+  folders: AccountFolder[];
   defaultAccountId: string | null;
   activeAccountId: string | null;
   accountsLoaded: boolean;
@@ -24,6 +25,7 @@ export class SessionController {
     this.store = createStore<SessionState>(() => ({
       security: null,
       accounts: [],
+      folders: [],
       defaultAccountId: null,
       activeAccountId: null,
       accountsLoaded: false,
@@ -70,6 +72,7 @@ export class SessionController {
       const active = stillThere ? previous : fallback;
       this.store.setState({
         accounts: list.accounts,
+        folders: list.folders,
         defaultAccountId: list.default_account_id,
         accountsLoaded: true,
         accountsError: null,

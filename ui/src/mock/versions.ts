@@ -32,20 +32,62 @@ export const MAX_PAGE_BYTES = 1_048_576;
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 /** A 1x1 lossy WebP, so the mock has real WebP bytes to hand to the web view. */
+/** A 1x1 GIF, so the mock has real GIF bytes (shown animated when they are). */
+const GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 const WEBP_BASE64 = "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA";
 
 const IMAGE_TYPES: Record<string, string> = {
   png: "image/png",
   jpg: "image/png",
   jpeg: "image/png",
-  gif: "image/png",
+  gif: "image/gif",
   bmp: "image/png",
   ico: "image/png",
   avif: "image/png",
   webp: "image/webp",
   svg: "image/svg+xml",
 };
-const TEXT_EXTENSIONS = new Set(["txt", "md", "log", "csv", "html", "css", "js", "xml", "yml", "yaml", "ini", "sql", "sh"]);
+const TEXT_EXTENSIONS = new Set(["txt", "md", "log", "html", "css", "js", "xml", "yml", "yaml", "ini", "sql", "sh"]);
+
+const TABLE_TYPES: Record<string, string> = {
+  csv: "text/csv",
+  tsv: "text/tab-separated-values",
+  tab: "text/tab-separated-values",
+  parquet: "application/vnd.apache.parquet",
+  parq: "application/vnd.apache.parquet",
+};
+export const TABLE_ROWS_PER_PAGE = 200;
+const PRETTY_XML = '<?xml version="1.0"?>\n<catalog>\n  <book id="1">\n    <title>First</title>\n    <price>9.50</price>\n  </book>\n  <book id="2"/>\n</catalog>';
+
+/** Rows of a demo table: about one per 40 bytes, three columns. */
+function tablePage(entry: MockVersionEntry, mediaType: string, extension: string, page: number): Partial<ObjectPreview> {
+  const total = Math.max(1, Math.floor(entry.size / 40));
+  const count = Math.max(1, Math.ceil(total / TABLE_ROWS_PER_PAGE));
+  if (!Number.isInteger(page) || page < 0 || (page > 0 && page >= count)) {
+    fail("usage", `page ${page} is past the end of the table`);
+  }
+  const first = page * TABLE_ROWS_PER_PAGE;
+  const rows: (string | null)[][] = [];
+  for (let n = first; n < Math.min(total, first + TABLE_ROWS_PER_PAGE); n++) {
+    rows.push([String(n), n % 3 === 0 ? null : `region ${n % 7}`, (n * 1.25).toFixed(2)]);
+  }
+  return {
+    media_type: mediaType,
+    page,
+    page_count: count,
+    page_size: TABLE_ROWS_PER_PAGE,
+    offset: first,
+    length: rows.length,
+    table: {
+      columns: ["id", "region", extension === "parquet" ? "amount" : "amount, in USD"],
+      rows,
+      total_rows: total,
+      truncated: false,
+      columns_cut: false,
+    },
+  };
+}
 
 function fail(code: BbErrorCode, message: string): never {
   throw new BackendError(code, message);
@@ -298,6 +340,17 @@ export class MockVersions {
     });
   }
 
+  /** Every key under a prefix that has a live object or a recorded history, in key order. */
+  keysOf(bucket: MockBucket, prefix: string): string[] {
+    const keys = new Set<string>(bucket.objects.keys());
+    for (const [key, list] of this.history.get(bucket.name) ?? []) {
+      if (list.length > 0) {
+        keys.add(key);
+      }
+    }
+    return [...keys].filter((key) => key.startsWith(prefix)).sort(compareKeys);
+  }
+
   list(
     bucket: MockBucket,
     args: { prefix: string; exact: boolean; filter: VersionFilter; token: string | null },
@@ -439,6 +492,7 @@ export class MockVersions {
       text: null,
       formatted: false,
       image_base64: null,
+      table: null,
     };
     const kind = (value: PreviewKind, rest: Partial<ObjectPreview> = {}): ObjectPreview => ({ ...base, kind: value, ...rest });
     if (entry.size === 0) {
@@ -453,7 +507,9 @@ export class MockVersions {
       const image =
         extension === "webp"
           ? WEBP_BASE64
-          : extension === "svg"
+          : extension === "gif"
+            ? GIF_BASE64
+            : extension === "svg"
             ? toBase64(
                 new TextEncoder().encode(
                   `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64" fill="#2b7de9"/><text x="8" y="36" fill="#fff" font-size="14">${asciiSeed(entry.seed).slice(0, 8).replace(/[<>&]/g, "_")}</text></svg>`,
@@ -461,6 +517,13 @@ export class MockVersions {
               )
             : gradientPngBase64();
       return kind("image", { media_type: imageType, length: entry.size, image_base64: image });
+    }
+    const tableType = TABLE_TYPES[extension];
+    if (tableType !== undefined) {
+      if (extension === "parquet" && entry.size > MAX_IMAGE_BYTES) {
+        return kind("too_large", { media_type: tableType });
+      }
+      return kind("table", tablePage(entry, tableType, extension, page));
     }
     const isJson = extension === "json";
     if (!isJson && !TEXT_EXTENSIONS.has(extension)) {
@@ -473,6 +536,9 @@ export class MockVersions {
     const offset = page * bytes;
     const length = Math.min(bytes, entry.size - offset);
     const paged = { page, page_count: count, offset, length };
+    if (extension === "xml" && entry.size <= bytes) {
+      return kind("text", { ...paged, media_type: "application/xml", formatted: true, text: PRETTY_XML });
+    }
     if (isJson && entry.size <= bytes) {
       const document = JSON.stringify({ name: key, version: entry.version_id, tags: ["alpha", "beta"], nested: { count: 3, ok: true } });
       return kind("json", {
@@ -545,7 +611,11 @@ export class MockVersions {
     if (logs !== null) {
       const put = (key: string, size: number, at: string) => logs.objects.set(key, makeObject(key, size, at));
       put("config.json", 380, "2026-10-18T08:00:00.000Z");
-      put("audit-export.csv", 600 * 1024, "2026-10-18T08:05:00.000Z");
+      put("sales.csv", 40_000, "2026-10-18T08:02:00.000Z");
+      put("events.parquet", 12_000, "2026-10-18T08:03:00.000Z");
+      put("catalog.xml", 150, "2026-10-18T08:04:00.000Z");
+      put("spinner.gif", 900, "2026-10-18T08:06:00.000Z");
+      put("audit-export.log", 600 * 1024, "2026-10-18T08:05:00.000Z");
       put("monitoring-dashboard.webp", 3 * 1024, "2026-10-18T08:10:00.000Z");
       put("site-photo-large.png", 24 * 1024 * 1024, "2026-10-18T08:15:00.000Z");
       put("empty.txt", 0, "2026-10-18T08:20:00.000Z");

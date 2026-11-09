@@ -29,6 +29,7 @@ import { formatCount } from "../../lib/format";
 import { tr } from "../../i18n";
 import { breadcrumbs, displaySegment } from "../../lib/s3keys";
 import { ActiveFilterChip } from "../tools/FilterControls";
+import { AddressBar } from "./AddressBar";
 import { SEARCH_INPUT_ID, uploadFiles, uploadFolder } from "./actions";
 import { OBJECT_ROW_HEIGHT, ObjectTable } from "./ObjectTable";
 
@@ -43,7 +44,11 @@ function LocationBar() {
   const loaded = useSlice(model.browser.store, (state) => state.listing.entries.length);
   const shown = useSlice(model.browser.store, (state) => state.visible.length);
   if (bucket === null) {
-    return null;
+    return (
+      <Group className="bb-location" gap="xs" wrap="nowrap">
+        <AddressBar bucket={null} prefix="" />
+      </Group>
+    );
   }
   const crumbs = breadcrumbs(prefix);
   return (
@@ -60,7 +65,7 @@ function LocationBar() {
             <IconArrowUp size={16} />
           </ActionIcon>
         </Tooltip>
-        <nav aria-label={tr("Location")} style={{ minWidth: 0, overflow: "hidden" }}>
+        <AddressBar bucket={bucket} prefix={prefix}>
           <Breadcrumbs separatorMargin={4} styles={{ root: { flexWrap: "nowrap" } }}>
             {[
               <Anchor
@@ -69,6 +74,8 @@ function LocationBar() {
                 type="button"
                 size="sm"
                 onClick={() => void model.browser.openLocation(bucket, "")}
+                data-drop-bucket={bucket}
+                data-drop-prefix=""
                 aria-current={prefix === "" ? "location" : undefined}
               >
                 <Group gap={4} wrap="nowrap">
@@ -83,6 +90,8 @@ function LocationBar() {
                   type="button"
                   size="sm"
                   onClick={() => void model.browser.openLocation(bucket, crumb.prefix)}
+                  data-drop-bucket={bucket}
+                  data-drop-prefix={crumb.prefix}
                   aria-current={index === crumbs.length - 1 ? "location" : undefined}
                   fs={crumb.name === "" ? "italic" : undefined}
                 >
@@ -91,7 +100,7 @@ function LocationBar() {
               )),
             ]}
           </Breadcrumbs>
-        </nav>
+        </AddressBar>
         {flat ? (
           <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
             {tr("(flat view)")}
@@ -254,13 +263,16 @@ export function ObjectBrowser() {
   const filterName = useSlice(model.browser.store, (state) => state.filter?.name ?? null);
   if (bucket === null) {
     return (
-      <EmptyState
-        icon={<IconBucket size={28} />}
-        title={tr("No bucket open")}
-        description={tr("Choose a bucket on the left to see its contents.")}
-        size="sm"
-        py="xl"
-      />
+      <section className="bb-browser" aria-label={tr("Bucket contents")}>
+        <LocationBar />
+        <EmptyState
+          icon={<IconBucket size={28} />}
+          title={tr("No bucket open")}
+          description={tr("Choose a bucket on the left to see its contents.")}
+          size="sm"
+          py="xl"
+        />
+      </section>
     );
   }
   // The table stays mounted while a folder loads, is empty or has no matches,

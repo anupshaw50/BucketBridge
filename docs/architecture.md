@@ -52,6 +52,8 @@ and native-tls are not used.
 | `filter` | `Filter` (compiled `FilterSpec`), `Glob`, `IncludeExclude` (CLI `--include`/`--exclude`) | filters |
 | `sync` | `analyze`, local and remote scans, the planner, `SyncStore` (resumable plan store), `RowCounts` | sync (see `docs/sync.md`) |
 | `sync::{options, analysis, listing, duplicate, folders, report}`, `syncjobs`, `ignore` | `SyncOptions`, `analyze_async` and `analyze_s3`, parallel and cached listing, duplicate content, empty folders, `SyncReport`, saved `SyncJob`s, ignore-file style `IgnoreRules` | sync (see `docs/sync.md`, "Saved jobs, exclusion rules and options") |
+| `accountfile` | Account folders and order (`AccountLayout`), the secret-free account export file and its import | accounts (see docs/desktop-api.md, "Account folders, order, export and import") |
+| `usage` | Storage usage of a bucket or prefix (`S3::compute_usage`) | bucket properties, `bb du` |
 | `eventlog` | `EventLog` (ring buffer, rotating log file, CSV/JSON export, `tracing` layer) | event log (see `docs/logging.md`) |
 | `crash` | panic hook, `CrashReport`, newest report, dismiss | event log (see `docs/logging.md`) |
 | `secrets` | `SecretStore` (OS keychain `KeyringStore`, `MemoryStore`), master-password `Vault`, `SecretRef`, `SecretString` | accounts and security (docs/security.md) |

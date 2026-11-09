@@ -178,6 +178,76 @@ pub struct AccountRecord {
     pub account: Account,
     /// Whether it is the default account.
     pub is_default: bool,
+    /// The folder the account is in, if any.
+    pub folder: Option<String>,
+    /// A static-key account without a secret (imported from an account
+    /// file): enter its secret access key before using it.
+    pub needs_secret: bool,
+}
+
+/// `bb account move`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AccountMoveRecord {
+    /// Account ID.
+    pub id: String,
+    /// Account label.
+    pub label: String,
+    /// The folder the account is in now, if any.
+    pub folder: Option<String>,
+}
+
+/// `bb account folder`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FolderRecord {
+    /// Folder name.
+    pub name: String,
+    /// IDs of the accounts in the folder, in order.
+    pub account_ids: Vec<String>,
+    /// Their labels.
+    pub accounts: Vec<String>,
+}
+
+/// `bb account export`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExportRecord {
+    /// The file written.
+    pub file: String,
+    /// Accounts in it.
+    pub accounts: usize,
+    /// Folders in it.
+    pub folders: usize,
+}
+
+/// `bb account import`: one account of the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportRecord {
+    /// `imported`, `duplicate` or `skipped`.
+    pub kind: &'static str,
+    /// Label in the file (the new label for an imported account).
+    pub label: String,
+    /// ID of the new account (`imported`).
+    pub id: Option<String>,
+    /// The label in the file when it was renamed (`imported`).
+    pub renamed_from: Option<String>,
+    /// The account has static keys and no secret yet (`imported`).
+    pub needs_secret: Option<bool>,
+    /// Label of the existing account it duplicates (`duplicate`).
+    pub existing: Option<String>,
+    /// `label` or `same_account` (`duplicate`), or why it was left out (`skipped`).
+    pub reason: Option<String>,
+}
+
+/// `bb account import`: the last record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportSummaryRecord {
+    /// Accounts added.
+    pub imported: usize,
+    /// Duplicates left out.
+    pub duplicates: usize,
+    /// Invalid accounts left out.
+    pub skipped: usize,
+    /// Folders created.
+    pub folders_created: Vec<String>,
 }
 
 /// `bb account remove` and `bb account default`.

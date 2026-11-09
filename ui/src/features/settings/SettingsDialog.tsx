@@ -273,6 +273,32 @@ function SettingsForm({ saved, onClose, initialPage }: { saved: Settings; onClos
               });
             }}
           />
+          <Switch
+            label={tr("Keep the computer awake during transfers")}
+            description={tr("Stops the computer from sleeping while transfers or a sync run work. It is released as soon as they end.")}
+            checked={draft.general.keep_awake}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              change((next) => {
+                next.general.keep_awake = checked;
+              });
+            }}
+          />
+          <Radio.Group
+            label={tr("When quitting while transfers are running")}
+            value={draft.general.quit_with_tasks}
+            onChange={(value) =>
+              change((next) => {
+                next.general.quit_with_tasks = value === "wait" || value === "quit" ? value : "ask";
+              })
+            }
+          >
+            <Stack gap={6} mt={6}>
+              <Radio value="ask" label={tr("Ask me what to do")} />
+              <Radio value="wait" label={tr("Let running tasks finish, then quit")} />
+              <Radio value="quit" label={tr("Quit at once (transfers can be resumed later)")} />
+            </Stack>
+          </Radio.Group>
           <Radio.Group
             label={tr("Download folder")}
             value={draft.general.default_download_dir === null ? "ask" : "fixed"}
@@ -386,6 +412,17 @@ function SettingsForm({ saved, onClose, initialPage }: { saved: Settings; onClos
                 next.interface.show_log_panel = checked;
               });
             }}
+          />
+          <RangedNumber
+            field="interface.bucket_page_size"
+            label={tr("Buckets shown at once")}
+            value={draft.interface.bucket_page_size}
+            errors={errors}
+            onChange={(value) =>
+              change((next) => {
+                next.interface.bucket_page_size = value;
+              }, ["interface.bucket_page_size"])
+            }
           />
         </Section>
       );
@@ -629,6 +666,30 @@ function SettingsForm({ saved, onClose, initialPage }: { saved: Settings; onClos
               change((next) => {
                 next.logging.max_file_mib = value;
               }, ["logging.max_file_mib"])
+            }
+          />
+          <RangedNumber
+            field="logging.keep_days"
+            label={tr("Keep old log files for")}
+            unit={tr("days")}
+            value={draft.logging.keep_days}
+            errors={errors}
+            onChange={(value) =>
+              change((next) => {
+                next.logging.keep_days = value;
+              }, ["logging.keep_days"])
+            }
+          />
+          <RangedNumber
+            field="logging.max_total_mib"
+            label={tr("Maximum size of all log files")}
+            unit="MiB"
+            value={draft.logging.max_total_mib}
+            errors={errors}
+            onChange={(value) =>
+              change((next) => {
+                next.logging.max_total_mib = value;
+              }, ["logging.max_total_mib"])
             }
           />
           {logDir !== null ? (

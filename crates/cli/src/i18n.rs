@@ -328,6 +328,88 @@ pub(crate) static HELP: &[(&str, &str)] = &[
         "List buckets, or the folders and objects under an S3 prefix.",
         "列出存储桶，或 S3 前缀下的文件夹与对象。",
     ),
+    (
+        "Add up the size and number of objects under a bucket or prefix.",
+        "统计存储桶或前缀下对象的总大小和数量。",
+    ),
+    (
+        "Walk all versions: also add up non-current versions and count delete markers.",
+        "遍历所有版本：同时统计非当前版本的大小并计算删除标记数量。",
+    ),
+    (
+        "Also add up the parts of unfinished multipart uploads.",
+        "同时统计未完成分段上传的分段大小。",
+    ),
+    (
+        "Enter the secret access key of an account that has none (an imported account). Like `add`, it is read from standard input (--secret-stdin), from BB_SECRET_ACCESS_KEY, or asked on the terminal.",
+        "为没有密钥的账户（例如导入的账户）输入 Secret Access Key。与 `add` 一样，它从标准输入（--secret-stdin）、BB_SECRET_ACCESS_KEY 读取，或在终端中询问。",
+    ),
+    (
+        "Put an account in a folder, take it out of its folder, or move it in the list.",
+        "把账户放入文件夹、移出文件夹，或在列表中移动。",
+    ),
+    (
+        "List, add, rename and remove account folders.",
+        "列出、添加、重命名和删除账户文件夹。",
+    ),
+    (
+        "Write accounts to a JSON file, without any secret (secret keys, session tokens and passwords are never written).",
+        "把账户写入 JSON 文件，不含任何机密（密钥、会话令牌和密码都不会写入）。",
+    ),
+    (
+        "Add the accounts of a file written by `bb account export`. Existing accounts are never changed; imported accounts with keys need their secret access key before they can be used.",
+        "添加由 `bb account export` 写出的文件中的账户。现有账户不会被更改；带密钥的导入账户在使用前需要输入其 Secret Access Key。",
+    ),
+    ("Label or ID of the account.", "账户的标签或 ID。"),
+    (
+        "Label or ID of the account to move.",
+        "要移动的账户的标签或 ID。",
+    ),
+    (
+        "Put the account in this folder (created when it does not exist).",
+        "把账户放入此文件夹（不存在时会创建）。",
+    ),
+    (
+        "Take the account out of its folder.",
+        "把账户移出其文件夹。",
+    ),
+    (
+        "Place the account before this account (label or ID) in the list.",
+        "把账户放在列表中此账户（标签或 ID）之前。",
+    ),
+    (
+        "Place the account first in the list.",
+        "把账户放在列表最前面。",
+    ),
+    (
+        "List the folders and the accounts in them.",
+        "列出文件夹及其中的账户。",
+    ),
+    ("Create an empty folder.", "创建一个空文件夹。"),
+    ("Rename a folder.", "重命名文件夹。"),
+    (
+        "Remove a folder; its accounts are kept and are no longer in a folder.",
+        "删除文件夹；其中的账户会保留，不再属于任何文件夹。",
+    ),
+    ("Folder name.", "文件夹名称。"),
+    ("Current folder name.", "当前文件夹名称。"),
+    ("New folder name.", "新文件夹名称。"),
+    (
+        "The file to write (replaced if it exists).",
+        "要写入的文件（已存在则替换）。",
+    ),
+    (
+        "Only these accounts (label or ID); default: every account. An account that assumes a role brings its source account along.",
+        "仅这些账户（标签或 ID）；默认：所有账户。承担角色的账户会带上其源账户。",
+    ),
+    (
+        "The file written by `bb account export`.",
+        "由 `bb account export` 写出的文件。",
+    ),
+    (
+        "Import an account whose label is taken under a free label (`Label (2)`) instead of leaving it out.",
+        "标签已被占用的账户，改用空闲标签（`Label (2)`）导入，而不是跳过。",
+    ),
     ("Make a bucket.", "创建存储桶。"),
     ("Remove an empty bucket.", "删除空存储桶。"),
     (
@@ -575,6 +657,10 @@ pub(crate) static HELP: &[(&str, &str)] = &[
     (
         "`s3://bucket` or `s3://bucket/prefix`; omit to list buckets.",
         "`s3://bucket` 或 `s3://bucket/prefix`；省略则列出存储桶。",
+    ),
+    (
+        "`s3://bucket` or `s3://bucket/prefix`.",
+        "`s3://bucket` 或 `s3://bucket/prefix`。",
     ),
     (
         "List every object under the prefix instead of one folder level.",
@@ -1938,6 +2024,80 @@ pub(crate) static OUTPUT: &[(&str, &str)] = &[
     (
         "would abort upload {id} of s3://{bucket}/{key}",
         "（试运行）将中止 {id} 在 s3://{bucket}/{key} 的上传",
+    ),
+    ("objects: {count}, {size}", "对象：{count} 个，{size}"),
+    (
+        "non-current versions: {count}, {size}",
+        "非当前版本：{count} 个，{size}",
+    ),
+    ("delete markers: {count}", "删除标记：{count} 个"),
+    (
+        "unfinished multipart uploads: {count} ({parts} parts), {size}",
+        "未完成的分段上传：{count} 个（{parts} 个分段），{size}",
+    ),
+    (
+        "an account cannot be moved before itself",
+        "账户不能移到它自己之前",
+    ),
+    (
+        "moved account {label} to folder {folder}",
+        "已将账户 {label} 移到文件夹 {folder}",
+    ),
+    (
+        "moved account {label} (no folder)",
+        "已移动账户 {label}（不在文件夹中）",
+    ),
+    (
+        "a folder named {name} already exists",
+        "已存在名为 {name} 的文件夹",
+    ),
+    ("added folder {name}", "已添加文件夹 {name}"),
+    (
+        "folder '{name}' not found; `bb account folder list` shows the folders",
+        "未找到文件夹“{name}”；`bb account folder list` 会列出文件夹",
+    ),
+    (
+        "renamed folder {old} to {name}",
+        "已将文件夹 {old} 重命名为 {name}",
+    ),
+    (
+        "removed folder {name} (its accounts are kept)",
+        "已删除文件夹 {name}（其中的账户已保留）",
+    ),
+    (
+        "wrote {count} account(s) to {file} (no secrets: imported accounts need their secret access key)",
+        "已把 {count} 个账户写入 {file}（不含机密：导入的账户需要输入其 Secret Access Key）",
+    ),
+    (
+        "imported account {label}: it needs its secret access key before it can be used (bb account set-secret)",
+        "已导入账户 {label}：使用前需要输入其 Secret Access Key（bb account set-secret）",
+    ),
+    ("imported account {label}", "已导入账户 {label}"),
+    (
+        "skipped {label}: an account with this label exists (--rename-duplicates imports it under another label)",
+        "已跳过 {label}：已存在相同标签的账户（--rename-duplicates 会改用其他标签导入）",
+    ),
+    (
+        "skipped {label}: it is the same account as {existing}",
+        "已跳过 {label}：它与 {existing} 是同一个账户",
+    ),
+    ("skipped {label}: {reason}", "已跳过 {label}：{reason}"),
+    (
+        "{imported} account(s) imported, {duplicates} duplicate(s) left out, {skipped} skipped",
+        "已导入 {imported} 个账户，{duplicates} 个重复已忽略，{skipped} 个已跳过",
+    ),
+    ("  [folder: {folder}]", "  [文件夹：{folder}]"),
+    (
+        "  (needs its secret access key)",
+        "  （需要输入 Secret Access Key）",
+    ),
+    (
+        "account {label} gets its credentials from another source and has no secret access key",
+        "账户 {label} 的凭据来自其他来源，没有 Secret Access Key",
+    ),
+    (
+        "stored the secret access key of account {label} ({id})",
+        "已保存账户 {label}（{id}）的 Secret Access Key",
     ),
     (
         "failed to abort upload {id} of s3://{bucket}/{key}: {error}",

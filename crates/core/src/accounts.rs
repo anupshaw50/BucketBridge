@@ -172,11 +172,7 @@ impl AccountManager {
 
     /// Every account and the default account. Works while locked.
     pub fn list(&self) -> Result<AccountList> {
-        let config = self.config.load()?;
-        Ok(AccountList {
-            accounts: config.accounts,
-            default_account_id: config.default_account_id,
-        })
+        Ok(crate::accountfile::list_of(self.config.load()?))
     }
 
     /// One account.
@@ -556,6 +552,8 @@ impl AccountManager {
                 .retain(|bookmark| bookmark.account_id != id);
             // And its saved sync jobs.
             config.sync_jobs.retain(|job| job.account_id != id);
+            // It leaves its folder.
+            crate::accountfile::forget_account(config, id);
             Ok(())
         });
         // Deletes the secrets now that nothing references them (or, if the
@@ -875,6 +873,13 @@ impl AccountManager {
             )));
         }
         let context = || format!("account {:?}", account.label);
+        if account.needs_secret() {
+            return Err(Error::Usage(format!(
+                "account {:?} has no secret access key yet (it was imported without secrets): \
+                 enter it in the account settings",
+                account.label
+            )));
+        }
         let secret = self
             .vault
             .read(&account_ref(account, &account.secret_ref, SLOT_SECRET)?)
@@ -972,7 +977,10 @@ impl AccountManager {
     /// configuration as written. When `update` fails after possibly
     /// writing, the file is read back: the change counts as persisted when
     /// the file holds exactly the configuration that was being written.
-    fn persist(&self, change: impl FnOnce(&mut AppConfig) -> Result<()>) -> Result<AppConfig> {
+    pub(crate) fn persist(
+        &self,
+        change: impl FnOnce(&mut AppConfig) -> Result<()>,
+    ) -> Result<AppConfig> {
         let mut written = None;
         let result = self.config.update(|config| {
             change(config)?;
@@ -1025,7 +1033,7 @@ impl AccountManager {
         first_error.map_or(Ok(()), Err)
     }
 
-    fn change_guard(&self) -> Result<ChangeGuard<'_>> {
+    pub(crate) fn change_guard(&self) -> Result<ChangeGuard<'_>> {
         let writing = self.changes.write().unwrap_or_else(PoisonError::into_inner);
         let file = lock_file(&self.lock_path)?;
         Ok(ChangeGuard {
@@ -1140,7 +1148,7 @@ impl std::fmt::Debug for AccountManager {
 }
 
 /// Held for the whole of a secret change.
-struct ChangeGuard<'a> {
+pub(crate) struct ChangeGuard<'a> {
     _file: File,
     _writing: RwLockWriteGuard<'a, ()>,
 }
@@ -1174,7 +1182,11 @@ fn find_account<'a>(config: &'a AppConfig, id: &str) -> Result<&'a Account> {
 
 /// Validates a credential source other than static keys. `own_id` is the
 /// account being changed (it cannot be its own source).
-fn check_source(config: &AppConfig, source: &CredentialSource, own_id: Option<&str>) -> Result<()> {
+pub(crate) fn check_source(
+    config: &AppConfig,
+    source: &CredentialSource,
+    own_id: Option<&str>,
+) -> Result<()> {
     match source {
         CredentialSource::StaticKeys | CredentialSource::InstanceRole => Ok(()),
         CredentialSource::AwsProfile { profile } => {
@@ -1321,7 +1333,7 @@ fn source_name(source: &CredentialSource) -> &'static str {
     }
 }
 
-fn check_label(label: &str) -> Result<&str> {
+pub(crate) fn check_label(label: &str) -> Result<&str> {
     let label = label.trim();
     if label.is_empty() {
         return Err(Error::Usage("the account label is empty".into()));
@@ -1341,7 +1353,11 @@ fn check_label(label: &str) -> Result<&str> {
 
 /// Labels are unique case-insensitively; `except` is the account being
 /// renamed.
-fn check_label_free(config: &AppConfig, label: &str, except: Option<&str>) -> Result<()> {
+pub(crate) fn check_label_free(
+    config: &AppConfig,
+    label: &str,
+    except: Option<&str>,
+) -> Result<()> {
     let wanted = label.to_lowercase();
     let taken = config.accounts.iter().any(|account| {
         Some(account.id.as_str()) != except && account.label.trim().to_lowercase() == wanted
@@ -1355,7 +1371,7 @@ fn check_label_free(config: &AppConfig, label: &str, except: Option<&str>) -> Re
     }
 }
 
-fn check_access_key(access_key_id: &str) -> Result<()> {
+pub(crate) fn check_access_key(access_key_id: &str) -> Result<()> {
     let key = access_key_id.trim();
     if key.is_empty() {
         return Err(Error::Usage("the access key ID is empty".into()));
@@ -1498,6 +1514,9 @@ fn shortener_ref(installation_id: Option<&str>, reference: &str) -> Result<Secre
 fn referenced_strings(config: &AppConfig) -> BTreeSet<String> {
     let mut references = BTreeSet::new();
     for account in config.accounts.iter().filter(|a| a.has_static_keys()) {
+        if account.needs_secret() {
+            continue;
+        }
         references.insert(account.secret_ref.clone());
         references.extend(account.session_token_ref.clone());
     }
@@ -1513,7 +1532,9 @@ fn referenced_strings(config: &AppConfig) -> BTreeSet<String> {
 fn checked_references(config: &AppConfig) -> Result<Vec<SecretRef>> {
     let mut references = BTreeSet::new();
     for account in config.accounts.iter().filter(|a| a.has_static_keys()) {
-        references.insert(account_ref(account, &account.secret_ref, SLOT_SECRET)?);
+        if !account.needs_secret() {
+            references.insert(account_ref(account, &account.secret_ref, SLOT_SECRET)?);
+        }
         if let Some(reference) = &account.session_token_ref {
             references.insert(account_ref(account, reference, SLOT_SESSION_TOKEN)?);
         }
@@ -1543,8 +1564,10 @@ fn remap_references(config: &mut AppConfig, pending: &PendingChange) -> Result<(
         .iter_mut()
         .filter(|account| account.has_static_keys())
     {
-        let secret = account_ref(account, &account.secret_ref, SLOT_SECRET)?;
-        remap(&mut account.secret_ref, secret)?;
+        if !account.needs_secret() {
+            let secret = account_ref(account, &account.secret_ref, SLOT_SECRET)?;
+            remap(&mut account.secret_ref, secret)?;
+        }
         if let Some(reference) = account.session_token_ref.clone() {
             let token = account_ref(account, &reference, SLOT_SESSION_TOKEN)?;
             if let Some(slot) = &mut account.session_token_ref {

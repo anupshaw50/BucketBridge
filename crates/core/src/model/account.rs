@@ -181,6 +181,13 @@ impl Account {
         self.source.is_static()
     }
 
+    /// `true` for an account with static keys that has no secret access key
+    /// yet: one imported from an account file (which holds no secrets). It
+    /// cannot be used until the secret is entered.
+    pub fn needs_secret(&self) -> bool {
+        self.has_static_keys() && self.secret_ref.is_empty()
+    }
+
     /// `true` when requests need an MFA session (a code entered with
     /// `mfa_login`): static keys with an MFA device, or an assumed role
     /// whose trust policy asks for one.
@@ -361,6 +368,11 @@ pub struct AccountList {
     pub accounts: Vec<Account>,
     /// Account used when none is named.
     pub default_account_id: Option<String>,
+    /// The account folders in their order, each with its accounts. Accounts
+    /// in no folder are listed after the folders. Empty for a configuration
+    /// from before folders existed.
+    #[serde(default)]
+    pub folders: Vec<crate::accountfile::AccountFolder>,
 }
 
 /// Result of `security_status` and payload of `security://changed`.
@@ -565,6 +577,7 @@ mod tests {
         let list = AccountList {
             accounts: vec![sample()],
             default_account_id: Some(sample().id),
+            folders: Vec::new(),
         };
         let value = serde_json::to_value(&list).unwrap();
         assert_eq!(value["default_account_id"], json!(sample().id));

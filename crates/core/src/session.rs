@@ -395,6 +395,38 @@ impl Session {
         self.managed(move || manager.set_default(&owned_id)).await
     }
 
+    /// Stores a new arrangement of account folders and the order of the
+    /// accounts (see [`AccountManager::set_layout`]).
+    pub async fn set_account_layout(
+        &self,
+        layout: crate::accountfile::AccountLayout,
+    ) -> Result<AccountList> {
+        let manager = Arc::clone(&self.manager);
+        self.managed(move || manager.set_layout(&layout)).await
+    }
+
+    /// The export of the named accounts, or of all (see
+    /// [`AccountManager::export_accounts`]).
+    pub async fn export_accounts(
+        &self,
+        ids: Option<Vec<String>>,
+    ) -> Result<crate::accountfile::AccountExport> {
+        let manager = Arc::clone(&self.manager);
+        blocking(move || manager.export_accounts(ids.as_deref())).await
+    }
+
+    /// Imports accounts from an export (see
+    /// [`AccountManager::import_accounts`]).
+    pub async fn import_accounts(
+        &self,
+        export: crate::accountfile::AccountExport,
+        policy: crate::accountfile::DuplicatePolicy,
+    ) -> Result<crate::accountfile::ImportReport> {
+        let manager = Arc::clone(&self.manager);
+        self.managed(move || manager.import_accounts(&export, policy))
+            .await
+    }
+
     /// The current settings.
     pub async fn settings(&self) -> Result<Settings> {
         let manager = Arc::clone(&self.manager);

@@ -8,6 +8,7 @@ export type LayoutEntry =
 const a = (action: ActionId): LayoutEntry => ({ action });
 const sep: LayoutEntry = { separator: true };
 const sub = (submenu: SubmenuId, ...items: ActionId[]): LayoutEntry => ({ submenu, items: items.map(a) });
+const copyAs = sub("copy-as", "copy.name", "copy.key", "copy.uri", "copy.url-virtual", "copy.url-path");
 
 /**
  * The menus as data: which actions appear, in
@@ -58,6 +59,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
     a("bucket.mount"),
     a("bucket.copy-name"),
     a("bucket.copy-url"),
+    copyAs,
     a("bucket.open-browser"),
     a("bookmark.add"),
     sep,
@@ -89,6 +91,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
     a("folder.search"),
     a("list.filter"),
     a("path.copy"),
+    copyAs,
     a("bookmark.add"),
     a("list.refresh"),
     a("item.delete"),
@@ -112,6 +115,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
     sub("file.metadata", "file.tags", "file.storage-class", "file.sse", "file.http-headers", "file.website-redirect"),
     a("file.acl"),
     a("item.share"),
+    copyAs,
     sep,
     a("file.encrypt"),
     a("file.decrypt"),
@@ -138,6 +142,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
     a("file.encrypt"),
     a("file.decrypt"),
     a("file.export"),
+    copyAs,
     sep,
     a("list.select-all"),
     a("list.invert"),

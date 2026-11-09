@@ -74,6 +74,12 @@ function shape(items: ResolvedItem[]): string[] {
   });
 }
 
+/** The "Copy as" submenu as `shape` shows it. */
+function copyAsEntry(key: boolean, virtual = true): string {
+  const names = [tr("Name"), ...(key ? [tr("Key")] : []), tr("S3 URI (s3://)"), ...(virtual ? [tr("Virtual-hosted URL")] : []), tr("Path-style URL")];
+  return `${tr("Copy as")} > ${names.join(", ")}`;
+}
+
 /** The actions of a resolved menu, those inside submenus included. */
 function actionsOf(items: ResolvedItem[]): Extract<ResolvedItem, { type: "action" }>[] {
   return items.flatMap((item) => {
@@ -286,6 +292,7 @@ describe("resolved menus", () => {
       ]),
       tr("Copy bucket name"),
       tr("Copy https:// URL"),
+      copyAsEntry(false),
       tr("Open in browser"),
       tr("Bookmark…"),
       "-",
@@ -319,6 +326,7 @@ describe("resolved menus", () => {
               ])
             : entry,
         )
+        .map((entry) => (entry.startsWith(`${tr("Copy as")} >`) ? copyAsEntry(false, false) : entry))
         .filter((entry) => !entry.startsWith(`${tr("CloudFront")} >`)),
     );
   });
@@ -330,6 +338,7 @@ describe("resolved menus", () => {
     expect(shape(items)).toEqual([
       tr("Copy bucket name"),
       tr("Copy https:// URL"),
+      copyAsEntry(false),
       "-",
       `${tr("Refresh")} (F5)`,
       `${tr("Delete…")} (Del)`,
@@ -371,6 +380,7 @@ describe("resolved menus", () => {
       tr("Search here"),
       tr("Filter…"),
       tr("Copy path"),
+      copyAsEntry(true),
       tr("Bookmark…"),
       `${tr("Refresh")} (F5)`,
       `${tr("Delete…")} (Del)`,
@@ -394,6 +404,7 @@ describe("resolved menus", () => {
       submenu("Metadata", ["Tags…", "Storage class…", "Server-side encryption…", "HTTP headers…", "Website redirect…"]),
       tr("ACL…"),
       tr("Share…"),
+      copyAsEntry(true),
       "-",
       tr("Encrypt…"),
       tr("Decrypt…"),
@@ -415,6 +426,7 @@ describe("resolved menus", () => {
       `${tr("Paste")} (Ctrl+V) [off]`,
       "-",
       tr("Export…"),
+      copyAsEntry(true),
       "-",
       `${tr("Select all")} (Ctrl+A)`,
       `${tr("Invert selection")} (Ctrl+I)`,
@@ -482,6 +494,7 @@ describe("resolved menus", () => {
       tr("Search here"),
       tr("Filter…"),
       tr("Copy path"),
+      copyAsEntry(true),
       tr("Bookmark…"),
       tr("Delete…"),
     ]);

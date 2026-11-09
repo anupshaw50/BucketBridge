@@ -81,6 +81,17 @@ recorded so far has been handed to the OS; call it before the app exits.
 reported once as an error entry with source `eventlog`, in memory only, and again only
 after writing has worked in between. The writer reopens the file on the next entry.
 
+**Cleanup**: rotation alone keeps old files for as long as the app keeps writing, so the
+rotated files (`bucketbridge.log.N`) are also removed by age and total size
+(`crate::eventlog::cleanup_old_logs`). Files last modified more than `settings.logging.keep_days`
+days ago (default 30, 1 to 3650) are deleted, then the oldest remaining ones are deleted
+while the log files together, the current one included, are larger than
+`settings.logging.max_total_mib` (default 100, 1 to 102400). The current
+`bucketbridge.log` and any other file in the folder are never deleted. The desktop app
+runs it at start-up and then every 24 hours with the settings of that moment; what it
+removed is noted as an information entry from source `eventlog`. Configurations from
+before these settings load with the defaults.
+
 Turning file logging off closes the file; turning it on again appends to it.
 
 ## Forwarding `tracing` events

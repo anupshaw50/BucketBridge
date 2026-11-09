@@ -31,6 +31,11 @@ export const LIVE_ACTION_IDS = [
   "bucket.download-all",
   "bucket.copy-name",
   "bucket.copy-url",
+  "copy.name",
+  "copy.key",
+  "copy.uri",
+  "copy.url-virtual",
+  "copy.url-path",
   "bucket.remove-external",
   "bucket.delete",
   "account.edit",
@@ -106,7 +111,7 @@ export type ActionId = LiveActionId | PlannedActionId;
 export const MENU_IDS = ["bucket", "folder", "file", "selection", "files-empty", "buckets-empty", "account"] as const;
 export type MenuId = (typeof MENU_IDS)[number];
 
-export const SUBMENU_IDS = ["bucket.properties", "bucket.cloudfront", "file.metadata"] as const;
+export const SUBMENU_IDS = ["bucket.properties", "bucket.cloudfront", "file.metadata", "copy-as"] as const;
 export type SubmenuId = (typeof SUBMENU_IDS)[number];
 
 /** Reasons shown as the tooltip of a disabled entry. */

@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { CrashReport, ObjectEntry, SyncJob } from "../api/types";
+import type { CrashReport, ObjectEntry, QuitRequest, SyncJob } from "../api/types";
 import type { SettingsPage } from "../lib/settings";
 
 export interface ConfirmOptions {
@@ -13,7 +13,7 @@ export interface ConfirmOptions {
 }
 
 /** Tabs of the bucket properties dialog. */
-export type BucketPropertiesTab = "policy" | "public-access" | "versioning" | "logging" | "website" | "acceleration";
+export type BucketPropertiesTab = "policy" | "public-access" | "versioning" | "logging" | "website" | "acceleration" | "usage";
 
 /** Tabs of the bucket rules dialog. */
 export type BucketRulesTab = "cors" | "lifecycle" | "tiering" | "replication";
@@ -28,6 +28,8 @@ export type DialogRequest =
   | { kind: "accounts" }
   | { kind: "add-account" }
   | { kind: "import-aws" }
+  | { kind: "import-accounts" }
+  | { kind: "account-folder"; /** Set: renames this folder instead of creating one. */ folder?: string }
   | { kind: "edit-account"; accountId: string; /** Puts the cursor in the MFA device field. */ focus?: "mfa" }
   | { kind: "master-password" }
   | { kind: "settings"; /** Page shown first (default: general). */ page?: SettingsPage }
@@ -87,6 +89,7 @@ export type DialogRequest =
   | { kind: "edit-sessions" }
   | { kind: "edit-conflict"; sessionId: string }
   | { kind: "crash"; report: CrashReport }
+  | { kind: "quit"; request: QuitRequest }
   | { kind: "confirm"; options: ConfirmOptions; resolve: (confirmed: boolean) => void };
 
 export type DialogKind = DialogRequest["kind"];
@@ -124,6 +127,7 @@ const SINGLETONS: ReadonlySet<DialogKind> = new Set([
   "export",
   "edit-sessions",
   "crash",
+  "quit",
 ]);
 
 export class DialogController {

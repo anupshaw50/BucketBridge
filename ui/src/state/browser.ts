@@ -3,9 +3,10 @@ import type { Backend } from "../api/backend";
 import { toBbError } from "../api/errors";
 import type { BbErrorCode, Bucket, FilterSpec, ObjectEntry, SavedFilter, TransferTask } from "../api/types";
 import { tr } from "../i18n";
+import { parseAddress } from "../lib/address";
+import { type BucketFilter, EMPTY_BUCKET_FILTER, sortBuckets } from "../lib/buckets";
 import { type CompiledFilter, compileFilter, matchesObject } from "../lib/filters";
 import {
-  DEFAULT_SORT,
   filterEntries,
   isFolderEntry,
   nextSort,
@@ -72,6 +73,10 @@ export interface BrowserState {
   visibleKeys: string[];
   selection: Selection;
   sort: SortState;
+  /** Narrowing of the bucket list. */
+  bucketFilter: BucketFilter;
+  /** How many pages (of `settings.interface.bucket_page_size`) of the bucket list are shown. */
+  bucketPages: number;
   search: string;
   /** The saved filter in effect, kept while browsing folders and dropped when the account changes. */
   filter: ActiveFilter | null;
@@ -85,6 +90,11 @@ const AUTO_REFRESH_DELAY_MS = 800;
 
 export function treeKey(bucket: string, prefix: string): string {
   return JSON.stringify([bucket, prefix]);
+}
+
+function sortFromSettings(settings: SettingsController): SortState {
+  const { sort_column, sort_direction } = settings.current.interface;
+  return { column: sort_column, direction: sort_direction };
 }
 
 function emptyListing(accountId: string | null, flat: boolean): ListingState {
@@ -146,7 +156,9 @@ export class BrowserController {
       visible: [],
       visibleKeys: [],
       selection: EMPTY_SELECTION,
-      sort: DEFAULT_SORT,
+      sort: sortFromSettings(settings),
+      bucketFilter: EMPTY_BUCKET_FILTER,
+      bucketPages: 1,
       search: "",
       filter: null,
       tree: {},
@@ -168,6 +180,8 @@ export class BrowserController {
       visible: [],
       visibleKeys: [],
       selection: EMPTY_SELECTION,
+      bucketFilter: EMPTY_BUCKET_FILTER,
+      bucketPages: 1,
       search: "",
       filter: null,
       tree: {},
@@ -206,7 +220,7 @@ export class BrowserController {
       if (request !== this.bucketRequest) {
         return;
       }
-      const sorted = [...buckets].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      const sorted = sortBuckets(buckets);
       this.store.setState({
         bucketList: { accountId, status: "ready", buckets: sorted, pinned, error: null, errorCode: null },
       });
@@ -372,6 +386,38 @@ export class BrowserController {
     }
   }
 
+  /**
+   * Opens a typed or pasted location (`s3://bucket/folder/` or `bucket/folder`). Returns `null` when the
+   * location was opened, else the message to show next to the address bar: an invalid path, or a bucket
+   * the account cannot list.
+   */
+  async goToAddress(text: string): Promise<string | null> {
+    const parsed = parseAddress(text);
+    if (!parsed.ok) {
+      return parsed.message;
+    }
+    const accountId = this.session.store.getState().activeAccountId;
+    if (accountId === null) {
+      return tr("Choose an account first.");
+    }
+    const { bucket, prefix } = parsed;
+    const list = this.state.bucketList;
+    const known = list.status === "ready" && list.accountId === accountId && list.buckets.some((item) => item.name === bucket);
+    if (!known) {
+      // A bucket outside the list can still be reachable (shared with the account); listing it tells.
+      try {
+        await this.api.list_objects({ account_id: accountId, bucket, prefix, flat: false, token: null });
+      } catch (raw) {
+        return tr("The bucket \"{bucket}\" is not available to this account: {reason}", {
+          bucket,
+          reason: toBbError(raw).message,
+        });
+      }
+    }
+    await this.openLocation(bucket, prefix);
+    return null;
+  }
+
   goUp(): void {
     const { bucket, prefix } = this.state.listing;
     if (bucket !== null && prefix !== "") {
@@ -379,9 +425,34 @@ export class BrowserController {
     }
   }
 
+  /** Sorts by a column (the same column again reverses) and remembers the order in the settings. */
   setSort(column: SortColumn): void {
-    this.store.setState({ sort: nextSort(this.state.sort, column) });
+    const sort = nextSort(this.state.sort, column);
+    this.store.setState({ sort });
     this.recompute();
+    void this.settings
+      .update((draft) => {
+        draft.interface.sort_column = sort.column;
+        draft.interface.sort_direction = sort.direction;
+      })
+      .catch((error: unknown) => this.status.error(error));
+  }
+
+  /** Takes the sort saved in the settings (called when they are loaded). */
+  applySort(sort: SortState): void {
+    const current = this.state.sort;
+    if (current.column !== sort.column || current.direction !== sort.direction) {
+      this.store.setState({ sort });
+      this.recompute();
+    }
+  }
+
+  setBucketFilter(change: Partial<BucketFilter>): void {
+    this.store.setState({ bucketFilter: { ...this.state.bucketFilter, ...change }, bucketPages: 1 });
+  }
+
+  showMoreBuckets(): void {
+    this.store.setState({ bucketPages: this.state.bucketPages + 1 });
   }
 
   setSearch(search: string): void {

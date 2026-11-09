@@ -162,8 +162,8 @@ describe("what a preview shows", () => {
 describe("paging through long text", () => {
   it("goes to the first, previous, next and last page and to a page number", async () => {
     const { user } = await renderApp();
-    const dialog = await preview(user, "demo-logs", "audit-export.csv");
-    const contents = await within(dialog).findByLabelText(tr("Contents of {name}", { name: "audit-export.csv" }));
+    const dialog = await preview(user, "demo-logs", "audit-export.log");
+    const contents = await within(dialog).findByLabelText(tr("Contents of {name}", { name: "audit-export.log" }));
     expect(contents).toHaveTextContent("line 0000000");
     expect(within(dialog).getByText(tr("Page {cur} of {count}", { cur: 1, count: 5 }))).toBeInTheDocument();
     expect(within(dialog).getByText(tr("Bytes {from} to {to}", { from: "0", to: "131,071" }))).toBeInTheDocument();
@@ -173,7 +173,7 @@ describe("paging through long text", () => {
     await user.click(within(dialog).getByRole("button", { name: tr("Next page") }));
     await within(dialog).findByText(tr("Page {cur} of {count}", { cur: 2, count: 5 }));
     // 131,072 bytes of 64-byte lines: the second page starts at line 2048.
-    expect(within(dialog).getByLabelText(tr("Contents of {name}", { name: "audit-export.csv" }))).toHaveTextContent("line 0002048");
+    expect(within(dialog).getByLabelText(tr("Contents of {name}", { name: "audit-export.log" }))).toHaveTextContent("line 0002048");
     expect(within(dialog).getByText(tr("Bytes {from} to {to}", { from: "131,072", to: "262,143" }))).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: tr("First page") })).toBeEnabled();
 
@@ -202,8 +202,8 @@ describe("paging through long text", () => {
 
   it("pages with Alt and the arrow keys", async () => {
     const { user } = await renderApp();
-    const dialog = await preview(user, "demo-logs", "audit-export.csv");
-    const contents = await within(dialog).findByLabelText(tr("Contents of {name}", { name: "audit-export.csv" }));
+    const dialog = await preview(user, "demo-logs", "audit-export.log");
+    const contents = await within(dialog).findByLabelText(tr("Contents of {name}", { name: "audit-export.log" }));
     contents.focus();
     await user.keyboard("{Alt>}{ArrowRight}{/Alt}");
     await within(dialog).findByText(tr("Page {cur} of {count}", { cur: 2, count: 5 }));
@@ -220,7 +220,7 @@ describe("paging through long text", () => {
 
   it("changes the page size with Apply and starts again at the first page", async () => {
     const { user } = await renderApp();
-    const dialog = await preview(user, "demo-logs", "audit-export.csv");
+    const dialog = await preview(user, "demo-logs", "audit-export.log");
     await within(dialog).findByText(tr("Page {cur} of {count}", { cur: 1, count: 5 }));
     await user.click(within(dialog).getByRole("button", { name: tr("Next page") }));
     await within(dialog).findByText(tr("Page {cur} of {count}", { cur: 2, count: 5 }));

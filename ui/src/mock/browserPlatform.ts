@@ -146,6 +146,7 @@ export function createBrowserPlatform(picker: MockPicker): Platform {
         filters: [],
       });
     },
+    onFileDrop: () => () => undefined,
     copyText: copyWithFallback,
   };
 }

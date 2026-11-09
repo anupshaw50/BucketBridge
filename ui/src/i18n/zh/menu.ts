@@ -33,6 +33,11 @@ export const zhMenu: Messages = {
   "action.bucket.download-all": "下载所有文件…",
   "action.bucket.copy-name": "复制存储桶名称",
   "action.bucket.copy-url": "复制 https 链接",
+  "action.copy.name": "名称",
+  "action.copy.key": "键",
+  "action.copy.uri": "S3 URI（s3:// 地址）",
+  "action.copy.url-virtual": "虚拟主机风格链接",
+  "action.copy.url-path": "路径风格链接",
   "action.bucket.remove-external": "移除外部存储桶…",
   "action.bucket.delete": "删除…",
   "action.account.edit": "编辑账户…",
@@ -105,6 +110,7 @@ export const zhMenu: Messages = {
   "submenu.bucket.properties": "属性",
   "submenu.bucket.cloudfront": "CloudFront",
   "submenu.file.metadata": "元数据",
+  "submenu.copy-as": "复制为",
 
   // ---- 禁用项显示的原因 ----
   "hint.no-bucket": "请先打开一个存储桶。",

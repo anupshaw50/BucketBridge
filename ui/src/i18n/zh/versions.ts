@@ -46,6 +46,33 @@ export const zhVersions: Record<string, string> = {
   "Page {cur} of {count}": "第 {cur} 页，共 {count} 页",
   "Bytes {from} to {to}": "字节 {from} 到 {to}",
   "Page size": "每页大小",
+  "XML (formatted)": "XML（已格式化）",
+  table: "表格",
+  "This Parquet file is {size}. Parquet files above 8 MiB are not previewed; download the object to open it.":
+    "该 Parquet 文件的大小为 {size}。超过 8 MiB 的 Parquet 文件不做预览；请下载该对象后打开。",
+  "No rows": "没有行",
+  "Rows {from} to {to} of {total}": "第 {from} 到 {to} 行，共 {total} 行",
+
+  // ---- versions/PreviewTableView.tsx（表格预览）----
+  "This file is larger than the preview limit; only its first {rows} rows are shown.": "该文件超过预览上限，仅显示前 {rows} 行。",
+  "Only the first {count} columns are shown.": "仅显示前 {count} 列。",
+  "Column {n}": "第 {n} 列",
+  null: "空值",
+  "This table has no rows.": "该表没有行。",
+
+  // ---- versions/ImageViewer.tsx（图片缩放与平移）----
+  Fit: "适应",
+  "Zoom out (-)": "缩小（-）",
+  "Zoom out": "缩小",
+  "Zoom in (+)": "放大（+）",
+  "Zoom in": "放大",
+  "Fit to window (0)": "适应窗口（0）",
+  "Fit to window": "适应窗口",
+  "Actual size (1)": "实际大小（1）",
+  "Actual size": "实际大小",
+  "Zoom level": "缩放比例",
+  "Image viewer. Plus and minus zoom, arrow keys move, 0 fits the window, 1 shows the actual size.":
+    "图片查看器。加号和减号缩放，方向键移动，0 适应窗口，1 显示实际大小。",
 
   // ---- versions/VersionsDialog.tsx（版本对话框）----
   "Loading versions": "正在加载版本",
@@ -53,6 +80,15 @@ export const zhVersions: Record<string, string> = {
   "No versions match.": "没有匹配的版本。",
   "No key matched in the {count} entries checked so far.": "在已检查的 {count} 个条目中没有匹配的键。",
   "Select all shown": "全选已显示的版本",
+  "View and selection": "视图与选择",
+  View: "视图",
+  "Grouped by key": "按键分组",
+  "Flat list": "平铺列表",
+  "Select newest delete markers": "选择最新的删除标记",
+  "Select all non-current versions": "选择所有非当前版本",
+  "Clear selection": "清除选择",
+  "Sort by {column}": "按{column}排序",
+  Key: "键",
   Version: "版本",
   Modified: "修改时间",
   Size: "大小",

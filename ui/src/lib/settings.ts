@@ -4,11 +4,26 @@ import { validateBypassEntry, validateHost } from "./validation";
 
 /** Defaults documented in docs/desktop-api.md. */
 export const DEFAULT_SETTINGS: Settings = {
-  general: { confirm_delete: true, default_download_dir: null, open_with_recent: [] },
-  interface: { theme: "system", flat_browsing: false, show_transfer_panel: true, show_log_panel: false },
+  general: {
+    confirm_delete: true,
+    default_download_dir: null,
+    open_with_recent: [],
+    keep_awake: true,
+    quit_with_tasks: "ask",
+  },
+  interface: {
+    theme: "system",
+    flat_browsing: false,
+    show_transfer_panel: true,
+    show_log_panel: false,
+    sort_column: "name",
+    sort_direction: "asc",
+    column_widths: { size: 96, modified: 160, class: 140 },
+    bucket_page_size: 1000,
+  },
   advanced: { max_attempts: 5, connect_timeout_secs: 10, read_timeout_secs: 60, list_page_size: 1000 },
   data_integrity: { checksum_algorithm: "crc32", validate_downloads: true, preserve_mtime: true },
-  logging: { level: "information", file_logging: true, max_file_mib: 10 },
+  logging: { level: "information", file_logging: true, max_file_mib: 10, keep_days: 30, max_total_mib: 100 },
   proxy: {
     enabled: false,
     kind: "http",
@@ -33,7 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
 export function cloneSettings(settings: Settings): Settings {
   return {
     general: { ...settings.general, open_with_recent: [...settings.general.open_with_recent] },
-    interface: { ...settings.interface },
+    interface: { ...settings.interface, column_widths: { ...settings.interface.column_widths } },
     advanced: { ...settings.advanced },
     data_integrity: { ...settings.data_integrity },
     logging: { ...settings.logging },
@@ -54,7 +69,13 @@ export const SETTINGS_RANGES = {
   "advanced.connect_timeout_secs": { min: 1, max: 300 },
   "advanced.read_timeout_secs": { min: 1, max: 3600 },
   "advanced.list_page_size": { min: 1, max: 1000 },
+  "interface.bucket_page_size": { min: 10, max: 100_000 },
+  "interface.column_widths.size": { min: 40, max: 600 },
+  "interface.column_widths.modified": { min: 40, max: 600 },
+  "interface.column_widths.class": { min: 40, max: 600 },
   "logging.max_file_mib": { min: 1, max: 1024 },
+  "logging.keep_days": { min: 1, max: 3650 },
+  "logging.max_total_mib": { min: 1, max: 102_400 },
   "proxy.port": { min: 1, max: 65535 },
   "transfer.max_concurrent_tasks": { min: 1, max: 32 },
   "transfer.max_parts_per_task": { min: 1, max: 32 },
@@ -94,8 +115,20 @@ function rangedValue(settings: Settings, field: RangedField): number | null {
       return settings.advanced.read_timeout_secs;
     case "advanced.list_page_size":
       return settings.advanced.list_page_size;
+    case "interface.bucket_page_size":
+      return settings.interface.bucket_page_size;
+    case "interface.column_widths.size":
+      return settings.interface.column_widths.size;
+    case "interface.column_widths.modified":
+      return settings.interface.column_widths.modified;
+    case "interface.column_widths.class":
+      return settings.interface.column_widths.class;
     case "logging.max_file_mib":
       return settings.logging.max_file_mib;
+    case "logging.keep_days":
+      return settings.logging.keep_days;
+    case "logging.max_total_mib":
+      return settings.logging.max_total_mib;
     case "proxy.port":
       return settings.proxy.port;
     case "transfer.max_concurrent_tasks":

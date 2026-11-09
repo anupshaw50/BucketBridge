@@ -1,8 +1,8 @@
-import { Badge, Button, Group, Stack, Table, Text, Tooltip } from "@mantine/core";
-import { IconLock, IconPlus, IconShieldLock, IconStar } from "@tabler/icons-react";
+import { ActionIcon, Badge, Button, Group, NativeSelect, Stack, Table, Text, Tooltip } from "@mantine/core";
+import { IconArrowDown, IconArrowUp, IconFolder, IconLock, IconPlus, IconShieldLock, IconStar } from "@tabler/icons-react";
 import { useState } from "react";
 import { toBbError } from "../../api/errors";
-import type { Account } from "../../api/types";
+import type { Account, AccountLayout } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
@@ -21,6 +21,14 @@ import {
   validateConnection,
   validateCredentials,
 } from "../../lib/accounts";
+import {
+  folderOf,
+  groupAccounts,
+  moveAccount,
+  moveFolder,
+  removeFolder,
+  setAccountFolder,
+} from "../../lib/accountGroups";
 import { ContextMenu } from "../menus/ContextMenu";
 import { accountMenu } from "../menus/surfaces";
 import { isContextClick, useContextMenu } from "../menus/useContextMenu";
@@ -342,9 +350,47 @@ function EditAccountForm({
 export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
   const model = useModel();
   const accounts = useSlice(model.session.store, (state) => state.accounts);
+  const folders = useSlice(model.session.store, (state) => state.folders);
   const activeId = useSlice(model.session.store, (state) => state.activeAccountId);
   const defaultId = useSlice(model.session.store, (state) => state.defaultAccountId);
   const security = useSlice(model.session.store, (state) => state.security);
+  const groups = groupAccounts(accounts, folders);
+  const applyLayout = async (layout: AccountLayout) => {
+    try {
+      await model.api.set_account_layout({ layout });
+      await model.session.refreshAccounts();
+    } catch (error) {
+      model.status.error(error, { notify: tr("The accounts could not be arranged") });
+    }
+  };
+  const exportAccounts = async () => {
+    try {
+      const path = await model.platform.pickSavePath({
+        title: tr("Export accounts"),
+        defaultPath: "bucketbridge-accounts.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (path === null) {
+        return;
+      }
+      const outcome = await model.api.export_accounts({ path, account_ids: null });
+      model.status.info(
+        tr("Exported {n} accounts to {path}. The file holds no secrets.", { n: outcome.accounts, path: outcome.path }),
+      );
+    } catch (error) {
+      model.status.error(error, { notify: tr("The accounts could not be exported") });
+    }
+  };
+  const removeFolderNow = async (name: string) => {
+    const confirmed = await model.dialogs.confirm({
+      title: tr("Remove folder"),
+      message: tr("Remove the folder \"{name}\"? Its accounts are kept and are no longer in a folder.", { name }),
+      confirmLabel: tr("Remove folder"),
+    });
+    if (confirmed) {
+      await applyLayout(removeFolder(accounts, folders, name));
+    }
+  };
   const masterSet = security?.master_password_set ?? false;
   const unlocked = security?.unlocked ?? true;
   const menu = useContextMenu();
@@ -410,7 +456,72 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {accounts.map((account) => (
+                {groups.flatMap((group, groupIndex) => [
+                  group.folder !== null ? (
+                    <Table.Tr key={`folder:${group.folder}`} bg="var(--mantine-color-default-hover)">
+                      <Table.Td colSpan={5}>
+                        <Group gap="xs" wrap="nowrap" justify="space-between">
+                          <Group gap={6} wrap="nowrap">
+                            <IconFolder size={14} aria-hidden />
+                            <Text size="sm" fw={600}>
+                              {group.folder}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {group.accounts.length === 1
+                                ? tr("{n} account", { n: group.accounts.length })
+                                : tr("{n} accounts", { n: group.accounts.length })}
+                            </Text>
+                          </Group>
+                          <Group gap={2} wrap="nowrap">
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              disabled={groupIndex === 0}
+                              aria-label={tr("Move folder {name} up", { name: group.folder })}
+                              onClick={() => void applyLayout(moveFolder(accounts, folders, group.folder ?? "", "up"))}
+                            >
+                              <IconArrowUp size={14} />
+                            </ActionIcon>
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              disabled={groupIndex >= folders.length - 1}
+                              aria-label={tr("Move folder {name} down", { name: group.folder })}
+                              onClick={() => void applyLayout(moveFolder(accounts, folders, group.folder ?? "", "down"))}
+                            >
+                              <IconArrowDown size={14} />
+                            </ActionIcon>
+                            <Button
+                              size="compact-xs"
+                              variant="subtle"
+                              onClick={() => model.dialogs.open({ kind: "account-folder", folder: group.folder ?? "" })}
+                              aria-label={tr("Rename folder {name}", { name: group.folder })}
+                            >
+                              {tr("Rename")}
+                            </Button>
+                            <Button
+                              size="compact-xs"
+                              variant="subtle"
+                              color="red"
+                              onClick={() => void removeFolderNow(group.folder ?? "")}
+                              aria-label={tr("Remove folder {name}", { name: group.folder })}
+                            >
+                              {tr("Remove")}
+                            </Button>
+                          </Group>
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : folders.length > 0 ? (
+                    <Table.Tr key="folder:none" bg="var(--mantine-color-default-hover)">
+                      <Table.Td colSpan={5}>
+                        <Text size="sm" fw={600} c="dimmed">
+                          {tr("Not in a folder")}
+                        </Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : null,
+                  ...group.accounts.map((account, index) => (
                   <Table.Tr
                     key={account.id}
                     onContextMenu={(event) => openAccountMenu(event, account)}
@@ -435,6 +546,13 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                             {tr("Active")}
                           </Badge>
                         ) : null}
+                        {account.source.type === "static_keys" && account.secret_ref === "" ? (
+                          <Tooltip label={tr("Imported without a secret: edit the account and enter its secret access key.")}>
+                            <Badge size="xs" variant="light" color="orange">
+                              {tr("Needs secret")}
+                            </Badge>
+                          </Tooltip>
+                        ) : null}
                         {account.mfa_serial !== null ? (
                           <Tooltip label={tr("MFA device {serial}", { serial: account.mfa_serial })}>
                             <Badge size="xs" variant="light" color="grape">
@@ -451,6 +569,33 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                     </Table.Td>
                     <Table.Td>
                       <Group gap={4} justify="flex-end" wrap="nowrap">
+                        <NativeSelect
+                          size="xs"
+                          aria-label={tr("Folder of {label}", { label: account.label })}
+                          value={folderOf(folders, account.id) ?? ""}
+                          data={[{ value: "", label: tr("No folder") }, ...folders.map((folder) => ({ value: folder.name, label: folder.name }))]}
+                          onChange={(event) =>
+                            void applyLayout(setAccountFolder(accounts, folders, account.id, event.currentTarget.value || null))
+                          }
+                        />
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          disabled={index === 0}
+                          aria-label={tr("Move {label} up", { label: account.label })}
+                          onClick={() => void applyLayout(moveAccount(accounts, folders, account.id, "up"))}
+                        >
+                          <IconArrowUp size={14} />
+                        </ActionIcon>
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          disabled={index === group.accounts.length - 1}
+                          aria-label={tr("Move {label} down", { label: account.label })}
+                          onClick={() => void applyLayout(moveAccount(accounts, folders, account.id, "down"))}
+                        >
+                          <IconArrowDown size={14} />
+                        </ActionIcon>
                         <Button
                           size="compact-xs"
                           variant="subtle"
@@ -489,7 +634,8 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
                       </Group>
                     </Table.Td>
                   </Table.Tr>
-                ))}
+                  )),
+                ])}
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
@@ -501,6 +647,15 @@ export function AccountManagerDialog({ onClose }: { onClose: () => void }) {
             </Button>
             <Button variant="default" onClick={() => model.dialogs.open({ kind: "import-aws" })}>
               {tr("Import from AWS config...")}
+            </Button>
+            <Button variant="default" onClick={() => model.dialogs.open({ kind: "account-folder" })}>
+              {tr("New folder...")}
+            </Button>
+            <Button variant="default" disabled={accounts.length === 0} onClick={() => void exportAccounts()}>
+              {tr("Export accounts...")}
+            </Button>
+            <Button variant="default" onClick={() => model.dialogs.open({ kind: "import-accounts" })}>
+              {tr("Import accounts...")}
             </Button>
           </Group>
           <Button variant="default" onClick={onClose}>

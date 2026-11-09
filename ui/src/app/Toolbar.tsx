@@ -42,6 +42,7 @@ import { downloadSelected, toggleFlatBrowsing, togglePanel } from "../features/o
 import { FilterMenu } from "../features/tools/FilterControls";
 import { ToolsMenu } from "../features/tools/ToolsMenu";
 import { tr } from "../i18n";
+import { groupAccounts } from "../lib/accountGroups";
 import { formatBinding } from "../lib/keys";
 import { useModel, useSlice } from "./context";
 
@@ -83,9 +84,11 @@ function ToolButton({ label, shortcut, icon, onClick, disabled = false, pressed,
 function AccountSwitcher() {
   const model = useModel();
   const accounts = useSlice(model.session.store, (state) => state.accounts);
+  const folders = useSlice(model.session.store, (state) => state.folders);
   const activeId = useSlice(model.session.store, (state) => state.activeAccountId);
   const defaultId = useSlice(model.session.store, (state) => state.defaultAccountId);
   const active = accounts.find((account) => account.id === activeId);
+  const groups = groupAccounts(accounts, folders);
   const menu = useContextMenu();
   return (
     <>
@@ -113,7 +116,13 @@ function AccountSwitcher() {
         <Menu.Dropdown>
           <Menu.Label>{tr("Accounts")}</Menu.Label>
           {accounts.length === 0 ? <Menu.Item disabled>{tr("No accounts yet")}</Menu.Item> : null}
-          {accounts.map((account) => (
+          {groups.flatMap((group) => [
+            group.folder !== null && group.accounts.length > 0 ? (
+              <Menu.Label key={`folder:${group.folder}`}>{group.folder}</Menu.Label>
+            ) : group.folder === null && folders.length > 0 ? (
+              <Menu.Label key="folder:none">{tr("Not in a folder")}</Menu.Label>
+            ) : null,
+            ...group.accounts.map((account) => (
             <Menu.Item
               key={account.id}
               leftSection={account.id === activeId ? <IconCheck size={14} /> : <span style={{ width: 14 }} />}
@@ -128,7 +137,8 @@ function AccountSwitcher() {
             >
               {account.label}
             </Menu.Item>
-          ))}
+            )),
+          ])}
           <Menu.Divider />
           <Menu.Item onClick={() => model.dialogs.open({ kind: "add-account" })}>{tr("Add account...")}</Menu.Item>
           <Menu.Item onClick={() => model.dialogs.open({ kind: "import-aws" })}>{tr("Import from AWS config...")}</Menu.Item>

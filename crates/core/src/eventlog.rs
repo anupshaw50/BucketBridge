@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -81,6 +81,7 @@ pub struct EventLog {
 struct Inner {
     core: Arc<Core>,
     sink: Option<FileSink>,
+    dir: Option<PathBuf>,
 }
 
 /// The in-memory part, shared with the file writer thread (weakly) for its own errors.
@@ -118,6 +119,7 @@ impl EventLog {
             min_rank: AtomicU8::new(rank(settings.level)),
             live,
         });
+        let dir = log_dir.clone();
         let sink = log_dir.and_then(|dir| match FileSink::start(dir, settings, &core) {
             Ok(sink) => Some(sink),
             Err(err) => {
@@ -131,7 +133,7 @@ impl EventLog {
             }
         });
         Self {
-            inner: Arc::new(Inner { core, sink }),
+            inner: Arc::new(Inner { core, sink, dir }),
         }
     }
 
@@ -149,6 +151,38 @@ impl EventLog {
             if was_on && !settings.file_logging {
                 // Best effort: if the queue is full the file is closed later.
                 let _ = sink.queue.try_send(FileMsg::Close);
+            }
+        }
+    }
+
+    /// Deletes old rotated log files as the settings say (see
+    /// [`cleanup_old_logs`]); the current file is never touched. Does nothing
+    /// for a log without a folder. Problems are recorded as warnings from
+    /// source `eventlog` and the log carries on. Blocking (file system).
+    pub fn cleanup_old_files(&self, settings: &LoggingSettings) -> Option<CleanupReport> {
+        let dir = self.inner.dir.as_deref()?;
+        match cleanup_old_logs(
+            dir,
+            settings.keep_days,
+            settings.max_total_mib,
+            SystemTime::now(),
+        ) {
+            Ok(report) => {
+                if !report.removed.is_empty() {
+                    self.information(
+                        OWN_SOURCE,
+                        &format!(
+                            "removed {} old log file(s), {} bytes",
+                            report.removed.len(),
+                            report.bytes_freed
+                        ),
+                    );
+                }
+                Some(report)
+            }
+            Err(err) => {
+                self.warning(OWN_SOURCE, &format!("cannot remove old log files: {err}"));
+                None
             }
         }
     }
@@ -635,6 +669,75 @@ fn rotated_path(base: &Path, generation: u32) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// What [`cleanup_old_logs`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CleanupReport {
+    /// File names that were deleted.
+    pub removed: Vec<String>,
+    /// Their total size in bytes.
+    pub bytes_freed: u64,
+}
+
+/// Deletes old rotated log files (`bucketbridge.log.1`, `.2`, ...) in `dir`:
+/// first those last modified more than `keep_days` days before `now`, then the
+/// oldest ones while the log files together (the current file included) are
+/// larger than `max_total_mib` MiB. The current file `bucketbridge.log` and
+/// every other file are never deleted. A missing folder is not an error.
+pub fn cleanup_old_logs(
+    dir: &Path,
+    keep_days: u32,
+    max_total_mib: u32,
+    now: SystemTime,
+) -> Result<CleanupReport> {
+    let reader = match fs::read_dir(dir) {
+        Ok(reader) => reader,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(CleanupReport::default()),
+        Err(err) => return Err(io_error(format!("reading {}", dir.display()), err)),
+    };
+    let prefix = format!("{LOG_FILE_NAME}.");
+    let mut current_size = 0u64;
+    // (modified time, size, name) of every rotated file.
+    let mut old: Vec<(SystemTime, u64, String)> = Vec::new();
+    for item in reader.flatten() {
+        let name = item.file_name().to_string_lossy().into_owned();
+        let Ok(meta) = item.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        if name == LOG_FILE_NAME {
+            current_size = meta.len();
+        } else if name
+            .strip_prefix(&prefix)
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+        {
+            old.push((meta.modified().unwrap_or(now), meta.len(), name));
+        }
+    }
+    // Oldest first.
+    old.sort();
+    let cutoff = now
+        .checked_sub(Duration::from_secs(u64::from(keep_days) * 86_400))
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    let limit = u64::from(max_total_mib) * MIB;
+    let mut total = current_size + old.iter().map(|file| file.1).sum::<u64>();
+    let mut report = CleanupReport::default();
+    for (modified, size, name) in old {
+        if modified >= cutoff && total <= limit {
+            // Sorted oldest first: every later file is newer still.
+            break;
+        }
+        match fs::remove_file(dir.join(&name)) {
+            Ok(()) => {}
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(io_error(format!("deleting {name}"), err)),
+        }
+        total = total.saturating_sub(size);
+        report.bytes_freed += size;
+        report.removed.push(name);
+    }
+    Ok(report)
+}
+
 fn rename_if_exists(from: &Path, to: &Path) -> io::Result<()> {
     match fs::rename(from, to) {
         Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
@@ -794,7 +897,7 @@ mod tests {
         LoggingSettings {
             level,
             file_logging,
-            max_file_mib: 10,
+            ..LoggingSettings::default()
         }
     }
 
@@ -1051,6 +1154,92 @@ mod tests {
         assert!(
             numbers[0] > 0,
             "the oldest entries must have been rotated out"
+        );
+    }
+
+    fn aged_file(path: &Path, bytes: usize, age_days: u64, now: SystemTime) {
+        fs::write(path, vec![b'x'; bytes]).unwrap();
+        let file = File::options().write(true).open(path).unwrap();
+        file.set_modified(now - Duration::from_secs(age_days * 86_400))
+            .unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_files_older_than_keep_days_but_never_the_current_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join(LOG_FILE_NAME);
+        let now = SystemTime::now();
+        aged_file(&base, 10, 400, now);
+        aged_file(&rotated_path(&base, 1), 10, 5, now);
+        aged_file(&rotated_path(&base, 2), 10, 40, now);
+        aged_file(&rotated_path(&base, 3), 10, 90, now);
+        aged_file(&dir.path().join("notes.txt"), 10, 900, now);
+        let report = cleanup_old_logs(dir.path(), 30, 100, now).unwrap();
+        assert_eq!(report.removed.len(), 2);
+        assert_eq!(report.bytes_freed, 20);
+        assert!(base.exists());
+        assert!(rotated_path(&base, 1).exists());
+        assert!(!rotated_path(&base, 2).exists());
+        assert!(!rotated_path(&base, 3).exists());
+        assert!(dir.path().join("notes.txt").exists());
+        // Running again changes nothing; a missing folder is fine.
+        assert!(
+            cleanup_old_logs(dir.path(), 30, 100, now)
+                .unwrap()
+                .removed
+                .is_empty()
+        );
+        assert!(
+            cleanup_old_logs(&dir.path().join("missing"), 30, 100, now)
+                .unwrap()
+                .removed
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn cleanup_enforces_the_total_size_oldest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join(LOG_FILE_NAME);
+        let now = SystemTime::now();
+        let mib = MIB as usize;
+        aged_file(&base, mib, 0, now);
+        aged_file(&rotated_path(&base, 1), mib, 1, now);
+        aged_file(&rotated_path(&base, 2), mib, 2, now);
+        aged_file(&rotated_path(&base, 3), mib, 3, now);
+        // 4 MiB in total with a 2 MiB limit: the two oldest go.
+        let report = cleanup_old_logs(dir.path(), 30, 2, now).unwrap();
+        assert_eq!(report.removed.len(), 2);
+        assert!(base.exists());
+        assert!(rotated_path(&base, 1).exists());
+        assert!(!rotated_path(&base, 2).exists());
+        assert!(!rotated_path(&base, 3).exists());
+        // A limit below the current file alone still keeps it.
+        let report = cleanup_old_logs(dir.path(), 30, 1, now).unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert!(base.exists());
+    }
+
+    #[test]
+    fn event_log_cleanup_uses_the_settings_and_records_what_it_did() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join(LOG_FILE_NAME);
+        let now = SystemTime::now();
+        aged_file(&rotated_path(&base, 1), 10, 60, now);
+        let log = EventLog::new(
+            &settings(LogLevel::Information, false),
+            Some(dir.path().to_path_buf()),
+        );
+        let report = log
+            .cleanup_old_files(&LoggingSettings::default())
+            .expect("a folder is set");
+        assert_eq!(report.removed, vec![format!("{LOG_FILE_NAME}.1")]);
+        assert!(!rotated_path(&base, 1).exists());
+        assert!(log.entries().iter().any(|e| e.source == OWN_SOURCE));
+        assert!(
+            memory_log()
+                .cleanup_old_files(&LoggingSettings::default())
+                .is_none()
         );
     }
 

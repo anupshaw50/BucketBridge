@@ -14,6 +14,11 @@ export const DEFAULT_SORT: SortState = { column: "name", direction: "asc" };
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
+/** Natural order: digit runs compare as numbers, case is ignored (`file2` before `file10`). */
+export function naturalCompare(a: string, b: string): number {
+  return collator.compare(a, b);
+}
+
 /** The entry of a folder that is known only by its prefix (a folder of the bucket tree). */
 export function folderEntry(prefix: string): ObjectEntry {
   return {

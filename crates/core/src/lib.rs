@@ -32,9 +32,11 @@
 //! | [`objectlock`] | Object Lock, object ownership, Glacier restore and MFA delete |
 //! | [`versions`] | Version lists grouped by key with filters, restore, purge, download of one version |
 //! | [`cse`] | Client-side compression and encryption: streaming AES-256-GCM envelope, password states, in-place rewrite of objects |
+//! | [`preview_format`] | XML pretty-printing and CSV, TSV and Parquet table pages for previews |
 //! | [`preview`] | Object previews: ranged reads, image, text and JSON detection, paging of text |
 //! | [`shorten`] | Optional URL shorteners (Bitly, TinyURL) for share links |
 //! | [`edit`] | Edit in place: a local copy of an object whose saves are uploaded, with a conflict check ([`edit::EditManager`]) |
+//! | [`usage`] | Storage usage of a bucket or prefix: object count and size, non-current versions, unfinished multipart uploads |
 //! | [`scan`] | Security scan (T13): public ACLs and policies, public access block, default encryption, versioning, object ownership |
 //!
 //! All fallible functions return [`Result`]. Blocking functions (the
@@ -45,6 +47,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod accountfile;
 pub mod accounts;
 pub mod bookmarks;
 pub mod bucketcfg;
@@ -72,6 +75,7 @@ pub mod objectmeta;
 pub mod ops;
 pub mod path;
 pub mod preview;
+pub mod preview_format;
 pub mod proxy;
 pub mod s3uri;
 pub mod saved_filters;
@@ -83,6 +87,7 @@ pub mod shorten;
 pub mod sync;
 pub mod syncjobs;
 pub mod transfer;
+pub mod usage;
 pub mod versions;
 
 pub use accounts::AccountManager;

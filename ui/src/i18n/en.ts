@@ -36,6 +36,11 @@ export const en: Messages = {
   "action.bucket.download-all": "Download all files…",
   "action.bucket.copy-name": "Copy bucket name",
   "action.bucket.copy-url": "Copy https:// URL",
+  "action.copy.name": "Name",
+  "action.copy.key": "Key",
+  "action.copy.uri": "S3 URI (s3://)",
+  "action.copy.url-virtual": "Virtual-hosted URL",
+  "action.copy.url-path": "Path-style URL",
   "action.bucket.remove-external": "Remove external bucket…",
   "action.bucket.delete": "Delete…",
   "action.account.edit": "Edit account…",
@@ -108,6 +113,7 @@ export const en: Messages = {
   "submenu.bucket.properties": "Properties",
   "submenu.bucket.cloudfront": "CloudFront",
   "submenu.file.metadata": "Metadata",
+  "submenu.copy-as": "Copy as",
 
   // ---- reasons shown for disabled entries ----
   "hint.no-bucket": "Open a bucket first.",

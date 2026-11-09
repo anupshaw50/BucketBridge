@@ -268,6 +268,22 @@ describe("bucket properties: the other settings", () => {
   });
 });
 
+describe("bucket properties: usage", () => {
+  it("calculates the size of a bucket with its unfinished uploads and offers the calculation again", async () => {
+    const { user } = await renderApp();
+    const dialog = await openProperties(user, "demo-backups");
+    await selectTab(user, dialog, tr("Usage"));
+    expect(within(dialog).queryByRole("table", { name: tr("Bucket usage") })).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: tr("Calculate size") }));
+    const table = await within(dialog).findByRole("table", { name: tr("Bucket usage") });
+    expect(within(table).getByRole("rowheader", { name: tr("Objects") })).toBeInTheDocument();
+    expect(within(table).getByRole("rowheader", { name: tr("Unfinished multipart uploads") })).toBeInTheDocument();
+    // Versioning is on for this bucket, so the versions are asked for by default.
+    expect(within(table).getByRole("rowheader", { name: tr("Non-current versions") })).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: tr("Calculate again") })).toBeEnabled());
+  });
+});
+
 describe("bucket properties: settings fail on their own", () => {
   it("shows a refused setting as an error with a retry, and keeps the other tabs working", async () => {
     const { user, mock } = await renderApp();

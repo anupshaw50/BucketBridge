@@ -45,6 +45,7 @@ export const zhSettings: Record<string, string> = {
     "列出打开的文件夹之下的每个对象，而不是只列一层文件夹。",
   "Show the transfer queue": "显示传输队列",
   "Show the event log": "显示事件日志",
+  "Buckets shown at once": "一次显示的存储桶数",
 
   // ---- 传输 ----
   "Tasks running at the same time": "同时运行的任务数",
@@ -65,6 +66,7 @@ export const zhSettings: Record<string, string> = {
   "Read timeout": "读取超时",
   "Objects per listing page": "每次列出的对象数",
   seconds: "秒",
+  days: "天",
 
   // ---- 数据完整性 ----
   "Upload checksum": "上传校验和",
@@ -80,6 +82,8 @@ export const zhSettings: Record<string, string> = {
   "Minimum level written to the event log.": "写入事件日志的最低级别。",
   "Write the log to a file": "把日志写入文件",
   "Maximum log file size": "日志文件大小上限",
+  "Keep old log files for": "旧日志文件保留时间",
+  "Maximum size of all log files": "所有日志文件总大小上限",
   "Log folder: {path}": "日志文件夹：{path}",
   Show: "显示",
 

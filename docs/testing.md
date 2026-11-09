@@ -25,6 +25,10 @@ name rules of `path.rs` are tested on every OS through
 `validate_relative_key(key, PathStyle::Windows)`; tests that need a real
 Windows path parser are `#[cfg(windows)]`.
 
+Storage usage (`tests/tests/usage.rs`): plain totals run against `TestS3`;
+versions and multipart uploads (s3s-fs has neither, see below) are checked
+against `MockS3` scripted answers, with page markers and cancellation.
+
 ## Integration tests (`tests/`, package `bucketbridge-tests`)
 
 The `tests` crate is both the harness (its library) and the integration

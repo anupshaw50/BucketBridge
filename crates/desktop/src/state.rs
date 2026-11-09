@@ -85,6 +85,8 @@ pub struct Core {
     pub(crate) url_opener: UrlOpener,
     /// Edit-in-place sessions (`start_edit`).
     pub(crate) edits: EditManager,
+    /// Quit, link and window-state bookkeeping of the host.
+    pub(crate) lifecycle: crate::quit::Lifecycle,
     runs: Mutex<Runs>,
     runs_changed: Condvar,
     _instance: Option<InstanceLock>,
@@ -138,6 +140,7 @@ impl Core {
             mounts: Default::default(),
             open_with: parts.open_with,
             url_opener: parts.url_opener,
+            lifecycle: crate::quit::Lifecycle::new(&settings),
             runs: Mutex::new(Runs::default()),
             runs_changed: Condvar::new(),
             _instance: instance,
@@ -178,6 +181,7 @@ impl Core {
             instance,
         )?;
         tracing::info!(target: "bucketbridge::app", "BucketBridge {VERSION} started");
+        spawn_log_cleanup(&core);
         Ok(core)
     }
 
@@ -219,6 +223,7 @@ impl Core {
     /// transfers.
     pub(crate) fn apply_settings(&self, settings: &Settings) {
         self.log.apply_settings(&settings.logging);
+        self.lifecycle.apply_settings(settings);
         self.runner
             .set_data_integrity(settings.data_integrity.clone());
         if let Err(error) = self.queue.update_settings(settings.transfer.clone()) {
@@ -234,6 +239,16 @@ impl Core {
         if self.limiter.rate() != rate {
             self.limiter.set_rate(rate);
         }
+    }
+
+    /// The transfers and sync runs that are active now; `since` as in
+    /// [`crate::activity::summarize`].
+    pub(crate) fn activity(
+        &self,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> crate::activity::Activity {
+        let runs = lock(&self.runs).plans.len();
+        crate::activity::summarize(&self.queue.list(), runs, since)
     }
 
     /// Records a sync run that is about to be spawned; returns its token.
@@ -430,4 +445,28 @@ impl InstanceLock {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// How often old log files are removed (also once at start-up).
+const LOG_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Removes old log files now and then every day, with the settings as they
+/// are at that time. The thread holds the app core only weakly and ends with it.
+fn spawn_log_cleanup(core: &Arc<Core>) {
+    let core = Arc::downgrade(core);
+    let spawned = std::thread::Builder::new()
+        .name("bb-log-cleanup".to_owned())
+        .spawn(move || {
+            loop {
+                let Some(core) = core.upgrade() else { return };
+                if let Ok(config) = core.session.accounts().load() {
+                    core.log.cleanup_old_files(&config.settings.logging);
+                }
+                drop(core);
+                std::thread::sleep(LOG_CLEANUP_INTERVAL);
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(target: "bucketbridge::app", "cannot start the log cleanup: {error}");
+    }
 }

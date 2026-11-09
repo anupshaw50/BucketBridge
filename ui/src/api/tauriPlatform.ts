@@ -1,6 +1,7 @@
 import { writeSecret, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { toBbError } from "./errors";
 import type { Platform } from "./platform";
 
@@ -47,6 +48,41 @@ export function createTauriPlatform(): Platform {
     // Sensitive values (presigned links, passwords) are only ever written with
     // writeSecret; a failure is reported instead of falling back to writeText,
     // which would put them into clipboard history.
+    onFileDrop: (handler) => {
+      let disposed = false;
+      let unlisten: (() => void) | null = null;
+      const scale = () => window.devicePixelRatio || 1;
+      getCurrentWebview()
+        .onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === "leave") {
+            handler({ phase: "leave", x: 0, y: 0, paths: [] });
+            return;
+          }
+          const x = payload.position.x / scale();
+          const y = payload.position.y / scale();
+          handler(
+            payload.type === "drop"
+              ? { phase: "drop", x, y, paths: payload.paths }
+              : { phase: "over", x, y, paths: [] },
+          );
+        })
+        .then(
+          (fn) => {
+            if (disposed) {
+              fn();
+            } else {
+              unlisten = fn;
+            }
+          },
+          () => undefined,
+        );
+      return () => {
+        disposed = true;
+        unlisten?.();
+        unlisten = null;
+      };
+    },
     copyText: (text, options) => guarded(() => (options?.sensitive ? writeSecret(text) : writeText(text))),
   };
 }

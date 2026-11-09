@@ -45,7 +45,7 @@ const VERSION_KEYS: [&str; 8] = [
 ];
 
 /// The fields of an `ObjectPreview`, sorted.
-const PREVIEW_KEYS: [&str; 16] = [
+const PREVIEW_KEYS: [&str; 17] = [
     "content_type",
     "etag",
     "formatted",
@@ -60,6 +60,7 @@ const PREVIEW_KEYS: [&str; 16] = [
     "page_count",
     "page_size",
     "size",
+    "table",
     "text",
     "version_id",
 ];

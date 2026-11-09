@@ -15,24 +15,17 @@ instance and container roles, cross-account copy and move, saved sync jobs,
 sync improvements, the overwrite policy, kept modification times and edit in
 place. See the [changelog](CHANGELOG.md#020---2026-11-03).
 
-## Priority 2: everyday use
+## Done on main (next release)
 
-| # | Item | Size |
-|---|---|---|
-| 11 | Drag files and folders between panes and buckets to copy or move them. | M |
-| 12 | Filter the bucket list by name, creation date and region; custom page size for large bucket lists. | S |
-| 13 | Natural sorting (`file2` before `file10`); remember sort order and column widths. | S |
-| 14 | Editable address bar that accepts a pasted `s3://` path. | S |
-| 15 | A "Copy as" menu: name, key, `s3://` URI, virtual-hosted URL, path-style URL. | S |
-| 16 | `bb://` links that open the app at a bucket and folder. | M |
-| 17 | Account folders, reordering, and import and export of accounts (without secrets). | M |
-| 18 | System tray, taskbar and Dock progress, and keeping the computer awake during transfers. | M |
-| 19 | On quit: finish running tasks first, or ask when tasks are active. | S |
-| 20 | Remember window size and position. | S |
-| 21 | Preview: zoom and pan for images, table view for CSV and Parquet with paging, XML formatting, GIF. | M |
-| 22 | Properties: total bucket size, version sizes, size of unfinished multipart uploads. | M |
-| 23 | Versions: flat view, sortable columns, select the newest delete markers, select all non-current versions. | S |
-| 24 | Event log: remove old log files automatically. | S |
+Priority 2 (everyday use) is built and will ship in the next release: drag
+and drop to copy, move and upload, a filtered and paged bucket list, natural
+sorting with remembered sort order and column widths, an editable `s3://`
+address bar, a "Copy as" menu, `bb://` links, account folders and secret-free
+account export and import, a system tray with taskbar and Dock progress,
+keeping the computer awake during transfers, a quit prompt while tasks run,
+remembered window size and position, richer previews (image zoom, CSV and
+Parquet tables, XML, GIF), bucket usage (`bb du`), a better versions dialog
+and automatic log cleanup. See the [changelog](CHANGELOG.md#unreleased).
 
 ## Priority 3: buckets and storage
 

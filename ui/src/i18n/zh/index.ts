@@ -12,6 +12,7 @@ import { zhCrash } from "./crash";
 import { zhCse } from "./cse";
 import { zhDialogHost } from "./dialogHost";
 import { zhEdit } from "./edit";
+import { zhEveryday } from "./everyday";
 import { zhFileopen } from "./fileopen";
 import { zhIam } from "./iam";
 import { zhLib } from "./lib";
@@ -46,6 +47,7 @@ const PARTS: readonly Record<string, string>[] = [
   zhCse,
   zhDialogHost,
   zhEdit,
+  zhEveryday,
   zhFileopen,
   zhIam,
   zhLib,

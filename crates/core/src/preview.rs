@@ -32,6 +32,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::ops::S3;
+use crate::preview_format::{
+    PreviewTable, TABLE_ROWS_PER_PAGE, TableFormat, csv_table, is_parquet, parquet_table,
+    pretty_xml, starts_like_xml, table_page_count, xml_hint,
+};
 use crate::s3uri::{validate_bucket_name, validate_key};
 
 /// Bytes per page of text when the caller does not choose (128 KiB).
@@ -72,8 +76,10 @@ pub enum PreviewKind {
     Image,
     /// Data that is neither an image nor UTF-8 text.
     Binary,
-    /// An image above the image budget.
+    /// An image above the image budget, or a Parquet file above it.
     TooLarge,
+    /// A CSV, TSV or Parquet file shown as a table, 200 rows per page.
+    Table,
     /// A zero-byte object.
     Empty,
 }
@@ -161,6 +167,9 @@ pub struct ObjectPreview {
     pub formatted: bool,
     /// The whole image, base64 (images).
     pub image_base64: Option<String>,
+    /// One page of rows (tables).
+    #[serde(default)]
+    pub table: Option<PreviewTable>,
 }
 
 impl ObjectPreview {
@@ -182,6 +191,7 @@ impl ObjectPreview {
             text: None,
             formatted: false,
             image_base64: None,
+            table: None,
         }
     }
 }
@@ -228,6 +238,13 @@ impl S3 {
             return Err(Error::Usage("the version ID is empty".into()));
         }
         options.validate()?;
+        if let Some(format) = TableFormat::from_key(key)
+            && let Some(preview) = self
+                .table_preview(bucket, key, version_id, page, options, format)
+                .await?
+        {
+            return Ok(preview);
+        }
         let (first, last) = page_range(page, options.page_bytes).ok_or_else(|| {
             Error::Usage(format!("page {page} is beyond what an object can hold"))
         })?;
@@ -254,6 +271,82 @@ impl S3 {
         } else {
             later_page(key, page, options, fetched)
         }
+    }
+
+    /// The table preview of a CSV, TSV or Parquet object: one ranged read of
+    /// at most the image budget from the start. `None` when the content is
+    /// not what the key says (or the object is empty), so that the ordinary
+    /// preview takes over.
+    async fn table_preview(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: Option<&str>,
+        page: u64,
+        options: &PreviewOptions,
+        format: TableFormat,
+    ) -> Result<Option<ObjectPreview>> {
+        let fetched = match self
+            .ranged_get(
+                bucket,
+                key,
+                version_id,
+                0,
+                options.max_image_bytes - 1,
+                None,
+            )
+            .await
+        {
+            Ok(fetched) => fetched,
+            Err(err) if is_unsatisfiable(&err) => return Ok(None),
+            Err(err) => return Err(err),
+        };
+        let total = fetched.total;
+        let whole = u64::try_from(fetched.bytes.len()).is_ok_and(|len| len >= total);
+        let mut preview = ObjectPreview::new(key, PreviewKind::Table, total, options);
+        preview.page_size = TABLE_ROWS_PER_PAGE;
+        preview.media_type = Some(format.media_type().to_owned());
+        preview.version_id = fetched
+            .version_id
+            .clone()
+            .or_else(|| version_id.map(str::to_owned));
+        preview.content_type = fetched.content_type.clone();
+        preview.last_modified = fetched.last_modified;
+        preview.etag = fetched.etag.clone();
+        let table = if format == TableFormat::Parquet {
+            if !is_parquet(&fetched.bytes) && whole {
+                return Ok(None);
+            }
+            if !whole {
+                // The footer is at the end: the file has to be read whole.
+                preview.kind = PreviewKind::TooLarge;
+                return Ok(Some(preview));
+            }
+            match parquet_table(fetched.bytes, page) {
+                Ok(table) => table,
+                // An unreadable file (a codec that is not built in) is data.
+                Err(_) if page == 0 => return Ok(None),
+                Err(err) => return Err(err),
+            }
+        } else {
+            let sample = &fetched.bytes[..fetched.bytes.len().min(SNIFF_BYTES)];
+            if sniff_image(sample).is_some() || !looks_like_text(sample, whole) {
+                return Ok(None);
+            }
+            csv_table(&fetched.bytes, whole, format == TableFormat::Tsv, page)
+        };
+        let pages = table_page_count(table.total_rows);
+        if page >= pages && page > 0 {
+            return Err(Error::Usage(format!(
+                "page {page} is past the end of s3://{bucket}/{key}"
+            )));
+        }
+        preview.page = page;
+        preview.page_count = pages;
+        preview.offset = page * TABLE_ROWS_PER_PAGE;
+        preview.length = table.rows.len() as u64;
+        preview.table = Some(table);
+        Ok(Some(preview))
     }
 
     /// The preview of an object whose first page could not be read because it
@@ -336,7 +429,19 @@ impl S3 {
                     }
                     .to_owned(),
                 );
-                if json && whole {
+                let xml = !json
+                    && whole
+                    && xml_hint(fetched.content_type.as_deref(), key)
+                    && starts_like_xml(text);
+                if xml {
+                    if let Some(pretty) = pretty_xml(text) {
+                        preview.media_type = Some("application/xml".to_owned());
+                        preview.text = Some(pretty);
+                        preview.formatted = true;
+                    } else {
+                        preview.text = Some(text.to_owned());
+                    }
+                } else if json && whole {
                     match pretty_json(text) {
                         Some(pretty) => {
                             preview.text = Some(pretty);
@@ -1155,6 +1260,7 @@ mod tests {
             text: None,
             formatted: false,
             image_base64: None,
+            table: None,
         };
         let value = serde_json::to_value(&preview).unwrap();
         assert_eq!(
@@ -1175,7 +1281,8 @@ mod tests {
                 "length": 0,
                 "text": null,
                 "formatted": false,
-                "image_base64": null
+                "image_base64": null,
+                "table": null
             })
         );
         assert_eq!(
@@ -1189,6 +1296,7 @@ mod tests {
             (PreviewKind::Binary, "binary"),
             (PreviewKind::TooLarge, "too_large"),
             (PreviewKind::Empty, "empty"),
+            (PreviewKind::Table, "table"),
         ] {
             assert_eq!(serde_json::to_value(kind).unwrap(), serde_json::json!(text));
         }
