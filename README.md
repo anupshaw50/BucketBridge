@@ -53,9 +53,10 @@ There is no account, activation or licence key, and no telemetry: the app
 never contacts a server on its own. Secrets stay in the operating system's
 credential store.
 
-> **中文版说明：** 本仓库的图形界面与 `bb` 命令行已汉化，简体中文为默认语言。
-> 界面可在「设置 → 界面 → 语言」切回 English；命令行用 `BB_LANG=en bb --help` 切回英文。
-> 汉化规范与术语表见 [docs/i18n.md](docs/i18n.md)。
+> **Chinese interface:** the desktop app and `bb` also speak Simplified Chinese.
+> The app follows the system language; use Settings → Interface → Language to
+> switch, and run `BB_LANG=zh bb --help` for Chinese help. The translation rules
+> and the glossary are in [docs/i18n.md](docs/i18n.md).
 
 <p align="center">
   <picture>

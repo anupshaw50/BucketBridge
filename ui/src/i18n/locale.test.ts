@@ -1,10 +1,32 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { en } from "./en";
 import { hasTranslation, setLocale, tr } from "./index";
+import { localeFromLanguage, resolveLocale } from "./locale";
 import { zhMenu } from "./zh/menu";
 
 afterEach(() => {
   setLocale("zh-CN");
+});
+
+describe("the language of the system", () => {
+  it("asks for Chinese for a zh tag and English for everything else", () => {
+    expect(localeFromLanguage("zh")).toBe("zh-CN");
+    expect(localeFromLanguage("zh-CN")).toBe("zh-CN");
+    expect(localeFromLanguage("zh-Hans-CN")).toBe("zh-CN");
+    expect(localeFromLanguage("ZH_tw")).toBe("zh-CN");
+    expect(localeFromLanguage("en-US")).toBe("en");
+    expect(localeFromLanguage("de-DE")).toBe("en");
+    expect(localeFromLanguage("C")).toBe("en");
+    expect(localeFromLanguage("")).toBe("en");
+  });
+
+  it("lets a stored choice win over the system language", () => {
+    expect(resolveLocale("en", "zh-CN")).toBe("en");
+    expect(resolveLocale("zh-CN", "en-US")).toBe("zh-CN");
+    expect(resolveLocale(null, "zh-CN")).toBe("zh-CN");
+    expect(resolveLocale(null, "fr-FR")).toBe("en");
+    expect(resolveLocale("not-a-locale", "zh-CN")).toBe("zh-CN");
+  });
 });
 
 describe("tr", () => {

@@ -1,4 +1,4 @@
-/** Languages the interface can be shown in. This build ships Chinese first. */
+/** Languages the interface can be shown in. */
 export type Locale = "zh-CN" | "en";
 
 const STORAGE_KEY = "bucketbridge.language";
@@ -7,14 +7,29 @@ const listeners = new Set<() => void>();
 
 let current: Locale = read();
 
+/**
+ * The language a browser language tag asks for: Chinese for `zh…`, English for
+ * everything else, which is also the default when no tag is available.
+ */
+export function localeFromLanguage(language: string): Locale {
+  return language.trim().toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+}
+
+/** A language stored by the switch wins; otherwise the system language decides. */
+export function resolveLocale(stored: string | null, language: string): Locale {
+  if (stored === "zh-CN" || stored === "en") return stored;
+  return localeFromLanguage(language);
+}
+
 function read(): Locale {
+  let stored: string | null = null;
   try {
-    const stored = globalThis.localStorage.getItem(STORAGE_KEY);
-    if (stored === "zh-CN" || stored === "en") return stored;
+    stored = globalThis.localStorage.getItem(STORAGE_KEY);
   } catch {
-    // Storage can be unavailable (private mode); the default stands.
+    // Storage can be unavailable (private mode); the system language stands.
   }
-  return "zh-CN";
+  const language = typeof navigator === "undefined" ? "" : navigator.language;
+  return resolveLocale(stored, language);
 }
 
 /** The language the interface is currently shown in. */
