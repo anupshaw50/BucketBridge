@@ -1,6 +1,20 @@
 <!doctype html>
 <html lang="en">
 <head>
+<!-- Consent Mode v2: analytics stays off until the visitor accepts -->
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', {
+  ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+  analytics_storage: 'denied', wait_for_update: 500
+});
+try {
+  if (localStorage.getItem('bb-consent') === 'granted') {
+    gtag('consent', 'update', { analytics_storage: 'granted' });
+  }
+} catch (e) {}
+</script>
 <!-- Google Tag Manager (website only; the BucketBridge app sends no telemetry) -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -366,9 +380,37 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 <footer><div class="wrap">
   <p>Built by <a href="https://github.com/anupshaw50">Anup Shaw (anupshaw50)</a> · <a href="https://www.linkedin.com/in/anup-kumar-shaw/">LinkedIn</a> · <a href="https://buymeacoffee.com/anupshaw50b">Buy me a coffee</a></p>
   <p><a href="https://github.com/anupshaw50/BucketBridge">Source on GitHub</a> · <a href="https://github.com/anupshaw50/BucketBridge/blob/main/LICENSE">GPL-3.0 licence</a> · <a href="https://github.com/anupshaw50/BucketBridge/blob/main/CHANGELOG.md">Changelog</a></p>
-  <p>Copyright (C) 2026 Anup Shaw (anupshaw50)</p>
+  <p>Copyright (C) 2026 Anup Shaw (anupshaw50) · <button type="button" class="linkbtn" id="cookie-settings">Cookie settings</button></p>
 </div></footer>
 
+<div class="consent" id="consent" role="dialog" aria-modal="false" aria-labelledby="consent-title" aria-describedby="consent-text" hidden>
+  <p id="consent-title" class="consent-title">Cookies on this website</p>
+  <p id="consent-text">This website uses Google Analytics to count visits, only if you accept. The BucketBridge app itself sends no telemetry.</p>
+  <div class="row">
+    <button type="button" class="btn sm" id="consent-accept">Accept</button>
+    <button type="button" class="btn sm ghost" id="consent-decline">Decline</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var box = document.getElementById("consent");
+  function stored() { try { return localStorage.getItem("bb-consent"); } catch (e) { return null; } }
+  function save(v) { try { localStorage.setItem("bb-consent", v); } catch (e) {} }
+  function decide(v) {
+    save(v);
+    gtag("consent", "update", { analytics_storage: v === "granted" ? "granted" : "denied" });
+    box.hidden = true;
+  }
+  if (!stored()) box.hidden = false;
+  document.getElementById("consent-accept").addEventListener("click", function () { decide("granted"); });
+  document.getElementById("consent-decline").addEventListener("click", function () { decide("denied"); });
+  document.getElementById("cookie-settings").addEventListener("click", function () {
+    box.hidden = false;
+    document.getElementById("consent-accept").focus();
+  });
+})();
+</script>
 <script>
 (function () {
   var ua = navigator.userAgent, os = null;

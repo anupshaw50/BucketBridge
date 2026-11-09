@@ -135,6 +135,14 @@ details p{margin:0;padding:0 20px 18px;color:var(--mut)}
 footer{padding:40px 0;border-top:1px solid var(--line);color:var(--mut);font-size:.92rem;text-align:center}
 footer p{margin:6px 0}
 
+/* consent */
+.consent{position:fixed;left:16px;right:16px;bottom:16px;z-index:60;max-width:440px;margin-left:auto;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.consent[hidden]{display:none}
+.consent p{margin:0 0 8px;color:var(--mut);font-size:.93rem}
+.consent .consent-title{color:var(--fg);font-weight:700;font-size:1rem}
+.consent .row{margin-top:12px}
+.linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--acc);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *{transition:none!important}
