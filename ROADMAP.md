@@ -15,9 +15,9 @@ instance and container roles, cross-account copy and move, saved sync jobs,
 sync improvements, the overwrite policy, kept modification times and edit in
 place. See the [changelog](CHANGELOG.md#020---2026-11-03).
 
-## Done on main (next release)
+## Done in 0.3.0
 
-Priority 2 (everyday use) is built and will ship in the next release: drag
+Priority 2 (everyday use) shipped in version 0.3.0: drag
 and drop to copy, move and upload, a filtered and paged bucket list, natural
 sorting with remembered sort order and column widths, an editable `s3://`
 address bar, a "Copy as" menu, `bb://` links, account folders and secret-free
@@ -25,7 +25,7 @@ account export and import, a system tray with taskbar and Dock progress,
 keeping the computer awake during transfers, a quit prompt while tasks run,
 remembered window size and position, richer previews (image zoom, CSV and
 Parquet tables, XML, GIF), bucket usage (`bb du`), a better versions dialog
-and automatic log cleanup. See the [changelog](CHANGELOG.md#unreleased).
+and automatic log cleanup. See the [changelog](CHANGELOG.md#030---2026-11-09).
 
 ## Priority 3: buckets and storage
 

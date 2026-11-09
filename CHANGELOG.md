@@ -7,6 +7,8 @@ version are on the [Releases page](https://github.com/anupshaw50/BucketBridge/re
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-09
+
 ### Added
 
 - **Simplified Chinese** for the desktop app and `bb`, chosen from the system
@@ -140,6 +142,7 @@ First public release.
   platform, `SHA256SUMS` and third-party licence notices.
 - Licensed under GPL-3.0-only.
 
-[Unreleased]: https://github.com/anupshaw50/BucketBridge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/anupshaw50/BucketBridge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/anupshaw50/BucketBridge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/anupshaw50/BucketBridge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/anupshaw50/BucketBridge/releases/tag/v0.1.0

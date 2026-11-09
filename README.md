@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2563EB">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-4F46E5">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-0B2545">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-0B2545">
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1E3A8A">
   <img alt="S3 compatible" src="https://img.shields.io/badge/S3-AWS%20%2B%20compatible-38BDF8">
 </p>
@@ -30,8 +30,8 @@
 </p>
 
 <p align="center">
-  <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-1700%2B-16A34A">
-  <img alt="UI tests" src="https://img.shields.io/badge/ui%20tests-480%2B-16A34A">
+  <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-1800%2B-16A34A">
+  <img alt="UI tests" src="https://img.shields.io/badge/ui%20tests-580%2B-16A34A">
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-16A34A">
   <img alt="unsafe forbidden" src="https://img.shields.io/badge/unsafe-forbidden-16A34A">
   <img alt="cargo-deny" src="https://img.shields.io/badge/cargo--deny-passing-16A34A">
@@ -152,6 +152,7 @@ Check a download against `SHA256SUMS` from the release:
 | Master password | Optional; encrypts every stored secret. Unlock once per session, and change or remove it later. |
 | MFA | Temporary credentials (STS session tokens) from an MFA device code, kept in memory only. |
 | Proxies | HTTP and SOCKS5, with authentication and a bypass list (host names, `*.suffix`, IPs, CIDR ranges). |
+| Account folders | Group and reorder accounts, and **export or import accounts without secrets** (`bb account export`, `bb account import`). |
 
 </details>
 
@@ -160,11 +161,13 @@ Check a download against `SHA256SUMS` from the release:
 
 | Feature | Details |
 |---|---|
-| Browsing | Bucket tree, folders, flat browsing, search, paging, bookmarks, several windows. |
+| Browsing | Bucket tree with a filter (name, region, creation date), folders, flat browsing, search, paging, bookmarks, several windows. An **editable address bar** takes a pasted `s3://` path, and **`bb://` links** open the app at a bucket and folder. **Natural sorting** (`file2` before `file10`), with the sort order and column widths remembered. |
+| Drag and drop | Drag objects to copy them between folders, buckets, accounts and windows (hold Command on macOS or Shift elsewhere to move), and drop files from the file manager to upload. |
+| Copy as | Name, key, `s3://` URI, virtual-hosted URL or path-style URL, one line per selected item. |
 | Object operations | Upload and download files and folders. Copy, move, rename, delete, create folders, open, and open with another app. Copy or move files and whole folders to a chosen folder, also **across accounts**, and paste into a bucket. **Edit in place**: each save is uploaded, with a check that nobody else changed the object. |
 | Metadata | HTTP headers, user metadata, tags, storage class, server-side encryption (SSE-S3, SSE-KMS, SSE-C), canned ACLs and website redirect. Batch editing, with a result per object. |
-| Versions | Version list with filters and delete markers. Restore or permanently delete a version, or download an old one. |
-| Preview | Images, text and JSON, with paging through large files. |
+| Versions | Version list with filters and delete markers, grouped or flat, with sortable columns and quick selection of non-current versions or the newest delete markers. Restore or permanently delete a version, or download an old one. |
+| Preview | Images with zoom and pan, animated GIF, text, JSON, formatted XML, and CSV, TSV and Parquet as paged tables. |
 | Sharing | Presigned GET and PUT links, and a sharing wizard. Optional URL shortening through Bitly or TinyURL (off by default). |
 | Object lock and archive | Retention, legal hold, bucket default, governance bypass, object ownership, MFA delete, and Glacier restore with tier and days. |
 | Client-side encryption | Optional gzip or zstd compression plus AES-256-GCM before upload, and decryption on download. |
@@ -195,9 +198,9 @@ Check a download against `SHA256SUMS` from the release:
 | CloudFront | Distributions per bucket: create, edit, enable or disable, and detach. Invalidations with wildcards, and their history. |
 | Security scan | Per bucket, flags public ACLs and policies, a missing public access block, missing encryption, versioning off and ACLs enabled. Results can be exported. |
 | Diagnostics | A step-by-step connection probe, timing each step: DNS, TCP, proxy tunnel, TLS with the certificate, a signed request, and the bucket region. |
-| Maintenance | List and abort unfinished multipart uploads, saved filters, and export of listings to CSV, Excel or Parquet. |
+| Maintenance | List and abort unfinished multipart uploads, saved filters, and export of listings to CSV, Excel or Parquet. **Bucket usage**: total size and count, non-current versions, delete markers and unfinished uploads (`bb du`). |
 | Mount as drive | Optional build: a read-only view of a bucket through FUSE (Linux, macOS) or Dokan (Windows). |
-| App shell | Settings, context menus, keyboard shortcuts, event log with filter and export, local crash reports, single instance, light and dark theme. |
+| App shell | Settings, context menus, keyboard shortcuts, event log with filter, export and automatic cleanup, local crash reports, single instance, light and dark theme, English and Simplified Chinese. A **system tray** with transfer progress, taskbar and Dock progress, keeping the computer awake during transfers, a prompt when quitting with tasks running, and remembered window size and position. |
 
 </details>
 
