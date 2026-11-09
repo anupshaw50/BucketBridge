@@ -41,7 +41,7 @@ describe("about dialog", () => {
     const dialog = await screen.findByRole("dialog", { name: tr("About BucketBridge") });
     expect(
       await within(dialog).findByText(
-        tr("Version {version} · {license} license", { version: "0.3.0", license: "GPL-3.0-only" }),
+        tr("Version {version} · {license} license", { version: "0.3.1", license: "GPL-3.0-only" }),
       ),
     ).toBeInTheDocument();
     expect(

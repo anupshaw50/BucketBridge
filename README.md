@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2563EB">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-4F46E5">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-0B2545">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.1-0B2545">
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1E3A8A">
   <img alt="S3 compatible" src="https://img.shields.io/badge/S3-AWS%20%2B%20compatible-38BDF8">
 </p>

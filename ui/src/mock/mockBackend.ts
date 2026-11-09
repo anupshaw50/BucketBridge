@@ -2264,7 +2264,7 @@ export class MockBackend implements Backend {
     await this.latency();
     return {
       name: "BucketBridge",
-      version: "0.3.0",
+      version: "0.3.1",
       license: "GPL-3.0-only",
       repository_url: "https://github.com/anupshaw50/BucketBridge",
       config_dir: `${MOCK_HOME}/.config/bucketbridge`,

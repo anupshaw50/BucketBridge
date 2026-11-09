@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/core", "crates/cli", "crates/desktop", "tests"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["Anup Shaw (anupshaw50)"]
@@ -11,7 +11,7 @@ repository = "https://github.com/anupshaw50/BucketBridge"
 
 [workspace.dependencies]
 # Workspace crates.
-bucketbridge-core = { path = "crates/core", version = "0.3.0" }
+bucketbridge-core = { path = "crates/core", version = "0.3.1" }
 bucketbridge-tests = { path = "tests" }
 
 # AWS SDK. Every aws-sdk-* crate must turn default features off and enable
