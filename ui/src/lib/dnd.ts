@@ -69,6 +69,22 @@ export function moveModifier(userAgent: string = navigator.userAgent): "meta" | 
   return userAgent.includes("Mac") ? "meta" : "shift";
 }
 
+/**
+ * The CSS-pixel position of a file drop reported by the host. Tauri labels the
+ * position "physical", but only WebView2 on Windows reports device pixels; on
+ * macOS (WKWebView) and Linux (WebKitGTK) it is already in logical points, so
+ * dividing there would put the drop at half the distance from the top left
+ * corner, on a different target.
+ */
+export function dropPositionToCss(
+  position: { x: number; y: number },
+  scale: number,
+  userAgent: string = navigator.userAgent,
+): { x: number; y: number } {
+  const factor = userAgent.includes("Windows") && scale > 0 ? scale : 1;
+  return { x: position.x / factor, y: position.y / factor };
+}
+
 export function isMoveDrag(event: { metaKey: boolean; shiftKey: boolean }, userAgent?: string): boolean {
   return moveModifier(userAgent) === "meta" ? event.metaKey : event.shiftKey;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tr } from "../i18n";
-import { isMoveDrag, moveModifier, planDrop } from "./dnd";
+import { dropPositionToCss, isMoveDrag, moveModifier, planDrop } from "./dnd";
 
 const source = { accountId: "a", bucket: "b", keys: ["x/one.txt", "x/two.txt"] };
 
@@ -52,5 +52,22 @@ describe("move modifier", () => {
     expect(isMoveDrag({ metaKey: true, shiftKey: false }, "Macintosh")).toBe(true);
     expect(isMoveDrag({ metaKey: false, shiftKey: true }, "Macintosh")).toBe(false);
     expect(isMoveDrag({ metaKey: false, shiftKey: true }, "Linux")).toBe(true);
+  });
+});
+
+describe("dropPositionToCss", () => {
+  const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15";
+  const windows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/120.0";
+  const linux = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15";
+
+  it("keeps the logical points of macOS and Linux on a high-density screen", () => {
+    expect(dropPositionToCss({ x: 800, y: 300 }, 2, mac)).toEqual({ x: 800, y: 300 });
+    expect(dropPositionToCss({ x: 800, y: 300 }, 2, linux)).toEqual({ x: 800, y: 300 });
+  });
+
+  it("turns the device pixels of Windows into CSS pixels", () => {
+    expect(dropPositionToCss({ x: 1600, y: 600 }, 2, windows)).toEqual({ x: 800, y: 300 });
+    expect(dropPositionToCss({ x: 900, y: 300 }, 1.5, windows)).toEqual({ x: 600, y: 200 });
+    expect(dropPositionToCss({ x: 800, y: 300 }, 0, windows)).toEqual({ x: 800, y: 300 });
   });
 });

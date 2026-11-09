@@ -2,6 +2,7 @@ import { writeSecret, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { dropPositionToCss } from "../lib/dnd";
 import { toBbError } from "./errors";
 import type { Platform } from "./platform";
 
@@ -51,7 +52,6 @@ export function createTauriPlatform(): Platform {
     onFileDrop: (handler) => {
       let disposed = false;
       let unlisten: (() => void) | null = null;
-      const scale = () => window.devicePixelRatio || 1;
       getCurrentWebview()
         .onDragDropEvent((event) => {
           const payload = event.payload;
@@ -59,8 +59,7 @@ export function createTauriPlatform(): Platform {
             handler({ phase: "leave", x: 0, y: 0, paths: [] });
             return;
           }
-          const x = payload.position.x / scale();
-          const y = payload.position.y / scale();
+          const { x, y } = dropPositionToCss(payload.position, window.devicePixelRatio || 1);
           handler(
             payload.type === "drop"
               ? { phase: "drop", x, y, paths: payload.paths }
