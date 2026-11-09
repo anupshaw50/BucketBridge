@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Backend } from "../api/backend";
 import { BackendError } from "../api/errors";
 import type { FilterSpec, SavedFilter } from "../api/types";
+import { tr } from "../i18n";
 import { emptyFilterSpec } from "../lib/filters";
 import { MockBackend } from "../mock/mockBackend";
 import { BrowserController } from "./browser";
@@ -74,7 +75,10 @@ describe("FilterController", () => {
     await filters.reload();
     expect(filters.apply("text")).toBe(true);
     expect(browser.state.filter).toMatchObject({ name: "Text", spec: spec({ glob: "*.txt" }) });
-    expect(status.store.getState().message).toMatchObject({ level: "info", text: 'Showing only the items that match "Text".' });
+    expect(status.store.getState().message).toMatchObject({
+      level: "info",
+      text: tr("Showing only the items that match \"{name}\".", { name: "Text" }),
+    });
     filters.clearActive();
     expect(browser.state.filter).toBeNull();
   });
@@ -82,7 +86,10 @@ describe("FilterController", () => {
   it("refuses to apply a filter that does not exist or does not compile", () => {
     const { filters, browser, status } = setup();
     expect(filters.apply("nothing")).toBe(false);
-    expect(status.store.getState().message).toMatchObject({ level: "error", text: 'There is no saved filter named "nothing".' });
+    expect(status.store.getState().message).toMatchObject({
+      level: "error",
+      text: tr("There is no saved filter named \"{name}\".", { name: "nothing" }),
+    });
     expect(browser.setFilter(saved("Broken", { glob: "[a" }))).toBe(false);
     expect(browser.state.filter).toBeNull();
     expect(status.store.getState().message?.text).toContain("unclosed character class");

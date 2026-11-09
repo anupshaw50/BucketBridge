@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { EditSession } from "../../api/types";
+import { tr } from "../../i18n";
 import { copyKey, editStateLabel } from "../../lib/edit";
 import type { MockBackend } from "../../mock/mockBackend";
 import { findObjectRow, openBucket, renderApp } from "../../test/renderApp";
@@ -12,7 +13,7 @@ const KEY = "readme.md";
 async function startEditing(user: Awaited<ReturnType<typeof renderApp>>["user"], mock: MockBackend): Promise<EditSession> {
   await openBucket(user, BUCKET);
   fireEvent.contextMenu(await findObjectRow(KEY));
-  await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
+  await user.click(await screen.findByRole("menuitem", { name: tr("Edit") }));
   await waitFor(async () => expect(await mock.list_edits()).toHaveLength(1));
   const [session] = await mock.list_edits();
   if (session === undefined) {
@@ -27,7 +28,7 @@ describe("edit helpers", () => {
     expect(copyKey("report.txt", 3)).toBe("report (edited 3).txt");
     expect(copyKey("Makefile")).toBe("Makefile (edited)");
     expect(copyKey(".env")).toBe(".env (edited)");
-    expect(editStateLabel("conflict")).toBe("Conflict");
+    expect(editStateLabel("conflict")).toBe(tr("Conflict"));
   });
 });
 
@@ -37,22 +38,22 @@ describe("Edit menu entry", () => {
     await openBucket(user, BUCKET);
 
     fireEvent.contextMenu(await findObjectRow(KEY));
-    expect(await screen.findByRole("menuitem", { name: "Edit" })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: tr("Edit") })).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
     // Several selected objects: no Edit entry.
     await user.click(await findObjectRow(KEY));
     await user.keyboard("{Control>}a{/Control}");
     fireEvent.contextMenu(await findObjectRow(KEY));
-    await screen.findByRole("menu", { name: "Selection menu" });
-    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    await screen.findByRole("menu", { name: tr("Selection menu") });
+    expect(screen.queryByRole("menuitem", { name: tr("Edit") })).toBeNull();
     await user.keyboard("{Escape}");
 
     await user.click(await findObjectRow(KEY));
     fireEvent.contextMenu(await findObjectRow(KEY));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Edit") }));
     const indicator = await screen.findByRole("button", { name: "Editing 1 object" });
-    expect(indicator).toHaveTextContent("Editing 1");
+    expect(indicator).toHaveTextContent(tr("Editing {n}", { n: 1 }));
     const [session] = await mock.list_edits();
     expect(session?.key).toBe(KEY);
     expect(session?.state).toBe("watching");
@@ -65,16 +66,16 @@ describe("Editing panel", () => {
     const session = await startEditing(user, mock);
 
     await user.click(await screen.findByRole("button", { name: "Editing 1 object" }));
-    const dialog = await screen.findByRole("dialog", { name: "Editing" });
-    const table = within(dialog).getByRole("table", { name: "Objects being edited" });
+    const dialog = await screen.findByRole("dialog", { name: tr("Editing") });
+    const table = within(dialog).getByRole("table", { name: tr("Objects being edited") });
     expect(within(table).getByText(KEY)).toBeInTheDocument();
-    expect(within(table).getByText("Waiting for a save")).toBeInTheDocument();
+    expect(within(table).getByText(tr("Waiting for a save"))).toBeInTheDocument();
 
     act(() => mock.saveEdit(session.id));
-    expect(await within(table).findByText("Uploaded")).toBeInTheDocument();
+    expect(await within(table).findByText(tr("Uploaded"))).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: `Stop editing ${KEY}` }));
-    expect(await within(dialog).findByText("No objects are being edited.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: tr("Stop editing {key}", { key: KEY }) }));
+    expect(await within(dialog).findByText(tr("No objects are being edited."))).toBeInTheDocument();
     expect(await mock.list_edits()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /^Editing \d/ })).toBeNull();
   });
@@ -85,18 +86,18 @@ describe("Editing panel", () => {
     mock.changeObject(session.account_id, BUCKET, KEY);
     act(() => mock.saveEdit(session.id));
     // The conflict dialog opens by itself; close it and use the panel.
-    const conflict = await screen.findByRole("dialog", { name: "Edit conflict" });
-    await user.click(within(conflict).getByRole("button", { name: "Decide later" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit conflict" })).toBeNull());
+    const conflict = await screen.findByRole("dialog", { name: tr("Edit conflict") });
+    await user.click(within(conflict).getByRole("button", { name: tr("Decide later") }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: tr("Edit conflict") })).toBeNull());
 
     await user.click(await screen.findByRole("button", { name: /^Editing 1 object/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Editing" });
-    expect(within(dialog).getByText("Conflict")).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: `Stop editing ${KEY}` }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Editing") });
+    expect(within(dialog).getByText(tr("Conflict"))).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: tr("Stop editing {key}", { key: KEY }) }));
     expect(await mock.list_edits()).toHaveLength(1);
     // Resolve… reopens the conflict dialog.
-    await user.click(within(dialog).getByRole("button", { name: "Resolve…" }));
-    expect(await screen.findByRole("dialog", { name: "Edit conflict" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: tr("Resolve…") }));
+    expect(await screen.findByRole("dialog", { name: tr("Edit conflict") })).toBeInTheDocument();
   });
 });
 
@@ -110,19 +111,19 @@ describe("Edit conflict dialog", () => {
     mock.changeObject(session.account_id, BUCKET, KEY);
     act(() => mock.saveEdit(session.id));
 
-    const dialog = await screen.findByRole("dialog", { name: "Edit conflict" });
-    expect(within(dialog).getByText(/was changed on the server after you opened it/)).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: tr("Edit conflict") });
+    expect(within(dialog).getByText(new RegExp(tr("{name} was changed on the server after you opened it.", { name: "s3://demo-photos/readme.md" }).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
     expect(within(dialog).getByText(/readme \(edited\)\.md/)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Overwrite" }));
+    await user.click(within(dialog).getByRole("button", { name: tr("Overwrite") }));
     // The confirmation comes first; declining changes nothing.
-    let confirm = await screen.findByRole("dialog", { name: "Overwrite the object" });
-    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    let confirm = await screen.findByRole("dialog", { name: tr("Overwrite the object") });
+    await user.click(within(confirm).getByRole("button", { name: tr("Cancel") }));
     expect((await mock.list_edits())[0]?.state).toBe("conflict");
 
-    await user.click(within(dialog).getByRole("button", { name: "Overwrite" }));
-    confirm = await screen.findByRole("dialog", { name: "Overwrite the object" });
-    await user.click(within(confirm).getByRole("button", { name: "Overwrite" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit conflict" })).toBeNull());
+    await user.click(within(dialog).getByRole("button", { name: tr("Overwrite") }));
+    confirm = await screen.findByRole("dialog", { name: tr("Overwrite the object") });
+    await user.click(within(confirm).getByRole("button", { name: tr("Overwrite") }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: tr("Edit conflict") })).toBeNull());
     const [after] = await mock.list_edits();
     expect(after?.state).toBe("uploaded");
     expect(after?.uploads).toBe(1);
@@ -139,9 +140,9 @@ describe("Edit conflict dialog", () => {
     mock.changeObject(session.account_id, BUCKET, KEY);
     act(() => mock.saveEdit(session.id));
 
-    const dialog = await screen.findByRole("dialog", { name: "Edit conflict" });
-    await user.click(within(dialog).getByRole("button", { name: "Save as a copy" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit conflict" })).toBeNull());
+    const dialog = await screen.findByRole("dialog", { name: tr("Edit conflict") });
+    await user.click(within(dialog).getByRole("button", { name: tr("Save as a copy") }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: tr("Edit conflict") })).toBeNull());
     expect(await mock.list_edits()).toHaveLength(0);
     expect(mock.objectKeys(BUCKET)).toContain("readme (edited).md");
   });
@@ -152,11 +153,11 @@ describe("Edit conflict dialog", () => {
     mock.changeObject(session.account_id, BUCKET, KEY);
     act(() => mock.saveEdit(session.id));
 
-    const dialog = await screen.findByRole("dialog", { name: "Edit conflict" });
-    await user.click(within(dialog).getByRole("button", { name: "Discard my changes" }));
-    const confirm = await screen.findByRole("dialog", { name: "Discard your changes" });
-    await user.click(within(confirm).getByRole("button", { name: "Discard" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit conflict" })).toBeNull());
+    const dialog = await screen.findByRole("dialog", { name: tr("Edit conflict") });
+    await user.click(within(dialog).getByRole("button", { name: tr("Discard my changes") }));
+    const confirm = await screen.findByRole("dialog", { name: tr("Discard your changes") });
+    await user.click(within(confirm).getByRole("button", { name: tr("Discard") }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: tr("Edit conflict") })).toBeNull());
     expect(await mock.list_edits()).toHaveLength(0);
     expect(mock.objectKeys(BUCKET)).not.toContain("readme (edited).md");
   });
@@ -167,8 +168,8 @@ describe("Edit conflict dialog", () => {
     mock.deleteObject(session.account_id, BUCKET, KEY);
     act(() => mock.saveEdit(session.id));
 
-    const dialog = await screen.findByRole("dialog", { name: "Edit conflict" });
-    expect(within(dialog).getByText(/was deleted on the server/)).toBeInTheDocument();
-    expect(within(dialog).getByText("Creates the object again from your version.")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: tr("Edit conflict") });
+    expect(within(dialog).getByText(new RegExp(tr("{name} was deleted on the server after you opened it.", { name: "s3://demo-photos/readme.md" }).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))).toBeInTheDocument();
+    expect(within(dialog).getByText(tr("Creates the object again from your version."))).toBeInTheDocument();
   });
 });

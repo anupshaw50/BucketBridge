@@ -1,12 +1,13 @@
 import type { Account } from "../../api/types";
+import { tr } from "../../i18n";
 import type { AppModel } from "../../state/model";
 
 /** Removes an account and its stored secrets after the user types its label. */
 export async function removeAccount(model: AppModel, account: Account): Promise<void> {
   const confirmed = await model.dialogs.confirm({
-    title: "Remove account",
-    message: `Remove "${account.label}" and delete its stored secrets? Transfers of this account that are still queued will fail.`,
-    confirmLabel: "Remove account",
+    title: tr("Remove account"),
+    message: tr("Remove \"{label}\" and delete its stored secrets? Transfers of this account that are still queued will fail.", { label: account.label }),
+    confirmLabel: tr("Remove account"),
     danger: true,
     typedConfirmation: account.label,
   });
@@ -16,9 +17,9 @@ export async function removeAccount(model: AppModel, account: Account): Promise<
   try {
     await model.api.remove_account({ id: account.id });
     await model.session.refreshAccounts();
-    model.status.info(`Account "${account.label}" removed.`);
+    model.status.info(tr("Account \"{label}\" removed.", { label: account.label }));
   } catch (error) {
-    model.status.error(error, { notify: "The account could not be removed" });
+    model.status.error(error, { notify: tr("The account could not be removed") });
   }
 }
 
@@ -27,8 +28,8 @@ export async function makeDefault(model: AppModel, account: Account): Promise<vo
   try {
     await model.api.set_default_account({ id: account.id });
     await model.session.refreshAccounts();
-    model.status.info(`"${account.label}" is now the default account.`);
+    model.status.info(tr("\"{label}\" is now the default account.", { label: account.label }));
   } catch (error) {
-    model.status.error(error, { notify: "The default account could not be changed" });
+    model.status.error(error, { notify: tr("The default account could not be changed") });
   }
 }

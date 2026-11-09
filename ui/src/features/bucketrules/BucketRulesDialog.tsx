@@ -6,6 +6,7 @@ import { toBbError } from "../../api/errors";
 import type { BucketRules, Section, TieringConfig } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import type { BucketRulesTab } from "../../state/dialogs";
 import { SectionGate } from "../bucketcfg/common";
 import { DocEditor } from "./DocEditor";
@@ -68,16 +69,16 @@ function TieringEditor({ accountId, bucket, configs, reload }: { accountId: stri
   return (
     <Stack gap="sm">
       <Select
-        label="Configuration"
+        label={tr("Configuration")}
         allowDeselect={false}
         value={selected}
         onChange={(value) => setSelected(value ?? NEW_CONFIGURATION)}
-        data={[{ value: NEW_CONFIGURATION, label: "New configuration" }, ...configs.map((config) => ({ value: config.id, label: config.id }))]}
+        data={[{ value: NEW_CONFIGURATION, label: tr("New configuration") }, ...configs.map((config) => ({ value: config.id, label: config.id }))]}
       />
       <DocEditor
         key={`${selected}|${current === null ? "" : pretty(current)}`}
-        label="Intelligent-Tiering configuration (JSON)"
-        noun="Intelligent-Tiering configuration"
+        label={tr("Intelligent-Tiering configuration (JSON)")}
+        noun={tr("Intelligent-Tiering configuration")}
         bucket={bucket}
         initial={current === null ? null : pretty(current)}
         example={EXAMPLES.tiering}
@@ -144,7 +145,7 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
   let content;
   if (failure !== null) {
     content = (
-      <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title="The bucket rules could not be read">
+      <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title={tr("The bucket rules could not be read")}>
         <div style={{ overflowWrap: "anywhere" }}>{failure}</div>
         <Button
           mt="xs"
@@ -155,13 +156,13 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
             setAttempt((count) => count + 1);
           }}
         >
-          Try again
+          {tr("Try again")}
         </Button>
       </Alert>
     );
   } else if (rules === null) {
     content = (
-      <Stack gap={8} aria-busy="true" aria-label="Loading the bucket rules">
+      <Stack gap={8} aria-busy="true" aria-label={tr("Loading the bucket rules")}>
         {[90, 80, 70].map((width) => (
           <Skeleton key={width} height={18} width={`${width}%`} />
         ))}
@@ -173,7 +174,7 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
         <Tabs.List>
           {TABS.map(({ id, label }) => (
             <Tabs.Tab key={id} value={id}>
-              {label}
+              {tr(label)}
             </Tabs.Tab>
           ))}
         </Tabs.List>
@@ -182,8 +183,8 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
             {(config) => (
               <DocEditor
                 key={revisions.cors}
-                label="CORS rules (JSON)"
-                noun="CORS rules"
+                label={tr("CORS rules (JSON)")}
+                noun={tr("CORS rules")}
                 bucket={bucket}
                 initial={config === null ? null : pretty(config)}
                 example={EXAMPLES.cors}
@@ -200,8 +201,8 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
             {(config) => (
               <DocEditor
                 key={revisions.lifecycle}
-                label="Lifecycle rules (JSON)"
-                noun="lifecycle rules"
+                label={tr("Lifecycle rules (JSON)")}
+                noun={tr("lifecycle rules")}
                 bucket={bucket}
                 initial={config === null ? null : pretty(config)}
                 example={EXAMPLES.lifecycle}
@@ -223,8 +224,8 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
             {(config) => (
               <DocEditor
                 key={revisions.replication}
-                label="Replication (JSON)"
-                noun="replication configuration"
+                label={tr("Replication (JSON)")}
+                noun={tr("replication configuration")}
                 bucket={bucket}
                 initial={config === null ? null : pretty(config)}
                 example={EXAMPLES.replication}
@@ -241,12 +242,12 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
   }
 
   return (
-    <AppModal opened onClose={onClose} title={`Bucket rules: ${bucket}`} size="xl">
+    <AppModal opened onClose={onClose} title={tr("Bucket rules: {bucket}", { bucket })} size="xl">
       <Stack gap="md">
         {content}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

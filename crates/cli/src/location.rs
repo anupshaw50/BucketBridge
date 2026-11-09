@@ -41,7 +41,7 @@ pub fn parse_location(text: &str) -> std::result::Result<Location, String> {
         return parse_s3_uri(text).map(Location::S3);
     }
     if text.is_empty() {
-        return Err("the path is empty".to_owned());
+        return Err(crate::i18n::tr("the path is empty"));
     }
     Ok(Location::Local(PathBuf::from(text)))
 }
@@ -57,8 +57,9 @@ pub fn parse_bucket(text: &str) -> std::result::Result<String, String> {
         S3Uri::new(text, "").map_err(|err| err.to_string())?
     };
     if !uri.is_bucket_root() {
-        return Err(format!(
-            "'{text}' names an object; expected a bucket such as s3://bucket"
+        return Err(crate::i18n::trf(
+            "'{text}' names an object; expected a bucket such as s3://bucket",
+            &[("text", text)],
         ));
     }
     Ok(uri.bucket().to_owned())
@@ -101,13 +102,21 @@ pub fn check_recursive_pair(src: &S3Uri, dst: &S3Uri) -> Result<()> {
     }
     let dst_prefix = upload_prefix(dst);
     if dst_prefix == parent_prefix(src.key()) {
-        return Err(Error::Usage(format!(
-            "copying {src} to {dst} would put every object onto itself"
+        return Err(Error::Usage(crate::i18n::trf(
+            "copying {source} to {destination} would put every object onto itself",
+            &[
+                ("source", &src.to_string()),
+                ("destination", &dst.to_string()),
+            ],
         )));
     }
     if dst_prefix.starts_with(src.key()) {
-        return Err(Error::Usage(format!(
-            "the destination {dst} is inside the source {src}"
+        return Err(Error::Usage(crate::i18n::trf(
+            "the destination {destination} is inside the source {source}",
+            &[
+                ("destination", &dst.to_string()),
+                ("source", &src.to_string()),
+            ],
         )));
     }
     Ok(())
@@ -162,7 +171,7 @@ mod tests {
         assert!(
             parse_bucket("s3://photos/a.jpg")
                 .unwrap_err()
-                .contains("names an object")
+                .contains(&crate::i18n::tr("names an object"))
         );
         assert!(parse_bucket("").is_err());
         assert!(parse_bucket("bad bucket").is_err());
@@ -202,29 +211,43 @@ mod tests {
         assert!(check("s3://b/photos/", "s3://c/photos/").is_ok());
         assert!(check("s3://b/photos/", "s3://b/backup/").is_ok());
         assert!(check("s3://b/photos/", "s3://b/photos-old/").is_ok());
-        assert!(
+        assert_eq!(
             check("s3://b/photos/2024/", "s3://b/photos/")
                 .unwrap_err()
-                .to_string()
-                .contains("onto itself")
+                .to_string(),
+            crate::i18n::trf(
+                "copying {source} to {destination} would put every object onto itself",
+                &[
+                    ("source", "s3://b/photos/2024/"),
+                    ("destination", "s3://b/photos/"),
+                ],
+            )
         );
-        assert!(
-            check("s3://b/", "s3://b/")
-                .unwrap_err()
-                .to_string()
-                .contains("onto itself")
+        assert_eq!(
+            check("s3://b/", "s3://b/").unwrap_err().to_string(),
+            crate::i18n::trf(
+                "copying {source} to {destination} would put every object onto itself",
+                &[("source", "s3://b/"), ("destination", "s3://b/")],
+            )
         );
-        assert!(
+        assert_eq!(
             check("s3://b/photos/", "s3://b/photos/backup/")
                 .unwrap_err()
-                .to_string()
-                .contains("inside")
+                .to_string(),
+            crate::i18n::trf(
+                "the destination {destination} is inside the source {source}",
+                &[
+                    ("destination", "s3://b/photos/backup/"),
+                    ("source", "s3://b/photos/"),
+                ],
+            )
         );
-        assert!(
-            check("s3://b/", "s3://b/copy/")
-                .unwrap_err()
-                .to_string()
-                .contains("inside")
+        assert_eq!(
+            check("s3://b/", "s3://b/copy/").unwrap_err().to_string(),
+            crate::i18n::trf(
+                "the destination {destination} is inside the source {source}",
+                &[("destination", "s3://b/copy/"), ("source", "s3://b/")],
+            )
         );
     }
 }

@@ -1,4 +1,5 @@
 import type { ListingFormat, UploadRow } from "../api/types";
+import { tr } from "../i18n";
 import { parseTimestamp } from "./format";
 
 const DAY_MS = 86_400_000;
@@ -19,9 +20,9 @@ export function formatAge(initiated: string | null, now: number): string {
     return "";
   }
   if (days === 0) {
-    return "today";
+    return tr("today");
   }
-  return days === 1 ? "1 day" : `${days} days`;
+  return days === 1 ? tr("1 day") : tr("{n} days", { n: days });
 }
 
 /** Stable identity of an upload across listings. */
@@ -42,7 +43,7 @@ export function uploadsOlderThan(rows: readonly UploadRow[], days: number, now: 
 
 export const FORMAT_LABELS: Record<ListingFormat, string> = {
   csv: "CSV",
-  xlsx: "Excel workbook",
+  xlsx: tr("Excel workbook"),
   parquet: "Parquet",
 };
 

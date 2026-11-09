@@ -3,6 +3,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { CopyOptions, Platform, SavePathOptions } from "../api/platform";
 import type { WindowLocation } from "../api/types";
 import { App } from "../app/App";
+import { tr } from "../i18n";
 import { MockBackend, type MockOptions } from "../mock/mockBackend";
 import { immediateScheduler } from "../state/scheduler";
 import type { Notice } from "../state/status";
@@ -126,15 +127,15 @@ export function statusBar() {
 
 /** Opens a bucket from the tree and waits for its listing. */
 export async function openBucket(user: UserEvent, name: string): Promise<void> {
-  const tree = await screen.findByRole("tree", { name: "Buckets and folders" });
+  const tree = await screen.findByRole("tree", { name: tr("Buckets and folders") });
   const item = await within(tree).findByText(name);
   await user.click(item);
-  await screen.findByRole("grid", { name: "Objects" });
+  await screen.findByRole("grid", { name: tr("Objects") });
 }
 
 /** The object table row whose name cell has exactly this text. */
 export async function findObjectRow(name: string): Promise<HTMLElement> {
-  const grid = await screen.findByRole("grid", { name: "Objects" });
+  const grid = await screen.findByRole("grid", { name: tr("Objects") });
   const cell = await within(grid).findByText(name, { selector: ".bb-col-name span" });
   const row = cell.closest<HTMLElement>('[role="row"]');
   if (row === null) {
@@ -144,7 +145,7 @@ export async function findObjectRow(name: string): Promise<HTMLElement> {
 }
 
 export function queryObjectRow(name: string): HTMLElement | null {
-  const grid = screen.queryByRole("grid", { name: "Objects" });
+  const grid = screen.queryByRole("grid", { name: tr("Objects") });
   if (grid === null) {
     return null;
   }

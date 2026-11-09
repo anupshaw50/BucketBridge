@@ -5,6 +5,7 @@ import LICENSE_TEXT from "../../../../LICENSE?raw";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
 import { BrandLogo } from "../../components/BrandLogo";
+import { tr } from "../../i18n";
 
 export const REPOSITORY_URL = "https://github.com/anupshaw50/BucketBridge";
 export const WEBSITE_URL = "https://anupshaw50.github.io/BucketBridge/";
@@ -36,10 +37,10 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
   // The desktop shell only opens the project, website and author URLs (capabilities/default.json).
   const repository = REPOSITORY_URL;
   const open = (url: string) => {
-    model.platform.openUrl(url).catch((error: unknown) => model.status.error(error, { notify: "The link could not be opened" }));
+    model.platform.openUrl(url).catch((error: unknown) => model.status.error(error, { notify: tr("The link could not be opened") }));
   };
   return (
-    <AppModal opened onClose={onClose} title="About BucketBridge" size="lg">
+    <AppModal opened onClose={onClose} title={tr("About BucketBridge")} size="lg">
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start">
           <Stack gap={6}>
@@ -48,59 +49,60 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
               {info?.name ?? "BucketBridge"}
             </Title>
             <Text size="sm" c="dimmed">
-              Version {info?.version ?? "unknown"} · {info?.license ?? "GPL-3.0-only"} license
+              {tr("Version {version} · {license} license", {
+                version: info?.version ?? tr("unknown"),
+                license: info?.license ?? "GPL-3.0-only",
+              })}
             </Text>
           </Stack>
         </Group>
         <Text size="sm">
-          An open source S3 client for Windows, macOS and Linux. It is free to use: no activation, registration or
-          license key is required, and it never contacts any server on its own. Checking for updates only opens the
-          releases page in your browser.
+          {tr("An open source S3 client for Windows, macOS and Linux. It is free to use: no activation, registration or license key is required, and it never contacts any server on its own. Checking for updates only opens the releases page in your browser.")}
         </Text>
         <Group gap="xs">
           <Button size="xs" variant="default" leftSection={<IconBrandGithub size={14} />} onClick={() => open(repository)}>
-            Source code
+            {tr("Source code")}
           </Button>
           <Button size="xs" variant="default" leftSection={<IconBook size={14} />} onClick={() => open(`${repository}/tree/main/docs`)}>
-            Online help
+            {tr("Online help")}
           </Button>
           <Button size="xs" variant="default" leftSection={<IconBug size={14} />} onClick={() => open(`${repository}/issues`)}>
-            Contact and issues
+            {tr("Contact and issues")}
           </Button>
           <Button size="xs" variant="default" leftSection={<IconRefresh size={14} />} onClick={() => open(`${repository}/releases`)}>
-            Check for updates
+            {tr("Check for updates")}
           </Button>
         </Group>
-        <Divider label="Author" labelPosition="left" />
+        <Divider label={tr("Author")} labelPosition="left" />
         <Group justify="space-between" align="center" wrap="nowrap">
           <Stack gap={0}>
             <Text size="sm" fw={600}>
-              Created and maintained by {AUTHOR_NAME}
+              {tr("Created and maintained by {name}", { name: AUTHOR_NAME })}
             </Text>
             <Text size="xs" c="dimmed">
-              @{AUTHOR_HANDLE} on GitHub · Copyright (C) 2026 {AUTHOR_NAME} ({AUTHOR_HANDLE})
+              {tr("@{handle} on GitHub · Copyright (C) 2026 {name} ({handle})", { handle: AUTHOR_HANDLE, name: AUTHOR_NAME })}
             </Text>
           </Stack>
         </Group>
         <Group gap="xs">
           <Button size="xs" variant="light" leftSection={<IconUser size={14} />} onClick={() => open(AUTHOR_URL)}>
-            {AUTHOR_NAME} on GitHub
+            {tr("{name} on GitHub", { name: AUTHOR_NAME })}
           </Button>
           <Button size="xs" variant="light" leftSection={<IconBrandLinkedin size={14} />} onClick={() => open(LINKEDIN_URL)}>
             LinkedIn
           </Button>
           <Button size="xs" variant="light" leftSection={<IconWorld size={14} />} onClick={() => open(WEBSITE_URL)}>
-            Website
+            {tr("Website")}
           </Button>
           <Button size="xs" variant="light" color="pink" leftSection={<IconHeart size={14} />} onClick={() => open(SPONSOR_URL)}>
-            Sponsor
+            {tr("Sponsor")}
           </Button>
         </Group>
         <Text size="xs" c="dimmed">
-          If BucketBridge is useful to you, a star on GitHub helps others find it.
+          {tr("If BucketBridge is useful to you, a star on GitHub helps others find it.")}
         </Text>
         <Text size="xs" c="dimmed">
-          Repository:{" "}
+          {tr("Repository:")}{" "}
           <Anchor component="button" type="button" size="xs" onClick={() => open(repository)}>
             {repository}
           </Anchor>
@@ -110,29 +112,29 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
             <Table.Tbody>
               <Table.Tr>
                 <Table.Th scope="row" w={140}>
-                  Settings folder
+                  {tr("Settings folder")}
                 </Table.Th>
                 <Table.Td style={{ overflowWrap: "anywhere" }}>{info.config_dir}</Table.Td>
               </Table.Tr>
               <Table.Tr>
-                <Table.Th scope="row">Data folder</Table.Th>
+                <Table.Th scope="row">{tr("Data folder")}</Table.Th>
                 <Table.Td style={{ overflowWrap: "anywhere" }}>{info.data_dir}</Table.Td>
               </Table.Tr>
               <Table.Tr>
-                <Table.Th scope="row">Log folder</Table.Th>
+                <Table.Th scope="row">{tr("Log folder")}</Table.Th>
                 <Table.Td style={{ overflowWrap: "anywhere" }}>{info.log_dir}</Table.Td>
               </Table.Tr>
             </Table.Tbody>
           </Table>
         ) : null}
         <Text size="sm" fw={600}>
-          License
+          {tr("License")}
         </Text>
         <Code block fz="xs">
           {COPYRIGHT_NOTICE}
         </Code>
         <Text size="xs" c="dimmed">
-          Full text of the GNU General Public License, version 3:
+          {tr("Full text of the GNU General Public License, version 3:")}
         </Text>
         <ScrollArea h={220} type="auto">
           <Code block fz="xs" aria-label="GNU General Public License version 3">
@@ -140,7 +142,7 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
           </Code>
         </ScrollArea>
         <Group justify="flex-end">
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={onClose}>{tr("Close")}</Button>
         </Group>
       </Stack>
     </AppModal>

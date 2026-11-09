@@ -11,6 +11,8 @@ use bucketbridge_core::model::DeleteFailure;
 use bucketbridge_core::{BbError, Error, ErrorKind};
 use serde::Serialize;
 
+use crate::i18n::{tr, trf};
+
 /// Why a command stopped early.
 pub enum Failure {
     /// An error to report; its kind decides the exit code.
@@ -204,7 +206,15 @@ impl Batch {
         let Some((kind, first)) = self.first_failure else {
             return Ok(());
         };
-        let summary = format!("{} of {} {noun} {failure}", self.failed, self.total);
+        let summary = trf(
+            "{failed} of {total} {noun} {failure}",
+            &[
+                ("failed", self.failed.to_string().as_str()),
+                ("total", self.total.to_string().as_str()),
+                ("noun", tr(noun).as_str()),
+                ("failure", tr(failure).as_str()),
+            ],
+        );
         let err = match kind {
             ErrorKind::Io => Error::io(summary, io::Error::other(first)),
             kind => error_of_kind(kind, summary),
@@ -244,39 +254,67 @@ pub fn delete_failure_error(failure: &DeleteFailure) -> BbError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{tr, trf, with_language};
 
     #[test]
     fn batch_reports_the_first_failure_kind() {
-        assert!(Batch::default().finish("objects", "failed").is_ok());
-        let mut batch = Batch::default();
-        batch.succeeded();
-        batch.failed(ErrorKind::Auth, "denied");
-        batch.failed(ErrorKind::NotFound, "gone");
-        match batch.finish("objects", "could not be deleted") {
-            Err(Failure::Error(err)) => {
-                assert_eq!(err.kind(), ErrorKind::Auth);
-                assert_eq!(err.to_string(), "2 of 3 objects could not be deleted");
+        with_language(false, || {
+            assert!(Batch::default().finish("objects", "failed").is_ok());
+            let mut batch = Batch::default();
+            batch.succeeded();
+            batch.failed(ErrorKind::Auth, "denied");
+            batch.failed(ErrorKind::NotFound, "gone");
+            match batch.finish("objects", "could not be deleted") {
+                Err(Failure::Error(err)) => {
+                    assert_eq!(err.kind(), ErrorKind::Auth);
+                    assert_eq!(
+                        err.to_string(),
+                        trf(
+                            "{failed} of {total} {noun} {failure}",
+                            &[
+                                ("failed", "2"),
+                                ("total", "3"),
+                                ("noun", tr("objects").as_str()),
+                                ("failure", tr("could not be deleted").as_str()),
+                            ],
+                        )
+                    );
+                }
+                _ => panic!("expected an error"),
             }
-            _ => panic!("expected an error"),
-        }
+        });
     }
 
     #[test]
     fn io_failures_name_the_first_cause() {
-        let mut batch = Batch::default();
-        batch.failed(ErrorKind::Io, "reading 'a': denied");
-        batch.failed(ErrorKind::Remote, "slow down");
-        batch.succeeded();
-        match batch.finish("files", "could not be uploaded") {
-            Err(Failure::Error(err)) => {
-                assert_eq!(err.kind(), ErrorKind::Io);
-                assert_eq!(
-                    err.to_string(),
-                    "2 of 3 files could not be uploaded: reading 'a': denied"
-                );
+        with_language(false, || {
+            let mut batch = Batch::default();
+            batch.failed(ErrorKind::Io, "reading 'a': denied");
+            batch.failed(ErrorKind::Remote, "slow down");
+            batch.succeeded();
+            match batch.finish("files", "could not be uploaded") {
+                Err(Failure::Error(err)) => {
+                    assert_eq!(err.kind(), ErrorKind::Io);
+                    assert_eq!(
+                        err.to_string(),
+                        format!(
+                            "{}: {}",
+                            trf(
+                                "{failed} of {total} {noun} {failure}",
+                                &[
+                                    ("failed", "2"),
+                                    ("total", "3"),
+                                    ("noun", tr("files").as_str()),
+                                    ("failure", tr("could not be uploaded").as_str()),
+                                ],
+                            ),
+                            "reading 'a': denied"
+                        )
+                    );
+                }
+                _ => panic!("expected an error"),
             }
-            _ => panic!("expected an error"),
-        }
+        });
     }
 
     #[test]

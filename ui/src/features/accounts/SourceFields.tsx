@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { Account, SsoAccount, SsoLoginStarted } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import {
   type AccountDraft,
   type DraftErrors,
@@ -18,10 +19,10 @@ interface SourceProps {
 }
 
 const KIND_LABELS: { value: SourceKind; label: string }[] = [
-  { value: "keys", label: "Access keys" },
-  { value: "role", label: "Assume a role" },
+  { value: "keys", label: tr("Access keys") },
+  { value: "role", label: tr("Assume a role") },
   { value: "sso", label: "AWS SSO" },
-  { value: "instance", label: "Instance role" },
+  { value: "instance", label: tr("Instance role") },
 ];
 
 /** Chooses where the credentials of a new account come from. */
@@ -29,7 +30,7 @@ export function SourcePicker({ draft, onChange }: Pick<SourceProps, "draft" | "o
   return (
     <Stack gap={4}>
       <Text size="sm" fw={500}>
-        Credentials from
+        {tr("Credentials from")}
       </Text>
       <SegmentedControl<SourceKind>
         size="xs"
@@ -37,7 +38,7 @@ export function SourcePicker({ draft, onChange }: Pick<SourceProps, "draft" | "o
         value={draft.source_kind}
         onChange={(value) => onChange({ source_kind: value })}
         data={KIND_LABELS}
-        aria-label="Credentials from"
+        aria-label={tr("Credentials from")}
       />
       <Text size="xs" c="dimmed">
         {SOURCE_HELP[draft.source_kind]}
@@ -47,11 +48,11 @@ export function SourcePicker({ draft, onChange }: Pick<SourceProps, "draft" | "o
 }
 
 const SOURCE_HELP: Record<SourceKind, string> = {
-  keys: "An access key and secret key, kept in the operating system's credential store.",
-  role: "Temporary credentials for an IAM role, requested with another account of yours. Nothing secret is stored.",
-  sso: "Sign in to IAM Identity Center (AWS SSO) in your browser and choose an account and role. Nothing secret is stored.",
-  instance: "The role of the EC2 instance or ECS or EKS container BucketBridge runs on. Nothing secret is stored.",
-  profile: "A profile of your AWS config files. The files stay the source of the credentials.",
+  keys: tr("An access key and secret key, kept in the operating system's credential store."),
+  role: tr("Temporary credentials for an IAM role, requested with another account of yours. Nothing secret is stored."),
+  sso: tr("Sign in to IAM Identity Center (AWS SSO) in your browser and choose an account and role. Nothing secret is stored."),
+  instance: tr("The role of the EC2 instance or ECS or EKS container BucketBridge runs on. Nothing secret is stored."),
+  profile: tr("A profile of your AWS config files. The files stay the source of the credentials."),
 };
 
 /** Assumed role: source account, role, session settings and optional MFA device. */
@@ -66,8 +67,8 @@ export function RoleFields({
   return (
     <Stack gap="sm">
       <Select
-        label="Sign the request with"
-        description="The account whose credentials call STS AssumeRole. It can be any account, including another role."
+        label={tr("Sign the request with")}
+        description={tr("The account whose credentials call STS AssumeRole. It can be any account, including another role.")}
         data={sources}
         value={draft.role_source_account_id === "" ? null : draft.role_source_account_id}
         onChange={(value) => onChange({ role_source_account_id: value ?? "" })}
@@ -75,12 +76,12 @@ export function RoleFields({
         disabled={editing}
         allowDeselect={false}
         comboboxProps={{ withinPortal: false }}
-        placeholder="Choose an account"
+        placeholder={tr("Choose an account")}
         required
         data-autofocus={editing ? undefined : true}
       />
       <TextInput
-        label="Role ARN"
+        label={tr("Role ARN")}
         placeholder="arn:aws:iam::123456789012:role/Name"
         value={draft.role_arn}
         onChange={(event) => onChange({ role_arn: event.currentTarget.value })}
@@ -91,15 +92,15 @@ export function RoleFields({
       />
       <Group grow align="flex-start">
         <TextInput
-          label="Session name"
+          label={tr("Session name")}
           value={draft.role_session_name}
           onChange={(event) => onChange({ role_session_name: event.currentTarget.value })}
           error={errors.role_session_name}
           spellCheck={false}
         />
         <NumberInput
-          label="Session length (minutes)"
-          description={`${MIN_ROLE_MINUTES} to ${MAX_ROLE_MINUTES}. Credentials refresh before they expire.`}
+          label={tr("Session length (minutes)")}
+          description={`${MIN_ROLE_MINUTES} to ${MAX_ROLE_MINUTES}. ${tr("Credentials refresh before they expire.")}`}
           value={draft.role_duration_minutes === "" ? "" : Number(draft.role_duration_minutes)}
           onChange={(value) => onChange({ role_duration_minutes: String(value) })}
           error={errors.role_duration_minutes}
@@ -110,8 +111,8 @@ export function RoleFields({
         />
       </Group>
       <TextInput
-        label="External ID (optional)"
-        description="Only if the role's trust policy asks for one."
+        label={tr("External ID (optional)")}
+        description={tr("Only if the role's trust policy asks for one.")}
         value={draft.role_external_id}
         onChange={(event) => onChange({ role_external_id: event.currentTarget.value })}
         error={errors.role_external_id}
@@ -119,8 +120,8 @@ export function RoleFields({
         autoComplete="off"
       />
       <TextInput
-        label="MFA device (optional)"
-        description="ARN or serial number of the device the role's trust policy asks for. You enter a code each time the session ends."
+        label={tr("MFA device (optional)")}
+        description={tr("ARN or serial number of the device the role's trust policy asks for. You enter a code each time the session ends.")}
         value={draft.mfa_serial}
         onChange={(event) => onChange({ mfa_serial: event.currentTarget.value })}
         error={errors.mfa_serial}
@@ -142,7 +143,12 @@ export function InstanceFields({ draft, errors, onChange, editing }: SourceProps
     setFailure(null);
     try {
       const probe = await model.api.probe_instance_role();
-      setFound(`Found the role of this ${probe.kind === "container" ? "container" : "instance"} (access key ${probe.access_key_id}).`);
+      setFound(
+        tr("Found the role of this {machine} (access key {accessKeyId}).", {
+          machine: probe.kind === "container" ? tr("container") : tr("instance"),
+          accessKeyId: probe.access_key_id,
+        }),
+      );
       onChange({ instance_checked: true });
     } catch (raw) {
       setFound(null);
@@ -155,14 +161,14 @@ export function InstanceFields({ draft, errors, onChange, editing }: SourceProps
   return (
     <Stack gap="sm">
       <Text size="sm">
-        BucketBridge asks the EC2 instance metadata service (version 2) or the container credentials endpoint for the role of
-        this machine, and refreshes the credentials before they expire. This only works on an EC2 instance or an ECS or EKS
-        container.
+        {tr(
+          "BucketBridge asks the EC2 instance metadata service (version 2) or the container credentials endpoint for the role of this machine, and refreshes the credentials before they expire. This only works on an EC2 instance or an ECS or EKS container.",
+        )}
       </Text>
       {editing ? null : (
         <Group>
           <Button variant="default" loading={busy} onClick={() => void check()}>
-            Check this machine
+            {tr("Check this machine")}
           </Button>
         </Group>
       )}
@@ -190,8 +196,10 @@ export function ProfileFields({ draft }: Pick<SourceProps, "draft">) {
   return (
     <Stack gap="xs">
       <Text size="sm">
-        This account uses the profile <Code>{draft.profile}</Code> of your AWS config files. Change keys, roles or SSO settings in
-        those files; BucketBridge reads them whenever it needs credentials.
+        {tr(
+          "This account uses the profile {profile} of your AWS config files. Change keys, roles or SSO settings in those files; BucketBridge reads them whenever it needs credentials.",
+          { profile: draft.profile },
+        )}
       </Text>
     </Stack>
   );
@@ -294,7 +302,7 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
   const signIn = async () => {
     setFailure(null);
     if (!portal.start_url.startsWith("https://") || portal.sso_region === "") {
-      setFailure("Enter the portal start URL (https://...) and the region first.");
+      setFailure(tr("Enter the portal start URL (https://...) and the region first."));
       return;
     }
     setPhase("starting");
@@ -330,8 +338,8 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
   return (
     <Stack gap="sm">
       <TextInput
-        label="Start URL"
-        description="The AWS access portal URL of your organization."
+        label={tr("Start URL")}
+        description={tr("The AWS access portal URL of your organization.")}
         placeholder="https://example.awsapps.com/start"
         value={draft.sso_start_url}
         onChange={(event) => onChange({ sso_start_url: event.currentTarget.value })}
@@ -344,8 +352,8 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
       />
       <Group grow align="flex-start">
         <TextInput
-          label="SSO region"
-          description="The region IAM Identity Center runs in."
+          label={tr("SSO region")}
+          description={tr("The region IAM Identity Center runs in.")}
           placeholder="eu-west-1"
           value={draft.sso_region}
           onChange={(event) => onChange({ sso_region: event.currentTarget.value })}
@@ -355,8 +363,8 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
           required
         />
         <TextInput
-          label="Session name (optional)"
-          description="The sso-session of your AWS config, if you use one."
+          label={tr("Session name (optional)")}
+          description={tr("The sso-session of your AWS config, if you use one.")}
           value={draft.sso_session}
           onChange={(event) => onChange({ sso_session: event.currentTarget.value })}
           spellCheck={false}
@@ -370,35 +378,35 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
           loading={phase === "starting"}
           disabled={phase === "waiting"}
         >
-          {phase === "signed-in" || editing ? "Sign in again" : "Sign in with AWS SSO"}
+          {phase === "signed-in" || editing ? tr("Sign in again") : tr("Sign in with AWS SSO")}
         </Button>
         {phase === "waiting" ? (
           <Button variant="subtle" onClick={cancel}>
-            Cancel sign-in
+            {tr("Cancel sign-in")}
           </Button>
         ) : null}
       </Group>
       {phase === "waiting" && started !== null ? (
-        <Alert color="blue" variant="light" title="Confirm the sign-in in your browser" role="status">
+        <Alert color="blue" variant="light" title={tr("Confirm the sign-in in your browser")} role="status">
           <Stack gap={4}>
             <Text size="sm">
-              Enter this code if the page asks for it: <Code fz="md">{started.user_code}</Code>
+              {tr("Enter this code if the page asks for it:")} <Code fz="md">{started.user_code}</Code>
             </Text>
             <Text size="sm">
-              {started.browser_opened ? "The page was opened in your browser. " : "Open this page in your browser: "}
+              {started.browser_opened ? tr("The page was opened in your browser.") : tr("Open this page in your browser:")}
               <Anchor href={target} target="_blank" rel="noreferrer">
-                {started.verification_uri}
+                {` ${started.verification_uri}`}
               </Anchor>
             </Text>
             <Text size="xs" c="dimmed">
-              Waiting for you to approve...
+              {tr("Waiting for you to approve...")}
             </Text>
           </Stack>
         </Alert>
       ) : null}
       {phase === "signed-in" ? (
         <Alert color="green" variant="light" role="status">
-          Signed in. The token is kept in the AWS CLI cache (~/.aws/sso/cache), not in BucketBridge.
+          {tr("Signed in. The token is kept in the AWS CLI cache (~/.aws/sso/cache), not in BucketBridge.")}
         </Alert>
       ) : null}
       {failure !== null ? (
@@ -408,13 +416,13 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
       ) : null}
       {editing ? (
         <Text size="sm">
-          Account <Code>{draft.sso_account_id}</Code>, role <Code>{draft.sso_role_name}</Code>. To use another role, add a new
-          account.
+          {tr("Account {account}, role {role}.", { account: draft.sso_account_id, role: draft.sso_role_name })}{" "}
+          {tr("To use another role, add a new account.")}
         </Text>
       ) : (
         <>
           <Select
-            label="AWS account"
+            label={tr("AWS account")}
             data={accounts.map((item) => ({
               value: item.account_id,
               label: `${item.account_name} (${item.account_id})`,
@@ -426,19 +434,19 @@ export function SsoFields({ draft, errors, onChange, editing }: SourceProps & { 
               }
             }}
             error={errors.sso_account_id}
-            placeholder={phase === "signed-in" ? "Choose an account" : "Sign in first"}
+            placeholder={phase === "signed-in" ? tr("Choose an account") : tr("Sign in first")}
             disabled={phase !== "signed-in"}
             allowDeselect={false}
             comboboxProps={{ withinPortal: false }}
             searchable
           />
           <Select
-            label="Role"
+            label={tr("Role")}
             data={roles}
             value={draft.sso_role_name === "" ? null : draft.sso_role_name}
             onChange={(value) => onChange({ sso_role_name: value ?? "" })}
             error={errors.sso_role_name}
-            placeholder={draft.sso_account_id === "" ? "Choose an account first" : "Choose a role"}
+            placeholder={draft.sso_account_id === "" ? tr("Choose an account first") : tr("Choose a role")}
             disabled={roles.length === 0}
             allowDeselect={false}
             comboboxProps={{ withinPortal: false }}

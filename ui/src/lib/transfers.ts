@@ -1,4 +1,5 @@
 import type { Location, TransferKind, TransferState, TransferTask } from "../api/types";
+import { tr } from "../i18n";
 import { formatBytes, formatCount } from "./format";
 
 export type TransferView = "all" | "queued" | "running" | "stopped" | "failed";
@@ -39,21 +40,21 @@ export function isFinished(state: TransferState): boolean {
 }
 
 export const STATE_LABELS: Record<TransferState, string> = {
-  queued: "Queued",
-  running: "Running",
-  stopped: "Stopped",
-  completed: "Completed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  skipped: "Skipped",
+  queued: tr("Queued"),
+  running: tr("Running"),
+  stopped: tr("Stopped"),
+  completed: tr("Completed"),
+  failed: tr("Failed"),
+  cancelled: tr("Cancelled"),
+  skipped: tr("Skipped"),
 };
 
 export const KIND_LABELS: Record<TransferKind, string> = {
-  upload: "Upload",
-  download: "Download",
-  copy: "Copy",
-  move: "Move",
-  delete: "Delete",
+  upload: tr("Upload"),
+  download: tr("Download"),
+  copy: tr("Copy"),
+  move: tr("Move"),
+  delete: tr("Delete"),
 };
 
 export function describeLocation(location: Location | null): string {
@@ -70,14 +71,14 @@ export function describeLocation(location: Location | null): string {
 export function progressText(task: TransferTask): string {
   if (task.kind === "delete") {
     if (task.bytes_total === null) {
-      return `${formatCount(task.bytes_done)} objects`;
+      return tr("{n} objects", { n: formatCount(task.bytes_done) });
     }
-    return `${formatCount(task.bytes_done)} of ${formatCount(task.bytes_total)} objects`;
+    return tr("{done} of {total} objects", { done: formatCount(task.bytes_done), total: formatCount(task.bytes_total) });
   }
   if (task.bytes_total === null) {
     return formatBytes(task.bytes_done);
   }
-  return `${formatBytes(task.bytes_done)} of ${formatBytes(task.bytes_total)}`;
+  return tr("{done} of {total}", { done: formatBytes(task.bytes_done), total: formatBytes(task.bytes_total) });
 }
 
 /** Does this task change the listing of `bucket`/`prefix` once it finishes? */

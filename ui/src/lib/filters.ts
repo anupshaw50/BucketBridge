@@ -20,6 +20,7 @@
 // strings" (one character per UTF-8 byte), as the Rust regex does over bytes.
 
 import type { FilterSpec, ObjectEntry } from "../api/types";
+import { tr } from "../i18n";
 import { formatBytes, formatDateTime, parseTimestamp } from "./format";
 
 /** Storage class assumed for entries that do not report one. */
@@ -559,26 +560,26 @@ function describeTime(value: string): string {
 export function describeFilter(spec: FilterSpec): string {
   const parts: string[] = [];
   if (spec.prefix !== null && spec.prefix.length > 0) {
-    parts.push(`prefix "${spec.prefix}"`);
+    parts.push(tr("prefix \"{prefix}\"", { prefix: spec.prefix }));
   }
   if (spec.glob !== null && spec.glob.length > 0) {
-    parts.push(`glob ${spec.glob}`);
+    parts.push(tr("glob {glob}", { glob: spec.glob }));
   }
   if (spec.min_size !== null && spec.max_size !== null) {
-    parts.push(`size ${formatBytes(spec.min_size)} to ${formatBytes(spec.max_size)}`);
+    parts.push(tr("size {min} to {max}", { min: formatBytes(spec.min_size), max: formatBytes(spec.max_size) }));
   } else if (spec.min_size !== null) {
-    parts.push(`size at least ${formatBytes(spec.min_size)}`);
+    parts.push(tr("size at least {min}", { min: formatBytes(spec.min_size) }));
   } else if (spec.max_size !== null) {
-    parts.push(`size at most ${formatBytes(spec.max_size)}`);
+    parts.push(tr("size at most {max}", { max: formatBytes(spec.max_size) }));
   }
   if (spec.modified_after !== null) {
-    parts.push(`modified on or after ${describeTime(spec.modified_after)}`);
+    parts.push(tr("modified on or after {time}", { time: describeTime(spec.modified_after) }));
   }
   if (spec.modified_before !== null) {
-    parts.push(`modified before ${describeTime(spec.modified_before)}`);
+    parts.push(tr("modified before {time}", { time: describeTime(spec.modified_before) }));
   }
   if (spec.storage_classes.length > 0) {
-    parts.push(`class ${spec.storage_classes.join(", ")}`);
+    parts.push(tr("class {classes}", { classes: spec.storage_classes.join(", ") }));
   }
-  return parts.length > 0 ? parts.join("; ") : "Matches everything";
+  return parts.length > 0 ? parts.join("; ") : tr("Matches everything");
 }

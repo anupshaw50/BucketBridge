@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import { toBbError } from "../api/errors";
 import type { BbErrorCode, Bucket, FilterSpec, ObjectEntry, SavedFilter, TransferTask } from "../api/types";
+import { tr } from "../i18n";
 import { type CompiledFilter, compileFilter, matchesObject } from "../lib/filters";
 import {
   DEFAULT_SORT,
@@ -400,7 +401,7 @@ export class BrowserController {
     }
     const compiled = compileFilter(next.filter);
     if (!compiled.ok) {
-      this.status.error(compiled.message, { notify: "The filter could not be applied" });
+      this.status.error(compiled.message, { notify: tr("The filter could not be applied") });
       return false;
     }
     this.store.setState({ filter: { name: next.name, spec: next.filter, compiled: compiled.filter } });

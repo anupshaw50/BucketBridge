@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { scanBucket } from "../../mock/scanMock";
+import { tr } from "../../i18n";
 import { countBySeverity, openableTab, scanRows } from "../../lib/scan";
 import { renderApp } from "../../test/renderApp";
 
@@ -8,19 +9,21 @@ describe("security scan dialog", () => {
   it("scans every bucket, lists findings by severity and opens the fixing tab", async () => {
     const { user } = await renderApp();
     await screen.findByText("demo-photos");
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Security scan..." }));
-    const dialog = await screen.findByRole("dialog", { name: "Security scan" });
-    expect(within(dialog).queryByRole("table", { name: "Findings" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: tr("Tools") }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Security scan...") }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Security scan") });
+    expect(within(dialog).queryByRole("table", { name: tr("Findings") })).not.toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "Scan" }));
-    const table = await within(dialog).findByRole("table", { name: "Findings" });
+    await user.click(within(dialog).getByRole("button", { name: tr("Scan") }));
+    const table = await within(dialog).findByRole("table", { name: tr("Findings") });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.length).toBeGreaterThan(0);
-    expect(within(dialog).getByLabelText("Summary")).toHaveTextContent("Critical:");
-    expect(within(dialog).getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(tr("Summary"))).toHaveTextContent(tr("Critical"));
+    expect(within(dialog).getByRole("button", { name: tr("Export CSV") })).toBeInTheDocument();
 
-    await user.click(within(table).getAllByRole("button", { name: /^Open .* tab$/ })[0]!);
+    const template = tr("Open {label} tab").replace(/\{(\w+)\}/g, "§§§");
+    const fixButton = new RegExp(template.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/§§§/g, ".*"));
+    await user.click(within(table).getAllByRole("button", { name: fixButton })[0]!);
     await waitFor(() => expect(screen.getAllByRole("dialog").length).toBeGreaterThan(1));
   });
 });

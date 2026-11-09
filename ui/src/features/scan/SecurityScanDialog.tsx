@@ -3,8 +3,8 @@ import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { ScanReport, ScanReportFormat, ScanSeverity } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
-import { plural } from "../../lib/format";
 import { countBySeverity, FIX_TAB_LABELS, openableTab, reportFileName, scanRows, SEVERITY_LABELS } from "../../lib/scan";
 
 const COLORS: Readonly<Record<ScanSeverity, string>> = { critical: "red", high: "orange", medium: "yellow", low: "gray" };
@@ -34,7 +34,9 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
     try {
       const next = await model.api.run_security_scan({ account_id: accountId, buckets: chosen.length > 0 ? chosen : null });
       setReport(next);
-      model.status.info(`Security scan finished: ${plural(next.buckets.length, "bucket")} checked.`);
+      model.status.info(
+        next.buckets.length === 1 ? tr("Security scan finished: 1 bucket checked.") : tr("Security scan finished: {n} buckets checked.", { n: next.buckets.length }),
+      );
     } catch (raw) {
       setError(toBbError(raw).message);
     } finally {
@@ -49,12 +51,12 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
     let path: string | null;
     try {
       path = await model.platform.pickSavePath({
-        title: "Export security report",
+        title: tr("Export security report"),
         defaultPath: reportFileName(format),
         filters: [{ name: format.toUpperCase(), extensions: [format] }],
       });
     } catch (raw) {
-      model.status.error(raw, { notify: "The file dialog could not be opened" });
+      model.status.error(raw, { notify: tr("The file dialog could not be opened") });
       return;
     }
     if (path === null) {
@@ -62,7 +64,7 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
     }
     try {
       await model.api.export_scan_report({ report, format, path });
-      model.status.info(`Security report saved to ${path}.`);
+      model.status.info(tr("Security report saved to {path}.", { path }));
     } catch (raw) {
       setError(toBbError(raw).message);
     }
@@ -84,24 +86,22 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
         ]);
 
   return (
-    <AppModal opened onClose={onClose} title="Security scan" size="xl" closeOnClickOutside={false}>
+    <AppModal opened onClose={onClose} title={tr("Security scan")} size="xl" closeOnClickOutside={false}>
       {accountId === null ? (
         <Stack gap="sm">
-          <Text size="sm">Add or choose an account first.</Text>
+          <Text size="sm">{tr("Add or choose an account first.")}</Text>
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>
       ) : (
         <Stack gap="sm">
-          <Text size="sm">
-            Reads the access settings of your buckets and flags what is risky. Nothing is changed.
-          </Text>
+          <Text size="sm">{tr("Reads the access settings of your buckets and flags what is risky. Nothing is changed.")}</Text>
           <MultiSelect
-            label="Buckets"
-            description="Leave empty to scan every bucket of the account."
+            label={tr("Buckets")}
+            description={tr("Leave empty to scan every bucket of the account.")}
             data={names}
             value={chosen}
             onChange={setChosen}
@@ -111,15 +111,15 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
           />
           <Group>
             <Button onClick={() => void scan()} loading={busy}>
-              Scan
+              {tr("Scan")}
             </Button>
             {report !== null && (
               <>
                 <Button variant="default" onClick={() => void save("csv")}>
-                  Export CSV
+                  {tr("Export CSV")}
                 </Button>
                 <Button variant="default" onClick={() => void save("json")}>
-                  Export JSON
+                  {tr("Export JSON")}
                 </Button>
               </>
             )}
@@ -131,23 +131,25 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
           )}
           {report !== null && (
             <>
-              <Group gap="xs" aria-label="Summary">
+              <Group gap="xs" aria-label={tr("Summary")}>
                 {SEVERITIES.map((severity) => (
                   <Badge key={severity} color={COLORS[severity]} variant="light">
-                    {SEVERITY_LABELS[severity]}: {countBySeverity(report, severity)}
+                    {tr("{label}: {n}", { label: SEVERITY_LABELS[severity], n: countBySeverity(report, severity) })}
                   </Badge>
                 ))}
               </Group>
               {rows.length === 0 ? (
-                <Text size="sm">No findings in {plural(report.buckets.length, "bucket")}.</Text>
+                <Text size="sm">
+                  {report.buckets.length === 1 ? tr("No findings in 1 bucket.") : tr("No findings in {n} buckets.", { n: report.buckets.length })}
+                </Text>
               ) : (
-                <Table aria-label="Findings" striped>
+                <Table aria-label={tr("Findings")} striped>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Severity</Table.Th>
-                      <Table.Th>Bucket</Table.Th>
-                      <Table.Th>Finding</Table.Th>
-                      <Table.Th>Fix</Table.Th>
+                      <Table.Th>{tr("Severity")}</Table.Th>
+                      <Table.Th>{tr("Bucket")}</Table.Th>
+                      <Table.Th>{tr("Finding")}</Table.Th>
+                      <Table.Th>{tr("Fix")}</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -170,11 +172,11 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
                           <Table.Td>
                             {tab !== null ? (
                               <Button size="compact-sm" variant="light" onClick={() => fix(bucket, tab)}>
-                                Open {FIX_TAB_LABELS[finding.fix_tab]} tab
+                                {tr("Open {label} tab", { label: FIX_TAB_LABELS[finding.fix_tab] })}
                               </Button>
                             ) : (
                               <Text size="xs" c="dimmed">
-                                {FIX_TAB_LABELS[finding.fix_tab]} (no editor in this version)
+                                {tr("{label} (no editor in this version)", { label: FIX_TAB_LABELS[finding.fix_tab] })}
                               </Text>
                             )}
                           </Table.Td>
@@ -185,7 +187,7 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
                 </Table>
               )}
               {notes.length > 0 && (
-                <Alert color="yellow" title="Not everything could be checked">
+                <Alert color="yellow" title={tr("Not everything could be checked")}>
                   <Stack gap={2}>
                     {notes.map((note) => (
                       <Text key={note} size="xs">
@@ -199,7 +201,7 @@ export function SecurityScanDialog({ onClose }: { onClose: () => void }) {
           )}
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>

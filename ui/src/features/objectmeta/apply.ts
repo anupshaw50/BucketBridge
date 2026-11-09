@@ -2,7 +2,8 @@ import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { ObjectChange, ObjectDetails } from "../../api/types";
 import { useModel } from "../../app/context";
-import { plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatCount } from "../../lib/format";
 import { validateCustomerKey } from "../../lib/objectMeta";
 
 /** What every tab of the properties dialog gets. */
@@ -31,11 +32,11 @@ export function summarize(results: readonly ObjectChange[]): string {
   const failed = results.filter((result) => result.error !== null).length;
   const changed = results.filter((result) => result.changed).length;
   const unchanged = results.length - failed - changed;
-  const parts = [`${changed} changed`, `${unchanged} unchanged`];
-  if (failed > 0) {
-    parts.push(`${failed} failed`);
-  }
-  return parts.join(", ");
+  const base = tr("{changed} changed, {unchanged} unchanged", {
+    changed: formatCount(changed),
+    unchanged: formatCount(unchanged),
+  });
+  return failed > 0 ? tr("{summary}, {failed} failed", { summary: base, failed: formatCount(failed) }) : base;
 }
 
 export interface Applier {
@@ -61,7 +62,11 @@ export function useApply(ctx: TabContext): Applier {
       if (list.some((result) => result.changed)) {
         ctx.changed(sseKey);
       }
-      model.status.info(`${plural(list.length, "object")}: ${summarize(list)}.`);
+      model.status.info(
+        list.length === 1
+          ? tr("1 object: {summary}.", { summary: summarize(list) })
+          : tr("{n} objects: {summary}.", { n: formatCount(list.length), summary: summarize(list) }),
+      );
     } catch (raw) {
       setError(toBbError(raw).message);
     } finally {

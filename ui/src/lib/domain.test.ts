@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account, ObjectEntry, SyncRow, TransferTask } from "../api/types";
+import { tr } from "../i18n";
 import {
   draftFromAccount,
   emptyDraft,
@@ -32,7 +33,7 @@ describe("account forms", () => {
   it("validates the connection step including unique labels", () => {
     const draft = { ...emptyDraft(), label: " work ", endpoint: "nope", region: "" };
     const errors = validateConnection(draft, [account], null);
-    expect(errors.label).toMatch(/already uses/);
+    expect(errors.label).toBe(tr("Another account already uses this label."));
     expect(errors.endpoint).toBeDefined();
     expect(errors.region).toBeDefined();
     expect(validateConnection({ ...draft, label: "Work", endpoint: "", region: "us-east-1" }, [account], "acc-1")).toEqual({});
@@ -42,7 +43,7 @@ describe("account forms", () => {
     expect(validateCredentials({ ...emptyDraft(), access_key_id: "K" }, null).secret_access_key).toBeDefined();
     const edit = draftFromAccount(account);
     expect(validateCredentials(edit, account)).toEqual({});
-    expect(validateCredentials({ ...edit, access_key_id: "OTHER" }, account).secret_access_key).toMatch(/new access key/);
+    expect(validateCredentials({ ...edit, access_key_id: "OTHER" }, account).secret_access_key).toBe(tr("A new access key ID needs its secret access key."));
     expect(validateCredentials({ ...edit, session_token_mode: "replace" }, account).session_token).toBeDefined();
   });
 
@@ -164,8 +165,10 @@ describe("transfer rules", () => {
   });
 
   it("describes progress in bytes or objects", () => {
-    expect(progressText(task("running"))).toBe("1.0 KiB of 2.0 KiB");
-    expect(progressText({ ...task("running", "delete"), bytes_total: 10, bytes_done: 3 })).toBe("3 of 10 objects");
+    expect(progressText(task("running"))).toBe(tr("{done} of {total}", { done: "1.0 KiB", total: "2.0 KiB" }));
+    expect(progressText({ ...task("running", "delete"), bytes_total: 10, bytes_done: 3 })).toBe(
+      tr("{done} of {total} objects", { done: "3", total: "10" }),
+    );
   });
 
   it("detects tasks that change the open folder", () => {

@@ -23,6 +23,7 @@ use crate::cli::{
     TagSetArgs,
 };
 use crate::context::Context;
+use crate::i18n::{tr, trf};
 use crate::output::{Batch, Failure, Output};
 
 /// Keys handled per round.
@@ -39,11 +40,13 @@ impl KeyChunks {
     /// An object, or with `recursive` every object under a prefix.
     pub(super) fn new(ctx: &Context, uri: &S3Uri, recursive: bool) -> Result<Self, Error> {
         match (recursive, uri.is_prefix()) {
-            (false, true) => Err(Error::Usage(format!(
-                "{uri} is a prefix; add --recursive to change every object under it"
+            (false, true) => Err(Error::Usage(trf(
+                "{uri} is a prefix; add --recursive to change every object under it",
+                &[("uri", &uri.to_string())],
             ))),
-            (true, false) => Err(Error::Usage(format!(
-                "--recursive needs a prefix ending in '/', for example {uri}/"
+            (true, false) => Err(Error::Usage(trf(
+                "--recursive needs a prefix ending in '/', for example {prefixish}/",
+                &[("prefixish", &uri.to_string())],
             ))),
             (false, false) => Ok(KeyChunks::Single(Some(uri.key().to_owned()))),
             (true, true) => Ok(KeyChunks::Listing(Box::pin(
@@ -98,12 +101,22 @@ pub(super) fn emit<R: Serialize>(
             batch.succeeded();
             out.change(record, || line)?;
             for warning in &change.warnings {
-                out.notice(&format!("bb: warning: {uri}: {warning}"));
+                out.notice(&trf(
+                    "bb: warning: {uri}: {warning}",
+                    &[("uri", uri), ("warning", warning)],
+                ));
             }
         }
         Some(error) => {
             batch.failed(error.code, error.message.clone());
-            let message = format!("failed to {action} {uri}: {}", error.message);
+            let message = trf(
+                "failed to {action} {uri}: {message}",
+                &[
+                    ("action", tr(action).as_str()),
+                    ("uri", uri),
+                    ("message", error.message.as_str()),
+                ],
+            );
             out.item_failed(record, || message)?;
         }
     }
@@ -116,12 +129,27 @@ pub(super) fn object_uri(bucket: &str, key: &str) -> String {
 
 /// Reads an SSE-C key from a file (32 raw bytes, 64 hex digits or base64).
 fn read_key(path: &Path, what: &str) -> Result<CustomerKey, Error> {
-    let bytes = Zeroizing::new(
-        std::fs::read(path)
-            .map_err(|err| Error::io(format!("reading the {what} {}", path.display()), err))?,
-    );
-    CustomerKey::from_file_contents(&bytes)
-        .map_err(|err| err.with_context(format!("the {what} {}", path.display())))
+    let bytes = Zeroizing::new(std::fs::read(path).map_err(|err| {
+        Error::io(
+            trf(
+                "reading the {what} {path}",
+                &[
+                    ("what", tr(what).as_str()),
+                    ("path", path.display().to_string().as_str()),
+                ],
+            ),
+            err,
+        )
+    })?);
+    CustomerKey::from_file_contents(&bytes).map_err(|err| {
+        err.with_context(trf(
+            "the {what} {path}",
+            &[
+                ("what", tr(what).as_str()),
+                ("path", path.display().to_string().as_str()),
+            ],
+        ))
+    })
 }
 
 // ---- tags ----
@@ -180,7 +208,10 @@ pub async fn tag_get(ctx: &Context, args: &TagGetArgs, out: &mut Output) -> Resu
                         error: Some(err.to_payload()),
                     };
                     out.item_failed(&record, || {
-                        format!("failed to read the tags of {uri}: {err}")
+                        trf(
+                            "failed to read the tags of {uri}: {error}",
+                            &[("uri", &uri), ("error", &err.to_string())],
+                        )
                     })?;
                 }
             }
@@ -235,9 +266,9 @@ pub async fn tag_set(ctx: &Context, args: &TagSetArgs, out: &mut Output) -> Resu
                 error: change.error.clone(),
             };
             let line = match (change.changed, args.dry_run) {
-                (true, true) => format!("would tag {uri}"),
-                (true, false) => format!("tagged {uri}"),
-                (false, _) => format!("unchanged {uri}"),
+                (true, true) => trf("would tag {uri}", &[("uri", &uri)]),
+                (true, false) => trf("tagged {uri}", &[("uri", &uri)]),
+                (false, _) => trf("unchanged {uri}", &[("uri", &uri)]),
             };
             emit(out, &mut batch, &uri, change, "tag", &record, line)?;
         }
@@ -295,9 +326,9 @@ pub async fn tag_delete(
                 error: change.error.clone(),
             };
             let line = match (change.changed, args.dry_run) {
-                (true, true) => format!("would remove tags from {uri}"),
-                (true, false) => format!("removed tags from {uri}"),
-                (false, _) => format!("unchanged {uri}"),
+                (true, true) => trf("would remove tags from {uri}", &[("uri", &uri)]),
+                (true, false) => trf("removed tags from {uri}", &[("uri", &uri)]),
+                (false, _) => trf("unchanged {uri}", &[("uri", &uri)]),
             };
             emit(
                 out,
@@ -370,14 +401,26 @@ pub async fn storage_class(
                 error: change.error.clone(),
             };
             let line = match (change.changed, args.dry_run) {
-                (true, true) => format!(
-                    "would change {uri} from {} to {class}",
-                    previous.unwrap_or("?")
+                (true, true) => trf(
+                    "would change {uri} from {previous} to {class}",
+                    &[
+                        ("uri", &uri),
+                        ("previous", previous.unwrap_or("?")),
+                        ("class", class),
+                    ],
                 ),
-                (true, false) => {
-                    format!("changed {uri} from {} to {class}", previous.unwrap_or("?"))
-                }
-                (false, _) => format!("unchanged {uri} (already {class})"),
+                (true, false) => trf(
+                    "changed {uri} from {previous} to {class}",
+                    &[
+                        ("uri", &uri),
+                        ("previous", previous.unwrap_or("?")),
+                        ("class", class),
+                    ],
+                ),
+                (false, _) => trf(
+                    "unchanged {uri} (already {what})",
+                    &[("uri", &uri), ("what", class)],
+                ),
             };
             emit(
                 out,
@@ -412,15 +455,14 @@ struct SseRecord<'a> {
 /// Checks the arguments of `bb sse` before any account is needed.
 pub fn check_sse(args: &SseArgs) -> Result<(), Error> {
     match args.mode {
-        SseMode::Customer if args.key_file.is_none() => Err(Error::Usage(
-            "SSE-C (c) needs the new key: pass --key-file FILE".into(),
-        )),
-        SseMode::S3 | SseMode::Kms(_) if args.key_file.is_some() => Err(Error::Usage(
-            "--key-file is the key of SSE-C (c); use --source-key-file for the key the objects have now"
-                .into(),
-        )),
+        SseMode::Customer if args.key_file.is_none() => Err(Error::Usage(tr(
+            "SSE-C (c) needs the new key: pass --key-file FILE",
+        ))),
+        SseMode::S3 | SseMode::Kms(_) if args.key_file.is_some() => Err(Error::Usage(tr(
+            "--key-file is the key of SSE-C (c); use --source-key-file for the key the objects have now",
+        ))),
         SseMode::Kms(_) => Ok(()),
-        _ if args.bucket_key => Err(Error::Usage("--bucket-key only applies to kms".into())),
+        _ if args.bucket_key => Err(Error::Usage(tr("--bucket-key only applies to kms"))),
         _ => Ok(()),
     }
 }
@@ -436,7 +478,7 @@ pub async fn sse(ctx: &Context, args: &SseArgs, out: &mut Output) -> Result<(), 
         },
         (SseMode::Customer, Some(path)) => EncryptionChange::Customer(read_key(path, "key file")?),
         (SseMode::Customer, None) => {
-            return Err(Error::Usage("SSE-C (c) needs --key-file".into()).into());
+            return Err(Error::Usage(tr("SSE-C (c) needs --key-file")).into());
         }
     };
     let source = args
@@ -469,15 +511,26 @@ pub async fn sse(ctx: &Context, args: &SseArgs, out: &mut Output) -> Result<(), 
             };
             let name = describe(&described);
             let line = match (change.changed, args.dry_run) {
-                (true, true) => format!(
-                    "would change the encryption of {uri} from {} to {name}",
-                    previous.unwrap_or("?")
+                (true, true) => trf(
+                    "would change the encryption of {uri} from {previous} to {name}",
+                    &[
+                        ("uri", &uri),
+                        ("previous", previous.unwrap_or("?")),
+                        ("name", &name),
+                    ],
                 ),
-                (true, false) => format!(
-                    "changed the encryption of {uri} from {} to {name}",
-                    previous.unwrap_or("?")
+                (true, false) => trf(
+                    "changed the encryption of {uri} from {previous} to {name}",
+                    &[
+                        ("uri", &uri),
+                        ("previous", previous.unwrap_or("?")),
+                        ("name", &name),
+                    ],
                 ),
-                (false, _) => format!("unchanged {uri} (already {name})"),
+                (false, _) => trf(
+                    "unchanged {uri} (already {what})",
+                    &[("uri", &uri), ("what", &name)],
+                ),
             };
             emit(
                 out,
@@ -573,7 +626,10 @@ pub async fn acl_get(ctx: &Context, args: &AclGetArgs, out: &mut Output) -> Resu
                         error: Some(err.to_payload()),
                     };
                     out.item_failed(&record, || {
-                        format!("failed to read the ACL of {uri}: {err}")
+                        trf(
+                            "failed to read the ACL of {uri}: {error}",
+                            &[("uri", &uri), ("error", &err.to_string())],
+                        )
                     })?;
                 }
             }
@@ -618,11 +674,22 @@ pub async fn acl_set(ctx: &Context, args: &AclSetArgs, out: &mut Output) -> Resu
                 changed: change.changed,
                 error: change.error.clone(),
             };
-            let was = previous.map_or_else(String::new, |p| format!(" (was {p})"));
+            let was = previous.map_or_else(String::new, |p| {
+                trf(" (was {previous})", &[("previous", p)])
+            });
             let line = match (change.changed, args.dry_run) {
-                (true, true) => format!("would set the ACL of {uri} to {acl}{was}"),
-                (true, false) => format!("set the ACL of {uri} to {acl}{was}"),
-                (false, _) => format!("unchanged {uri} (already {acl})"),
+                (true, true) => trf(
+                    "would set the ACL of {uri} to {acl}{was}",
+                    &[("uri", &uri), ("acl", acl), ("was", was.as_str())],
+                ),
+                (true, false) => trf(
+                    "set the ACL of {uri} to {acl}{was}",
+                    &[("uri", &uri), ("acl", acl), ("was", was.as_str())],
+                ),
+                (false, _) => trf(
+                    "unchanged {uri} (already {what})",
+                    &[("uri", &uri), ("what", acl)],
+                ),
             };
             emit(
                 out,

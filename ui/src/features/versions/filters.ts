@@ -1,4 +1,5 @@
 import type { DeleteMarkerMode, VersionFilter } from "../../api/types";
+import { tr } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import { baseName } from "../../lib/s3keys";
 
@@ -59,7 +60,7 @@ function count(value: number | "", label: string): { value: number | null; error
     return { value: null, error: null };
   }
   if (!Number.isInteger(value) || value < 0) {
-    return { value: null, error: `${label} must be a whole number, 0 or more.` };
+    return { value: null, error: tr("{label} must be a whole number, 0 or more.", { label }) };
   }
   return { value, error: null };
 }
@@ -71,25 +72,25 @@ function count(value: number | "", label: string): { value: number | null; error
 export function toVersionFilter(form: VersionFilterForm): FilterResult {
   const fail = (error: string): FilterResult => ({ filter: null, error });
   if (!form.showVersions && form.deleteMarkers === "exclude") {
-    return fail("Nothing would be listed: show versions or delete markers.");
+    return fail(tr("Nothing would be listed: show versions or delete markers."));
   }
   const from = form.from === "" ? null : dayStart(form.from);
   const to = form.to === "" ? null : dayStart(form.to);
   if ((form.from !== "" && from === null) || (form.to !== "" && to === null)) {
-    return fail("Enter dates as YYYY-MM-DD.");
+    return fail(tr("Enter dates as YYYY-MM-DD."));
   }
   if (from !== null && to !== null && to < from) {
-    return fail("The end date is before the start date.");
+    return fail(tr("The end date is before the start date."));
   }
-  const more = count(form.moreThan, "More than");
-  const fewer = count(form.fewerThan, "Fewer than");
+  const more = count(form.moreThan, tr("More than"));
+  const fewer = count(form.fewerThan, tr("Fewer than"));
   const countError = more.error ?? fewer.error;
   if (countError !== null) {
     return fail(countError);
   }
   const least = Math.max((more.value ?? 0) + 1, form.multipleVersions ? 2 : 1);
   if (fewer.value !== null && fewer.value <= least) {
-    return fail(`No key can have at least ${least} and fewer than ${fewer.value} versions.`);
+    return fail(tr("No key can have at least {least} and fewer than {fewer} versions.", { least, fewer: fewer.value }));
   }
   return {
     filter: {

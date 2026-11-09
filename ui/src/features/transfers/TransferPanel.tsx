@@ -23,10 +23,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useSyncExternalStore, useRef, useState } from "react";
 import type { TransferKind, TransferState, TransferTask } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
-import { formatCount, formatEta, formatSpeed, percent, plural } from "../../lib/format";
+import { getLocale, subscribeLocale, tr } from "../../i18n";
+import { formatCount, formatEta, formatSpeed, percent } from "../../lib/format";
 import {
   canCancel,
   canPause,
@@ -64,11 +65,20 @@ const STATE_COLORS: Record<TransferState, string> = {
 };
 
 const VIEW_LABELS: Record<TransferView, string> = {
-  all: "All",
-  queued: "Queued",
-  running: "Running",
-  stopped: "Stopped",
-  failed: "Failed",
+  all: tr("All"),
+  queued: tr("Queued"),
+  running: tr("Running"),
+  stopped: tr("Stopped"),
+  failed: tr("Failed"),
+};
+
+/** Titles of the empty panel per view. */
+const EMPTY_TITLES: Record<TransferView, string> = {
+  all: tr("No transfers"),
+  queued: tr("No queued transfers"),
+  running: tr("No running transfers"),
+  stopped: tr("No stopped transfers"),
+  failed: tr("No failed transfers"),
 };
 
 type TaskAction = "pause" | "resume" | "cancel" | "retry";
@@ -90,7 +100,7 @@ async function runTaskAction(model: AppModel, action: TaskAction, id: string): P
         break;
     }
   } catch (error) {
-    model.status.error(error, { notify: "The transfer could not be changed" });
+    model.status.error(error, { notify: tr("The transfer could not be changed") });
   }
 }
 
@@ -103,11 +113,16 @@ interface RowProps {
 }
 
 const TransferRow = memo(function TransferRow({ task, waiting, top, onAction }: RowProps) {
+  // The row is memoised, so it subscribes to the language itself.
+  useSyncExternalStore(subscribeLocale, getLocale);
   const Icon = KIND_ICONS[task.kind];
   const source = describeLocation(task.src);
   const destination = describeLocation(task.dst);
   const value = task.state === "completed" ? 100 : (percent(task.bytes_done, task.bytes_total) ?? 0);
-  const label = `${KIND_LABELS[task.kind]} ${source}${destination ? ` to ${destination}` : ""}`;
+  const label =
+    destination !== ""
+      ? tr("{kind} {src} to {dst}", { kind: KIND_LABELS[task.kind], src: source, dst: destination })
+      : tr("{kind} {src}", { kind: KIND_LABELS[task.kind], src: source });
   return (
     <div
       role="listitem"
@@ -137,64 +152,64 @@ const TransferRow = memo(function TransferRow({ task, waiting, top, onAction }: 
             size="sm"
             w={140}
             color={STATE_COLORS[task.state]}
-            aria-label={`Progress ${Math.round(value)}%`}
+            aria-label={tr("Progress {percent}%", { percent: Math.round(value) })}
             animated={task.state === "running"}
           />
           <Text size="xs" c="dimmed" className="bb-task-meta">
             {progressText(task)}
             {task.state === "running" && task.speed > 0 ? ` · ${formatSpeed(task.speed)}` : ""}
-            {task.state === "running" && task.eta !== null ? ` · ${formatEta(task.eta)} left` : ""}
+            {task.state === "running" && task.eta !== null ? ` · ${tr("{eta} left", { eta: formatEta(task.eta) })}` : ""}
           </Text>
           {task.error ? (
             <Text size="xs" c={task.state === "skipped" ? "dimmed" : "red"} className="bb-ellipsis" title={task.error}>
-              {task.state === "skipped" ? `Skipped: ${task.error}` : task.error}
+              {task.state === "skipped" ? tr("Skipped: {reason}", { reason: task.error }) : task.error}
             </Text>
           ) : null}
         </Group>
       </div>
       <Badge size="sm" variant="light" color={waiting ? "orange" : STATE_COLORS[task.state]} className="bb-task-state">
-        {waiting ? "Waiting" : STATE_LABELS[task.state]}
+        {waiting ? tr("Waiting") : STATE_LABELS[task.state]}
       </Badge>
       <Group gap={2} wrap="nowrap" className="bb-task-actions">
-        <Tooltip label="Pause">
+        <Tooltip label={tr("Pause")}>
           <ActionIcon
             size="sm"
             variant="subtle"
-            aria-label="Pause transfer"
+            aria-label={tr("Pause transfer")}
             disabled={!canPause(task.state)}
             onClick={() => onAction("pause", task.id)}
           >
             <IconPlayerPause size={14} />
           </ActionIcon>
         </Tooltip>
-        <Tooltip label="Resume">
+        <Tooltip label={tr("Resume")}>
           <ActionIcon
             size="sm"
             variant="subtle"
-            aria-label="Resume transfer"
+            aria-label={tr("Resume transfer")}
             disabled={!canResume(task.state)}
             onClick={() => onAction("resume", task.id)}
           >
             <IconPlayerPlay size={14} />
           </ActionIcon>
         </Tooltip>
-        <Tooltip label="Retry">
+        <Tooltip label={tr("Retry")}>
           <ActionIcon
             size="sm"
             variant="subtle"
-            aria-label="Retry transfer"
+            aria-label={tr("Retry transfer")}
             disabled={!canRetry(task.state)}
             onClick={() => onAction("retry", task.id)}
           >
             <IconRefresh size={14} />
           </ActionIcon>
         </Tooltip>
-        <Tooltip label="Cancel">
+        <Tooltip label={tr("Cancel")}>
           <ActionIcon
             size="sm"
             variant="subtle"
             color="red"
-            aria-label="Cancel transfer"
+            aria-label={tr("Cancel transfer")}
             disabled={!canCancel(task.state)}
             onClick={() => onAction("cancel", task.id)}
           >
@@ -244,9 +259,14 @@ export function TransferPanel() {
       } else {
         const unfinished = counts.queued + counts.running + counts.stopped + counts.failed;
         const confirmed = await model.dialogs.confirm({
-          title: "Cancel all transfers",
-          message: `Cancel ${plural(unfinished, "unfinished transfer")}? Partly transferred files and objects are removed.`,
-          confirmLabel: "Cancel transfers",
+          title: tr("Cancel all transfers"),
+          message:
+            unfinished === 1
+              ? tr("Cancel 1 unfinished transfer? Partly transferred files and objects are removed.")
+              : tr("Cancel {count} unfinished transfers? Partly transferred files and objects are removed.", {
+                  count: formatCount(unfinished),
+                }),
+          confirmLabel: tr("Cancel transfers"),
           danger: true,
         });
         if (confirmed) {
@@ -254,25 +274,25 @@ export function TransferPanel() {
         }
       }
     } catch (error) {
-      model.status.error(error, { notify: "The transfer queue could not be changed" });
+      model.status.error(error, { notify: tr("The transfer queue could not be changed") });
     }
   };
   const unfinished = counts.queued + counts.running + counts.stopped + counts.failed;
   return (
-    <section className="bb-panel bb-transfer-panel" aria-label="Transfer queue">
+    <section className="bb-panel bb-transfer-panel" aria-label={tr("Transfer queue")}>
       <Group className="bb-panel-header" justify="space-between" wrap="nowrap">
         <Group gap="sm" wrap="nowrap">
           <Group gap={6} wrap="nowrap">
             <IconTransfer size={16} aria-hidden />
             <Text size="sm" fw={600}>
-              Transfers
+              {tr("Transfers")}
             </Text>
           </Group>
           <SegmentedControl
             size="xs"
             value={view}
             onChange={setView}
-            aria-label="Transfer view"
+            aria-label={tr("Transfer view")}
             data={TRANSFER_VIEWS.map((item) => ({
               value: item,
               label: `${VIEW_LABELS[item]} ${formatCount(counts[item])}`,
@@ -281,7 +301,7 @@ export function TransferPanel() {
         </Group>
         <Group gap={4} wrap="nowrap">
           <Button size="compact-xs" variant="subtle" disabled={counts.stopped === 0} onClick={() => void bulk("start")}>
-            Start all
+            {tr("Start all")}
           </Button>
           <Button
             size="compact-xs"
@@ -289,7 +309,7 @@ export function TransferPanel() {
             disabled={counts.queued + counts.running === 0}
             onClick={() => void bulk("stop")}
           >
-            Stop all
+            {tr("Stop all")}
           </Button>
           <Button
             size="compact-xs"
@@ -298,7 +318,7 @@ export function TransferPanel() {
             disabled={unfinished === 0}
             onClick={() => void bulk("cancel")}
           >
-            Cancel all
+            {tr("Cancel all")}
           </Button>
           <Button
             size="compact-xs"
@@ -306,11 +326,11 @@ export function TransferPanel() {
             disabled={counts.completed + counts.cancelled + counts.skipped === 0}
             onClick={() => void bulk("clear")}
           >
-            Clear finished
+            {tr("Clear finished")}
           </Button>
           <CloseButton
             size="sm"
-            aria-label="Hide transfers"
+            aria-label={tr("Hide transfers")}
             disabled={!settingsLoaded}
             onClick={() => void togglePanel(model, "transfers")}
           />
@@ -321,11 +341,11 @@ export function TransferPanel() {
           <EmptyState
             size="xs"
             py="md"
-            title={view === "all" ? "No transfers" : `No ${VIEW_LABELS[view].toLowerCase()} transfers`}
-            description={view === "all" ? "Uploads, downloads, copies, moves and deletes appear here." : undefined}
+            title={EMPTY_TITLES[view]}
+            description={view === "all" ? tr("Uploads, downloads, copies, moves and deletes appear here.") : undefined}
           />
         ) : (
-          <div role="list" aria-label="Transfers" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          <div role="list" aria-label={tr("Transfers")} style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((item) => {
               const id = ids[item.index];
               const task = id === undefined ? undefined : tasks.get(id);

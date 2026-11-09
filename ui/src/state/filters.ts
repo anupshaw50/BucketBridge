@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { Backend } from "../api/backend";
 import { errorText } from "../api/errors";
 import type { SavedFilter } from "../api/types";
+import { tr } from "../i18n";
 import type { BrowserController } from "./browser";
 import type { StatusController } from "./status";
 
@@ -95,13 +96,13 @@ export class FilterController {
   apply(name: string): boolean {
     const found = this.saved.find((item) => sameName(item.name, name));
     if (found === undefined) {
-      this.status.error(`There is no saved filter named "${name}".`);
+      this.status.error(tr("There is no saved filter named \"{name}\".", { name }));
       return false;
     }
     if (!this.browser.setFilter(found)) {
       return false;
     }
-    this.status.info(`Showing only the items that match "${found.name}".`);
+    this.status.info(tr("Showing only the items that match \"{name}\".", { name: found.name }));
     return true;
   }
 

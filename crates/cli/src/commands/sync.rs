@@ -36,6 +36,7 @@ use tokio::sync::mpsc;
 
 use crate::cli::{SyncArgs, SyncSource};
 use crate::context::{Context, env};
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 use crate::records::{SyncRecord, SyncRowRecord, SyncSummaryRecord};
 use crate::transfer::{ItemProgress, ProgressLine, Totals, print_above};
@@ -71,21 +72,17 @@ fn target(args: &SyncArgs) -> Result<Target<'_>, Error> {
                     .map_or(SyncDirection::Upload, SyncDirection::from),
                 SyncSource::S3(_) => {
                     if args.direction.is_some() {
-                        return Err(Error::Usage(
-                            "--direction does not apply to a sync between two S3 locations: it always copies from the first to the second"
-                                .into(),
-                        ));
+                        return Err(Error::Usage(tr(
+                            "--direction does not apply to a sync between two S3 locations: it always copies from the first to the second",
+                        )));
                     }
                     SyncDirection::S3ToS3
                 }
             };
             if args.delete && direction == SyncDirection::Bidirectional {
-                return Err(Error::Usage(
-                    "--delete cannot be combined with --direction bidirectional: without a record \
-                     of earlier runs, a file that is missing on one side may have been deleted there \
-                     or may be new on the other side"
-                        .into(),
-                ));
+                return Err(Error::Usage(tr(
+                    "--delete cannot be combined with --direction bidirectional: without a record of earlier runs, a file that is missing on one side may have been deleted there or may be new on the other side",
+                )));
             }
             Ok(Target::Plan {
                 source,
@@ -94,10 +91,9 @@ fn target(args: &SyncArgs) -> Result<Target<'_>, Error> {
                 delete: args.delete,
             })
         }
-        _ => Err(Error::Usage(
-            "bb sync needs a local folder and an S3 location, two S3 locations, --job NAME or --resume PLAN_ID"
-                .into(),
-        )),
+        _ => Err(Error::Usage(tr(
+            "bb sync needs a local folder and an S3 location, two S3 locations, --job NAME or --resume PLAN_ID",
+        ))),
     }
 }
 
@@ -135,9 +131,12 @@ fn apply_flags(args: &SyncArgs, mut options: SyncOptions) -> Result<SyncOptions,
     options.exclude.extend(args.exclude.iter().cloned());
     if let Some(file) = &args.exclude_from {
         let file = std::path::absolute(file).map_err(|err| {
-            Error::Usage(format!(
-                "invalid exclusion file '{}': {err}",
-                file.display()
+            Error::Usage(trf(
+                "invalid exclusion file '{file}': {error}",
+                &[
+                    ("file", &file.display().to_string()),
+                    ("error", &err.to_string()),
+                ],
             ))
         })?;
         options.exclude.extend(rule_lines(&file)?);
@@ -219,9 +218,13 @@ pub fn resolve_job(
     if let Some(account) = &global.account
         && account != &job.account_id
     {
-        return Err(Error::Usage(format!(
-            "the sync job '{}' runs with the account {}; drop --account or use --account {}",
-            job.name, job.account_id, job.account_id
+        return Err(Error::Usage(trf(
+            "the sync job '{name}' runs with the account {account}; drop --account or use --account {account2}",
+            &[
+                ("name", job.name.as_str()),
+                ("account", job.account_id.as_str()),
+                ("account2", job.account_id.as_str()),
+            ],
         )));
     }
     let mut global = global.clone();
@@ -285,9 +288,12 @@ async fn save_job(ctx: &Context, name: &str, spec: &Spec, out: &mut Output) -> R
         String::new()
     } else {
         let absolute = std::path::absolute(&spec.local).map_err(|err| {
-            Error::Usage(format!(
-                "invalid local folder '{}': {err}",
-                spec.local.display()
+            Error::Usage(trf(
+                "invalid local folder '{folder}': {error}",
+                &[
+                    ("folder", &spec.local.display().to_string()),
+                    ("error", &err.to_string()),
+                ],
             ))
         })?;
         absolute.display().to_string()
@@ -318,7 +324,10 @@ async fn save_job(ctx: &Context, name: &str, spec: &Spec, out: &mut Output) -> R
         syncjobs::save(&store, job)
     })
     .await?;
-    out.notice(&format!("bb: saved sync job '{}'", saved.name));
+    out.notice(&trf(
+        "bb: saved sync job '{name}'",
+        &[("name", &saved.name)],
+    ));
     Ok(())
 }
 
@@ -333,9 +342,9 @@ fn engine(ctx: &Context) -> Result<TransferEngine, Error> {
 /// The directories that hold the plan store.
 fn require_dirs(ctx: &Context) -> Result<&Dirs, Error> {
     ctx.dirs.as_ref().ok_or_else(|| {
-        Error::Usage(format!(
-            "no configuration directory for the sync plans: set {} or pass --config-dir",
-            env::CONFIG_DIR
+        Error::Usage(trf(
+            "no configuration directory for the sync plans: set {env} or pass --config-dir",
+            &[("env", env::CONFIG_DIR)],
         ))
     })
 }
@@ -405,9 +414,13 @@ async fn resume(
         blocking(move || store.get(&plan_id)).await?
     };
     if plan.account_id != ctx.account_id {
-        return Err(Error::Usage(format!(
-            "plan {} was made with account '{}'; resume it with --account {}",
-            plan.id, plan.account_id, plan.account_id
+        return Err(Error::Usage(trf(
+            "plan {id} was made with account '{account}'; resume it with --account {account2}",
+            &[
+                ("id", plan.id.as_str()),
+                ("account", plan.account_id.as_str()),
+                ("account2", plan.account_id.as_str()),
+            ],
         ))
         .into());
     }
@@ -511,7 +524,9 @@ async fn execute(
         Ok(summary) => summary,
         Err(err) => {
             reporter.close();
-            return Err(err.with_context(format!("sync plan {plan_id}")).into());
+            return Err(err
+                .with_context(trf("sync plan {plan_id}", &[("plan_id", &plan_id)]))
+                .into());
         }
     };
     // A plan that ran to the end is not needed any more; one with failed or
@@ -647,19 +662,43 @@ impl Layout {
     fn success_line(&self, row: &SyncRow, dry_run: bool) -> String {
         let (local, remote) = (self.local(&row.rel_path), self.remote(&row.rel_path));
         let source = self.source_uri(&row.rel_path).unwrap_or_default();
-        let verb = |would: &'static str, done: &'static str| if dry_run { would } else { done };
+        let template = |would: &'static str, done: &'static str| {
+            if dry_run { would } else { done }
+        };
         match self.operation(row) {
-            Operation::Copy => format!("{} {source} to {remote}", verb("would copy", "copied")),
-            Operation::Upload => {
-                format!("{} {local} to {remote}", verb("would upload", "uploaded"))
-            }
-            Operation::Download => format!(
-                "{} {remote} to {local}",
-                verb("would download", "downloaded")
+            Operation::Copy => trf(
+                template(
+                    "would copy {source} to {destination}",
+                    "copied {source} to {destination}",
+                ),
+                &[
+                    ("source", source.as_str()),
+                    ("destination", remote.as_str()),
+                ],
             ),
-            Operation::DeleteRemote => format!("{} {remote}", verb("would delete", "deleted")),
-            Operation::DeleteLocal => format!("{} {local}", verb("would delete", "deleted")),
-            Operation::Unsyncable => format!("cannot sync {}", row.rel_path),
+            Operation::Upload => trf(
+                template(
+                    "would upload {source} to {destination}",
+                    "uploaded {source} to {destination}",
+                ),
+                &[("source", local.as_str()), ("destination", remote.as_str())],
+            ),
+            Operation::Download => trf(
+                template(
+                    "would download {source} to {destination}",
+                    "downloaded {source} to {destination}",
+                ),
+                &[("source", remote.as_str()), ("destination", local.as_str())],
+            ),
+            Operation::DeleteRemote => trf(
+                template("would delete {source}", "deleted {source}"),
+                &[("source", remote.as_str())],
+            ),
+            Operation::DeleteLocal => trf(
+                template("would delete {source}", "deleted {source}"),
+                &[("source", local.as_str())],
+            ),
+            Operation::Unsyncable => trf("cannot sync {path}", &[("path", &row.rel_path)]),
         }
     }
 
@@ -669,12 +708,42 @@ impl Layout {
         let why = row.error.as_deref().unwrap_or("unknown error");
         let source = self.source_uri(&row.rel_path).unwrap_or_default();
         match self.operation(row) {
-            Operation::Copy => format!("failed to copy {source} to {remote}: {why}"),
-            Operation::Upload => format!("failed to upload {local} to {remote}: {why}"),
-            Operation::Download => format!("failed to download {remote} to {local}: {why}"),
-            Operation::DeleteRemote => format!("failed to delete {remote}: {why}"),
-            Operation::DeleteLocal => format!("failed to delete {local}: {why}"),
-            Operation::Unsyncable => format!("cannot sync {}: {why}", row.rel_path),
+            Operation::Copy => trf(
+                "failed to copy {source} to {destination}: {why}",
+                &[
+                    ("source", source.as_str()),
+                    ("destination", remote.as_str()),
+                    ("why", why),
+                ],
+            ),
+            Operation::Upload => trf(
+                "failed to upload {source} to {destination}: {why}",
+                &[
+                    ("source", local.as_str()),
+                    ("destination", remote.as_str()),
+                    ("why", why),
+                ],
+            ),
+            Operation::Download => trf(
+                "failed to download {source} to {destination}: {why}",
+                &[
+                    ("source", remote.as_str()),
+                    ("destination", local.as_str()),
+                    ("why", why),
+                ],
+            ),
+            Operation::DeleteRemote => trf(
+                "failed to delete {source}: {why}",
+                &[("source", remote.as_str()), ("why", why)],
+            ),
+            Operation::DeleteLocal => trf(
+                "failed to delete {source}: {why}",
+                &[("source", local.as_str()), ("why", why)],
+            ),
+            Operation::Unsyncable => trf(
+                "cannot sync {path}: {why}",
+                &[("path", &row.rel_path), ("why", why)],
+            ),
         }
     }
 }
@@ -726,7 +795,7 @@ impl Tally {
 
 /// The `--summary` report in the human format: one indented line per action.
 fn report_text(report: &SyncReport) -> String {
-    let mut lines = vec!["summary:".to_owned()];
+    let mut lines = vec![tr("summary:")];
     lines.extend(report.lines().into_iter().map(|line| format!("  {line}")));
     lines.join("\n")
 }
@@ -734,21 +803,35 @@ fn report_text(report: &SyncReport) -> String {
 /// The one line that ends a run in the human format.
 fn summary_line(tally: &Tally, dry_run: bool) -> String {
     let mut line = if dry_run {
-        format!(
-            "would copy {}, delete {}; {} already in sync",
-            tally.pending_copy, tally.pending_delete, tally.equal
+        trf(
+            "would copy {copy}, delete {delete}; {equal} already in sync",
+            &[
+                ("copy", tally.pending_copy.to_string().as_str()),
+                ("delete", tally.pending_delete.to_string().as_str()),
+                ("equal", tally.equal.to_string().as_str()),
+            ],
         )
     } else {
-        format!(
-            "{} copied, {} deleted, {} already in sync",
-            tally.copied, tally.deleted, tally.equal
+        trf(
+            "{copied} copied, {deleted} deleted, {equal} already in sync",
+            &[
+                ("copied", tally.copied.to_string().as_str()),
+                ("deleted", tally.deleted.to_string().as_str()),
+                ("equal", tally.equal.to_string().as_str()),
+            ],
         )
     };
     if tally.failed() > 0 {
-        line.push_str(&format!(", {} failed", tally.failed()));
+        line.push_str(&trf(
+            ", {failed} failed",
+            &[("failed", tally.failed().to_string().as_str())],
+        ));
     }
     if !dry_run && tally.pending() > 0 {
-        line.push_str(&format!(", {} not done", tally.pending()));
+        line.push_str(&trf(
+            ", {pending} not done",
+            &[("pending", tally.pending().to_string().as_str())],
+        ));
     }
     line
 }
@@ -869,7 +952,10 @@ impl<'o> Reporter<'o> {
         let Some(plan_id) = &self.layout.plan_id else {
             return;
         };
-        let text = format!("bb: interrupted; stopping. Resume with: bb sync --resume {plan_id}");
+        let text = trf(
+            "bb: interrupted; stopping. Resume with: bb sync --resume {plan_id}",
+            &[("plan_id", plan_id)],
+        );
         let out = &*self.out;
         print_above(self.line.as_ref(), || out.notice(&text));
     }
@@ -891,9 +977,12 @@ impl<'o> Reporter<'o> {
             && !cancelled
             && tally.retryable > 0
         {
-            self.out.notice(&format!(
-                "bb: {} failed while running; try again with: bb sync --resume {plan_id}",
-                tally.retryable
+            self.out.notice(&trf(
+                "bb: {failed} failed while running; try again with: bb sync --resume {plan_id}",
+                &[
+                    ("failed", tally.retryable.to_string().as_str()),
+                    ("plan_id", plan_id),
+                ],
             ));
         }
         let record = SyncRecord::Summary(SyncSummaryRecord {
@@ -935,10 +1024,12 @@ impl<'o> Reporter<'o> {
             return Err(Error::Cancelled.into());
         }
         if tally.failed() > 0 {
-            return Err(Error::Remote(format!(
-                "{} of {} files could not be synced",
-                tally.failed(),
-                tally.needing_work()
+            return Err(Error::Remote(trf(
+                "{failed} of {total} files could not be synced",
+                &[
+                    ("failed", tally.failed().to_string().as_str()),
+                    ("total", tally.needing_work().to_string().as_str()),
+                ],
             ))
             .into());
         }
@@ -956,6 +1047,7 @@ mod tests {
 
     use super::*;
     use crate::cli::{Cli, Command};
+    use crate::i18n::trf;
 
     fn args(extra: &[&str]) -> SyncArgs {
         let cli = Cli::try_parse_from(["bb", "sync"].into_iter().chain(extra.iter().copied()))
@@ -1091,6 +1183,8 @@ mod tests {
 
     #[test]
     fn lines_name_both_sides() {
+        // The values are data; asserting through the same templates as
+        // the code keeps the test language-agnostic.
         let layout = layout(Some("p"));
         // The separators of this OS below the folder.
         let local = |rel: &str| {
@@ -1099,53 +1193,68 @@ mod tests {
             path.display().to_string()
         };
         let upload = row("a/b.txt", SyncAction::Copy, Some(Side::Remote));
+        let src = local("a/b.txt");
+        let dst = "s3://bucket/backup/a/b.txt";
         assert_eq!(
             layout.success_line(&upload, false),
-            format!(
-                "uploaded {} to s3://bucket/backup/a/b.txt",
-                local("a/b.txt")
+            trf(
+                "uploaded {source} to {destination}",
+                &[("source", src.as_str()), ("destination", dst)]
             )
         );
         assert_eq!(
             layout.success_line(&upload, true),
-            format!(
-                "would upload {} to s3://bucket/backup/a/b.txt",
-                local("a/b.txt")
+            trf(
+                "would upload {source} to {destination}",
+                &[("source", src.as_str()), ("destination", dst)]
             )
         );
         let download = row("a/b.txt", SyncAction::Copy, Some(Side::Local));
         assert_eq!(
             layout.success_line(&download, false),
-            format!(
-                "downloaded s3://bucket/backup/a/b.txt to {}",
-                local("a/b.txt")
+            trf(
+                "downloaded {source} to {destination}",
+                &[("source", dst), ("destination", src.as_str())]
             )
         );
         let remote_delete = row("old.txt", SyncAction::Delete, Some(Side::Remote));
         assert_eq!(
             layout.success_line(&remote_delete, true),
-            "would delete s3://bucket/backup/old.txt"
+            trf(
+                "would delete {source}",
+                &[("source", "s3://bucket/backup/old.txt")]
+            )
         );
         let local_delete = row("gone.txt", SyncAction::Delete, Some(Side::Local));
         assert_eq!(
             layout.success_line(&local_delete, false),
-            format!("deleted {}", local("gone.txt"))
+            trf(
+                "deleted {source}",
+                &[("source", local("gone.txt").as_str())]
+            )
         );
 
         let mut failed = upload;
         failed.error = Some("access denied".to_owned());
         assert_eq!(
             layout.failure_line(&failed),
-            format!(
-                "failed to upload {} to s3://bucket/backup/a/b.txt: access denied",
-                local("a/b.txt")
+            trf(
+                "failed to upload {source} to {destination}: {why}",
+                &[
+                    ("source", src.as_str()),
+                    ("destination", dst),
+                    ("why", "access denied")
+                ]
             )
         );
         let mut unplanned = row("c.txt", SyncAction::Failed, None);
         unplanned.error = Some("cannot be read".to_owned());
         assert_eq!(
             layout.failure_line(&unplanned),
-            "cannot sync c.txt: cannot be read"
+            trf(
+                "cannot sync {path}: {why}",
+                &[("path", "c.txt"), ("why", "cannot be read")]
+            )
         );
     }
 
@@ -1268,16 +1377,26 @@ mod tests {
 
     #[test]
     fn summary_lines() {
+        // Asserted through the same templates and values as the code.
+        let base = |copied: usize, deleted: usize, equal: usize| {
+            trf(
+                "{copied} copied, {deleted} deleted, {equal} already in sync",
+                &[
+                    ("copied", copied.to_string().as_str()),
+                    ("deleted", deleted.to_string().as_str()),
+                    ("equal", equal.to_string().as_str()),
+                ],
+            )
+        };
         let tally = Tally {
             equal: 7,
             copied: 3,
             deleted: 1,
             ..Tally::default()
         };
-        assert_eq!(
-            summary_line(&tally, false),
-            "3 copied, 1 deleted, 7 already in sync"
-        );
+        let mut expected = base(3, 1, 7);
+        expected.push_str(&trf(", {failed} failed", &[("failed", "2")]));
+        expected.push_str(&trf(", {pending} not done", &[("pending", "3")]));
         let troubled = Tally {
             unsyncable: 1,
             retryable: 1,
@@ -1285,13 +1404,13 @@ mod tests {
             pending_delete: 1,
             ..tally
         };
-        assert_eq!(
-            summary_line(&troubled, false),
-            "3 copied, 1 deleted, 7 already in sync, 2 failed, 3 not done"
+        assert_eq!(summary_line(&troubled, false), expected);
+        let mut dry_expected = trf(
+            "would copy {copy}, delete {delete}; {equal} already in sync",
+            &[("copy", "2"), ("delete", "1"), ("equal", "7")],
         );
-        assert_eq!(
-            summary_line(&troubled, true),
-            "would copy 2, delete 1; 7 already in sync, 2 failed"
-        );
+        dry_expected.push_str(&trf(", {failed} failed", &[("failed", "2")]));
+        assert_eq!(summary_line(&troubled, true), dry_expected);
+        assert_eq!(summary_line(&tally, false), base(3, 1, 7));
     }
 }

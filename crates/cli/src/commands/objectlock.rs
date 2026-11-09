@@ -15,6 +15,7 @@ use serde::Serialize;
 use super::objectmeta::{KeyChunks, batch_options, emit, object_uri};
 use crate::cli::{HoldState, LockGetArgs, LockSetArgs, RestoreArgs};
 use crate::context::Context;
+use crate::i18n::{tr, trf};
 use crate::output::{Batch, Failure, Output};
 
 /// Objects read at the same time by `bb lock get`.
@@ -24,13 +25,12 @@ const READ_CONCURRENCY: usize = 8;
 /// with a retention change, and a retention in the past is refused here.
 pub fn check_set(args: &LockSetArgs) -> Result<(), Error> {
     if args.bypass_governance && args.mode.is_none() && !args.clear_retention {
-        return Err(Error::Usage(
-            "--bypass-governance applies to a retention change (--mode and --until, or --clear-retention)"
-                .into(),
-        ));
+        return Err(Error::Usage(tr(
+            "--bypass-governance applies to a retention change (--mode and --until, or --clear-retention)",
+        )));
     }
     if args.until.is_some_and(|until| until <= Utc::now()) {
-        return Err(Error::Usage("--until must be in the future".into()));
+        return Err(Error::Usage(tr("--until must be in the future")));
     }
     Ok(())
 }
@@ -93,7 +93,10 @@ pub async fn lock_get(ctx: &Context, args: &LockGetArgs, out: &mut Output) -> Re
                         error: Some(error.to_payload()),
                     };
                     out.item_failed(&record, || {
-                        format!("failed to read the lock of {uri}: {error}")
+                        trf(
+                            "failed to read the lock of {uri}: {error}",
+                            &[("uri", &uri), ("error", &error.to_string())],
+                        )
                     })?;
                 }
             }
@@ -165,17 +168,23 @@ pub async fn lock_set(ctx: &Context, args: &LockSetArgs, out: &mut Output) -> Re
                     error: result.error.clone(),
                 };
                 let what = match (mode, until) {
-                    (Some(mode), Some(until)) => format!(
-                        "the retention of {uri} to {} until {}",
-                        objectlock::mode_name(mode),
-                        until.format("%Y-%m-%dT%H:%M:%SZ")
+                    (Some(mode), Some(until)) => trf(
+                        "the retention of {uri} to {mode} until {until}",
+                        &[
+                            ("uri", &uri),
+                            ("mode", objectlock::mode_name(mode)),
+                            (
+                                "until",
+                                until.format("%Y-%m-%dT%H:%M:%SZ").to_string().as_str(),
+                            ),
+                        ],
                     ),
-                    _ => format!("the retention of {uri} to none"),
+                    _ => trf("the retention of {uri} to none", &[("uri", &uri)]),
                 };
                 let line = if args.dry_run {
-                    format!("would set {what}")
+                    trf("would set {what}", &[("what", what.as_str())])
                 } else {
-                    format!("set {what}")
+                    trf("set {what}", &[("what", what.as_str())])
                 };
                 emit(
                     out,
@@ -194,7 +203,7 @@ pub async fn lock_set(ctx: &Context, args: &LockSetArgs, out: &mut Output) -> Re
                 .s3
                 .set_object_legal_hold(bucket, &chunk, on, version, options)
                 .await?;
-            let word = if on { "on" } else { "off" };
+            let word = tr(if on { "on" } else { "off" });
             for result in &results {
                 let uri = object_uri(bucket, &result.key);
                 let record = LockSetRecord {
@@ -210,9 +219,18 @@ pub async fn lock_set(ctx: &Context, args: &LockSetArgs, out: &mut Output) -> Re
                     error: result.error.clone(),
                 };
                 let line = match (result.changed, args.dry_run) {
-                    (true, true) => format!("would turn the legal hold of {uri} {word}"),
-                    (true, false) => format!("turned the legal hold of {uri} {word}"),
-                    (false, _) => format!("unchanged {uri} (legal hold already {word})"),
+                    (true, true) => trf(
+                        "would turn the legal hold of {uri} {word}",
+                        &[("uri", &uri), ("word", word.as_str())],
+                    ),
+                    (true, false) => trf(
+                        "turned the legal hold of {uri} {word}",
+                        &[("uri", &uri), ("word", word.as_str())],
+                    ),
+                    (false, _) => trf(
+                        "unchanged {uri} (legal hold already {word})",
+                        &[("uri", &uri), ("word", word.as_str())],
+                    ),
                 };
                 emit(
                     out,
@@ -273,14 +291,22 @@ pub async fn restore(ctx: &Context, args: &RestoreArgs, out: &mut Output) -> Res
                 error: result.error.clone(),
             };
             let line = if args.dry_run {
-                format!(
-                    "would request the restore of {uri} for {} days ({})",
-                    args.days, args.tier
+                trf(
+                    "would request the restore of {uri} for {days} days ({tier})",
+                    &[
+                        ("uri", &uri),
+                        ("days", args.days.to_string().as_str()),
+                        ("tier", args.tier.as_str()),
+                    ],
                 )
             } else {
-                format!(
-                    "requested the restore of {uri} for {} days ({})",
-                    args.days, args.tier
+                trf(
+                    "requested the restore of {uri} for {days} days ({tier})",
+                    &[
+                        ("uri", &uri),
+                        ("days", args.days.to_string().as_str()),
+                        ("tier", args.tier.as_str()),
+                    ],
                 )
             };
             emit(out, &mut batch, &uri, result, "restore", &record, line)?;

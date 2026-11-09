@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UploadRow } from "../api/types";
+import { tr } from "../i18n";
 import { describeFilter, emptyFilterSpec } from "./filters";
 import {
   dateToTimestamp,
@@ -31,9 +32,9 @@ describe("upload ages", () => {
     expect(uploadAgeDays(new Date(NOW + 5000).toISOString(), NOW)).toBe(0);
     expect(uploadAgeDays(null, NOW)).toBeNull();
     expect(uploadAgeDays("not a date", NOW)).toBeNull();
-    expect(formatAge(daysAgo(0), NOW)).toBe("today");
-    expect(formatAge(daysAgo(1), NOW)).toBe("1 day");
-    expect(formatAge(daysAgo(45), NOW)).toBe("45 days");
+    expect(formatAge(daysAgo(0), NOW)).toBe(tr("today"));
+    expect(formatAge(daysAgo(1), NOW)).toBe(tr("1 day"));
+    expect(formatAge(daysAgo(45), NOW)).toBe(tr("{n} days", { n: 45 }));
     expect(formatAge(null, NOW)).toBe("");
   });
 
@@ -90,7 +91,7 @@ describe("date inputs", () => {
 
 describe("describeFilter", () => {
   it("lists the criteria of a filter", () => {
-    expect(describeFilter(emptyFilterSpec())).toBe("Matches everything");
+    expect(describeFilter(emptyFilterSpec())).toBe(tr("Matches everything"));
     expect(
       describeFilter({
         prefix: "logs/",
@@ -102,9 +103,16 @@ describe("describeFilter", () => {
         storage_classes: ["STANDARD_IA", "GLACIER"],
       }),
     ).toBe(
-      'prefix "logs/"; glob **/*.gz; size 1.0 KiB to 1.0 MiB; modified on or after 2026-01-01; modified before 2026-07-01; class STANDARD_IA, GLACIER',
+      [
+        tr("prefix \"{prefix}\"", { prefix: "logs/" }),
+        tr("glob {glob}", { glob: "**/*.gz" }),
+        tr("size {min} to {max}", { min: "1.0 KiB", max: "1.0 MiB" }),
+        tr("modified on or after {time}", { time: "2026-01-01" }),
+        tr("modified before {time}", { time: "2026-07-01" }),
+        tr("class {classes}", { classes: "STANDARD_IA, GLACIER" }),
+      ].join("; "),
     );
-    expect(describeFilter({ ...emptyFilterSpec(), min_size: 10 })).toBe("size at least 10 B");
-    expect(describeFilter({ ...emptyFilterSpec(), max_size: 2048 })).toBe("size at most 2.0 KiB");
+    expect(describeFilter({ ...emptyFilterSpec(), min_size: 10 })).toBe(tr("size at least {min}", { min: "10 B" }));
+    expect(describeFilter({ ...emptyFilterSpec(), max_size: 2048 })).toBe(tr("size at most {max}", { max: "2.0 KiB" }));
   });
 });

@@ -3,6 +3,7 @@ import { IconWorldUpload } from "@tabler/icons-react";
 import { useState } from "react";
 import { errorText } from "../../api/errors";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { CopyField } from "../../components/CopyField";
 import { shortenerName } from "./shortener";
 
@@ -21,10 +22,10 @@ export function ShortenControl({ url }: { url: string }) {
     return (
       <Group gap="xs">
         <Text size="xs" c="dimmed">
-          URL shortening is off. Share links are never sent to a third party unless you choose a service.
+          {tr("URL shortening is off. Share links are never sent to a third party unless you choose a service.")}
         </Text>
         <Button size="compact-xs" variant="subtle" onClick={() => model.dialogs.open({ kind: "settings", page: "sharing" })}>
-          Choose a service...
+          {tr("Choose a service...")}
         </Button>
       </Group>
     );
@@ -52,10 +53,10 @@ export function ShortenControl({ url }: { url: string }) {
           loading={busy}
           onClick={() => void shorten()}
         >
-          Shorten
+          {tr("Shorten")}
         </Button>
         <Text size="xs" c="dimmed">
-          Shorten sends the whole link, including its signature, to {name}, outside this machine.
+          {tr("Shorten sends the whole link, including its signature, to {name}, outside this machine.", { name })}
         </Text>
       </Group>
       {error !== null ? (
@@ -65,9 +66,9 @@ export function ShortenControl({ url }: { url: string }) {
       ) : null}
       {short !== null && short.source === url ? (
         <>
-          <CopyField label="Short link" value={short.link} sensitive />
+          <CopyField label={tr("Short link")} value={short.link} sensitive />
           <Text size="xs" c="dimmed">
-            The short link keeps redirecting after the presigned link expires, but the target stops working.
+            {tr("The short link keeps redirecting after the presigned link expires, but the target stops working.")}
           </Text>
         </>
       ) : null}

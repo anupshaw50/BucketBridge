@@ -201,9 +201,9 @@ pub fn load_config(dirs: Option<&Dirs>) -> Result<AppConfig> {
 /// Opens the session that manages stored accounts and their secrets.
 pub fn open_session(dirs: Option<&Dirs>, secrets: &Secrets) -> Result<Session> {
     let dirs = dirs.cloned().ok_or_else(|| {
-        Error::Usage(format!(
-            "no configuration directory: set {} or pass --config-dir",
-            env::CONFIG_DIR
+        Error::Usage(crate::i18n::trf(
+            "no configuration directory: set {env} or pass --config-dir",
+            &[("env", env::CONFIG_DIR)],
         ))
     })?;
     match secrets {
@@ -263,8 +263,9 @@ pub fn resolve_account(selector: Option<&str>, config: &AppConfig) -> Result<Sel
         if selector.eq_ignore_ascii_case(ENVIRONMENT_ACCOUNT) {
             return Ok(Selection::Environment);
         }
-        return Err(Error::NotFound(format!(
-            "account '{selector}' not found; `bb account list` shows the stored accounts"
+        return Err(Error::NotFound(crate::i18n::trf(
+            "account '{selector}' not found; `bb account list` shows the stored accounts",
+            &[("selector", selector)],
         )));
     }
     let default = config
@@ -284,16 +285,15 @@ fn profile_selector(global: &GlobalArgs) -> Result<Option<String>> {
         [] => Ok(None),
         [profile] => {
             if global.account.is_some() || global.mfa_code.is_some() {
-                return Err(Error::Usage(
-                    "--profile cannot be combined with --account or --mfa-code".into(),
-                ));
+                return Err(Error::Usage(crate::i18n::tr(
+                    "--profile cannot be combined with --account or --mfa-code",
+                )));
             }
             Ok(Some(profile.clone()))
         }
-        _ => Err(Error::Usage(
-            "--profile can be given once for a command (several only to `bb account import-aws`)"
-                .into(),
-        )),
+        _ => Err(Error::Usage(crate::i18n::tr(
+            "--profile can be given once for a command (several only to `bb account import-aws`)",
+        ))),
     }
 }
 
@@ -322,7 +322,10 @@ pub async fn unlock(session: &Session, inputs: &Inputs) -> Result<()> {
     }
     let password = match inputs.env.get(env::MASTER_PASSWORD)? {
         Some(password) => SecretString::new(password),
-        None => match inputs.console.read_secret("Master password: ") {
+        None => match inputs
+            .console
+            .read_secret(&crate::i18n::tr("Master password: "))
+        {
             Ok(Some(password)) => SecretString::new(password),
             _ => return Err(Error::Locked),
         },
@@ -355,9 +358,9 @@ impl Context {
             match resolve_account(global.account.as_deref(), &config)? {
                 Selection::Environment => {
                     if global.mfa_code.is_some() {
-                        return Err(Error::Usage(
-                            "--mfa-code needs a stored account with an MFA device".into(),
-                        ));
+                        return Err(Error::Usage(crate::i18n::tr(
+                            "--mfa-code needs a stored account with an MFA device",
+                        )));
                     }
                     let (account, credentials) = environment_account(&inputs.env)?;
                     let options = ClientOptions::from_settings(&settings);
@@ -451,9 +454,9 @@ pub async fn iam_client(global: &GlobalArgs, inputs: &Inputs) -> Result<Iam> {
     match resolve_account(global.account.as_deref(), &config)? {
         Selection::Environment => {
             if global.mfa_code.is_some() {
-                return Err(Error::Usage(
-                    "--mfa-code needs a stored account with an MFA device".into(),
-                ));
+                return Err(Error::Usage(crate::i18n::tr(
+                    "--mfa-code needs a stored account with an MFA device",
+                )));
             }
             let (account, credentials) = environment_account(&inputs.env)?;
             let options = ClientOptions::from_settings(&config.settings);
@@ -483,8 +486,9 @@ pub fn parse_bool(name: &str, value: &str) -> Result<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(Error::Usage(format!(
-            "{name} must be true or false (also 1/0, yes/no, on/off), got {value:?}"
+        _ => Err(Error::Usage(crate::i18n::trf(
+            "{name} must be true or false (also 1/0, yes/no, on/off), got {value}",
+            &[("name", name), ("value", value)],
         ))),
     }
 }
@@ -494,10 +498,12 @@ fn environment_account(env: &Env) -> Result<(Account, Credentials)> {
     let access_key = env.get(env::ACCESS_KEY_ID)?;
     let secret_key = env.get(env::SECRET_ACCESS_KEY)?;
     let (Some(access_key), Some(secret_key)) = (access_key, secret_key) else {
-        return Err(Error::Auth(format!(
-            "no credentials: set {} and {}, or add an account with `bb account add`",
-            env::ACCESS_KEY_ID,
-            env::SECRET_ACCESS_KEY
+        return Err(Error::Auth(crate::i18n::trf(
+            "no credentials: set {key_env} and {secret_env}, or add an account with `bb account add`",
+            &[
+                ("key_env", env::ACCESS_KEY_ID),
+                ("secret_env", env::SECRET_ACCESS_KEY),
+            ],
         )));
     };
     let path_style = match env.get(env::PATH_STYLE)? {

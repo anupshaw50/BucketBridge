@@ -5,7 +5,8 @@ import { toBbError } from "../../api/errors";
 import type { AbortResult, UploadListing } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
-import { formatDateTime, plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatCount, formatDateTime } from "../../lib/format";
 import { formatAge, uploadId, uploadsOlderThan } from "../../lib/tools";
 
 const DEFAULT_DAYS = 30;
@@ -95,9 +96,14 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
       return;
     }
     const confirmed = await model.dialogs.confirm({
-      title: "Abort uploads",
-      message: `Abort ${plural(targets.length, "uncompleted upload")}? The parts they uploaded so far are deleted and their storage is freed. This cannot be undone.`,
-      confirmLabel: "Abort uploads",
+      title: tr("Abort uploads"),
+      message:
+        targets.length === 1
+          ? tr("Abort 1 uncompleted upload? The parts they uploaded so far are deleted and their storage is freed. This cannot be undone.")
+          : tr("Abort {count} uncompleted uploads? The parts they uploaded so far are deleted and their storage is freed. This cannot be undone.", {
+              count: formatCount(targets.length),
+            }),
+      confirmLabel: tr("Abort uploads"),
       danger: true,
     });
     if (!confirmed) {
@@ -118,7 +124,20 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
       setPicked((current) => new Set([...current].filter((id) => !gone.has(id))));
       const aborted = outcome.filter((result) => result.aborted).length;
       const failed = outcome.filter((result) => !isGone(result)).length;
-      model.status.info(`${plural(aborted, "upload")} aborted${failed > 0 ? `, ${failed} could not be aborted` : ""}.`);
+      if (failed > 0) {
+        model.status.info(
+          aborted === 1
+            ? tr("1 upload aborted, {count} could not be aborted.", { count: formatCount(failed) })
+            : tr("{count} uploads aborted, {failed} could not be aborted.", {
+                count: formatCount(aborted),
+                failed: formatCount(failed),
+              }),
+        );
+      } else if (aborted === 1) {
+        model.status.info(tr("1 upload aborted."));
+      } else {
+        model.status.info(tr("{count} uploads aborted.", { count: formatCount(aborted) }));
+      }
     } catch (raw) {
       setError(toBbError(raw).message);
     } finally {
@@ -127,36 +146,37 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Uncompleted multipart uploads" size="xl" closeOnClickOutside={false}>
+    <AppModal opened onClose={onClose} title={tr("Uncompleted multipart uploads")} size="xl" closeOnClickOutside={false}>
       {accountId === null ? (
         <Stack gap="sm">
-          <Text size="sm">Add or choose an account first.</Text>
+          <Text size="sm">{tr("Add or choose an account first.")}</Text>
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>
       ) : (
         <Stack gap="sm">
           <Text size="sm">
-            An upload that was started and never finished keeps the parts it uploaded, and they are billed until the upload is
-            aborted. Choose buckets to see their unfinished uploads.
+            {tr(
+              "An upload that was started and never finished keeps the parts it uploaded, and they are billed until the upload is aborted. Choose buckets to see their unfinished uploads.",
+            )}
           </Text>
           <Group align="flex-end" gap="xs" wrap="nowrap">
             <MultiSelect
-              label="Buckets"
-              placeholder={chosen.length === 0 ? "Choose buckets" : undefined}
+              label={tr("Buckets")}
+              placeholder={chosen.length === 0 ? tr("Choose buckets") : undefined}
               data={names}
               value={chosen}
               onChange={setChosen}
               searchable
-              nothingFoundMessage="No bucket with that name"
+              nothingFoundMessage={tr("No bucket with that name")}
               style={{ flex: 1 }}
               comboboxProps={{ withinPortal: false }}
             />
             <Button variant="default" disabled={names.length === 0} onClick={() => setChosen(names)}>
-              All buckets
+              {tr("All buckets")}
             </Button>
             <Button
               leftSection={<IconRefresh size={14} />}
@@ -164,7 +184,7 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
               disabled={chosen.length === 0}
               onClick={() => void list(chosen)}
             >
-              {listing === null ? "List uploads" : "Refresh"}
+              {listing === null ? tr("List uploads") : tr("Refresh")}
             </Button>
           </Group>
           {error !== null ? (
@@ -173,20 +193,20 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
             </Alert>
           ) : null}
           {listing?.failures.map((failure) => (
-            <Alert key={failure.bucket} color="red" role="alert" py="xs" title={`Could not list ${failure.bucket}`}>
+            <Alert key={failure.bucket} color="red" role="alert" py="xs" title={tr("Could not list {bucket}", { bucket: failure.bucket })}>
               {failure.error.message}
             </Alert>
           ))}
           {listing !== null ? (
             rows.length === 0 ? (
               <Text size="sm" c="dimmed" aria-live="polite">
-                No uncompleted uploads in the chosen buckets.
+                {tr("No uncompleted uploads in the chosen buckets.")}
               </Text>
             ) : (
               <>
                 <Group gap="xs" align="flex-end" wrap="nowrap">
                   <NumberInput
-                    label="Older than (days)"
+                    label={tr("Older than (days)")}
                     value={days}
                     onChange={setDays}
                     min={0}
@@ -196,22 +216,24 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
                     w={160}
                   />
                   <Button variant="default" disabled={!olderValid} onClick={selectOlder}>
-                    Select older
+                    {tr("Select older")}
                   </Button>
                   <Text size="sm" c="dimmed" aria-live="polite" style={{ flex: 1 }}>
-                    {plural(picked.size, "upload")} selected of {rows.length}
+                    {picked.size === 1
+                      ? tr("1 upload selected of {count}", { count: formatCount(rows.length) })
+                      : tr("{count} uploads selected of {total}", { count: formatCount(picked.size), total: formatCount(rows.length) })}
                   </Text>
                   <Button color="red" disabled={picked.size === 0} loading={aborting} onClick={() => void abort()}>
-                    Abort selected ({picked.size})
+                    {tr("Abort selected ({count})", { count: picked.size })}
                   </Button>
                 </Group>
                 <div className="bb-upload-scroll">
-                  <Table aria-label="Uncompleted uploads" stickyHeader verticalSpacing={4} fz="sm" highlightOnHover>
+                  <Table aria-label={tr("Uncompleted uploads")} stickyHeader verticalSpacing={4} fz="sm" highlightOnHover>
                     <Table.Thead>
                       <Table.Tr>
                         <Table.Th w={36}>
                           <Checkbox
-                            aria-label="Select all uploads"
+                            aria-label={tr("Select all uploads")}
                             checked={allPicked}
                             indeterminate={somePicked && !allPicked}
                             onChange={(event) =>
@@ -219,11 +241,11 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
                             }
                           />
                         </Table.Th>
-                        <Table.Th>Bucket</Table.Th>
-                        <Table.Th>Key</Table.Th>
-                        <Table.Th>Initiated</Table.Th>
-                        <Table.Th>Age</Table.Th>
-                        <Table.Th>Storage class</Table.Th>
+                        <Table.Th>{tr("Bucket")}</Table.Th>
+                        <Table.Th>{tr("Key")}</Table.Th>
+                        <Table.Th>{tr("Initiated")}</Table.Th>
+                        <Table.Th>{tr("Age")}</Table.Th>
+                        <Table.Th>{tr("Storage class")}</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -233,7 +255,7 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
                           <Table.Tr key={id} bg={picked.has(id) ? "var(--mantine-color-blue-light)" : undefined}>
                             <Table.Td>
                               <Checkbox
-                                aria-label={`Select ${row.key} in ${row.bucket}`}
+                                aria-label={tr("Select {key} in {bucket}", { key: row.key, bucket: row.bucket })}
                                 checked={picked.has(id)}
                                 onChange={(event) => toggle(id, event.currentTarget.checked)}
                               />
@@ -255,15 +277,15 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
           {results !== null ? (
             <Stack gap={4}>
               <Text size="sm" fw={600}>
-                Results of the last abort
+                {tr("Results of the last abort")}
               </Text>
               <div className="bb-upload-scroll">
-                <Table aria-label="Abort results" stickyHeader verticalSpacing={4} fz="sm">
+                <Table aria-label={tr("Abort results")} stickyHeader verticalSpacing={4} fz="sm">
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Bucket</Table.Th>
-                      <Table.Th>Key</Table.Th>
-                      <Table.Th>Result</Table.Th>
+                      <Table.Th>{tr("Bucket")}</Table.Th>
+                      <Table.Th>{tr("Key")}</Table.Th>
+                      <Table.Th>{tr("Result")}</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -272,7 +294,7 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
                         <Table.Td>{result.bucket}</Table.Td>
                         <Table.Td style={{ overflowWrap: "anywhere" }}>{result.key}</Table.Td>
                         <Table.Td c={result.error === null ? undefined : "red"} style={{ overflowWrap: "anywhere" }}>
-                          {result.error === null ? "Aborted" : result.error.message}
+                          {result.error === null ? tr("Aborted") : result.error.message}
                         </Table.Td>
                       </Table.Tr>
                     ))}
@@ -283,7 +305,7 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
           ) : null}
           <Group justify="flex-end">
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>

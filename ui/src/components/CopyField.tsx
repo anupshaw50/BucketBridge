@@ -2,6 +2,7 @@ import { ActionIcon, Group, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { IconCheck, IconCopy } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useModel } from "../app/context";
+import { tr } from "../i18n";
 
 export interface CopyFieldProps {
   label: string;
@@ -27,14 +28,14 @@ export function CopyField({ label, value, multiline = false, sensitive = false }
       await model.platform.copyText(value, { sensitive });
       setCopied(true);
     } catch (error) {
-      model.status.error(error, { notify: "Could not copy to the clipboard" });
+      model.status.error(error, { notify: tr("Could not copy to the clipboard") });
     }
   };
   const button = (
-    <Tooltip label={copied ? "Copied" : "Copy to clipboard"} withinPortal={false}>
+    <Tooltip label={copied ? tr("Copied") : tr("Copy to clipboard")} withinPortal={false}>
       <ActionIcon
         variant="subtle"
-        aria-label={`Copy ${label.toLowerCase()}`}
+        aria-label={tr("Copy {label}", { label: label.toLowerCase() })}
         onClick={copy}
         disabled={value.length === 0}
         color={copied ? "teal" : undefined}

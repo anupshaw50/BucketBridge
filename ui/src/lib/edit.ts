@@ -1,4 +1,5 @@
 import type { EditState } from "../api/types";
+import { tr } from "../i18n";
 
 /** `name (edited).ext`, or `name (edited N).ext` from 2 on: the key "Save as a copy" uses. Mirrors the core. */
 export function copyKey(key: string, n = 1): string {
@@ -15,16 +16,16 @@ export function copyKey(key: string, n = 1): string {
 export function editStateLabel(state: EditState): string {
   switch (state) {
     case "watching":
-      return "Waiting for a save";
+      return tr("Waiting for a save");
     case "uploading":
-      return "Uploading";
+      return tr("Uploading");
     case "uploaded":
-      return "Uploaded";
+      return tr("Uploaded");
     case "conflict":
-      return "Conflict";
+      return tr("Conflict");
     case "error":
-      return "Upload failed";
+      return tr("Upload failed");
     case "stopped":
-      return "Stopped";
+      return tr("Stopped");
   }
 }

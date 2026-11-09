@@ -1,4 +1,5 @@
 import type { ChecksumAlgorithm, LogLevel, ProxyKind, Settings, ThemeSetting } from "../api/types";
+import { tr } from "../i18n";
 import { validateBypassEntry, validateHost } from "./validation";
 
 /** Defaults documented in docs/desktop-api.md. */
@@ -114,7 +115,7 @@ function rangedValue(settings: Settings, field: RangedField): number | null {
 
 export function rangeMessage(field: RangedField): string {
   const { min, max } = SETTINGS_RANGES[field];
-  return `Enter a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}.`;
+  return tr("Enter a whole number from {min} to {max}.", { min: min.toLocaleString("en-US"), max: max.toLocaleString("en-US") });
 }
 
 export function inRange(field: RangedField, value: number): boolean {
@@ -139,19 +140,19 @@ export function validateSettings(settings: Settings): SettingsErrors {
   }
   const downloadDir = settings.general.default_download_dir;
   if (downloadDir !== null && downloadDir.trim().length === 0) {
-    errors["general.default_download_dir"] = "Choose a folder or select ask every time.";
+    errors["general.default_download_dir"] = tr("Choose a folder or select ask every time.");
   }
   if (!THEMES.includes(settings.interface.theme)) {
-    errors["interface.theme"] = "Choose a theme.";
+    errors["interface.theme"] = tr("Choose a theme.");
   }
   if (!CHECKSUMS.includes(settings.data_integrity.checksum_algorithm)) {
-    errors["data_integrity.checksum_algorithm"] = "Choose a checksum algorithm.";
+    errors["data_integrity.checksum_algorithm"] = tr("Choose a checksum algorithm.");
   }
   if (!LOG_LEVELS.includes(settings.logging.level)) {
-    errors["logging.level"] = "Choose a log level.";
+    errors["logging.level"] = tr("Choose a log level.");
   }
   if (!PROXY_KINDS.includes(settings.proxy.kind)) {
-    errors["proxy.kind"] = "Choose a proxy type.";
+    errors["proxy.kind"] = tr("Choose a proxy type.");
   }
   // The host is required while the proxy is enabled, and must be valid whenever it is filled in.
   if (settings.proxy.enabled || settings.proxy.host.length > 0) {
@@ -161,7 +162,7 @@ export function validateSettings(settings: Settings): SettingsErrors {
     }
   }
   if (settings.proxy.username !== null && settings.proxy.username.trim().length === 0) {
-    errors["proxy.username"] = "Leave the user name empty or enter a value.";
+    errors["proxy.username"] = tr("Leave the user name empty or enter a value.");
   }
   for (const entry of settings.proxy.bypass) {
     const entryError = validateBypassEntry(entry);

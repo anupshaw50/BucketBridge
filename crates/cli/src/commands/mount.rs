@@ -8,6 +8,7 @@ use bucketbridge_core::mount::{self, MountCore, MountOptions};
 
 use crate::cli::MountArgs;
 use crate::context::Context;
+use crate::i18n::trf;
 use crate::output::{Failure, Output};
 
 /// Mounts the bucket and keeps it mounted until Ctrl-C or until the folder
@@ -20,9 +21,11 @@ pub async fn run(ctx: &Context, args: &MountArgs, out: &mut Output) -> Result<()
     let drive =
         cfg!(windows) && mount::target::parse_drive_letter(&args.dir.to_string_lossy()).is_some();
     if !drive && !args.dir.is_dir() {
-        return Err(
-            Error::Usage(format!("{} is not an existing folder", args.dir.display())).into(),
-        );
+        return Err(Error::Usage(trf(
+            "{path} is not an existing folder",
+            &[("path", &args.dir.display().to_string())],
+        ))
+        .into());
     }
     let core = Arc::new(MountCore::new(
         ctx.s3.clone(),
@@ -38,10 +41,12 @@ pub async fn run(ctx: &Context, args: &MountArgs, out: &mut Output) -> Result<()
     let handle = tokio::task::spawn_blocking(move || mount::backend::mount(core, &dir, runtime))
         .await
         .map_err(|err| Error::Internal(format!("a background task failed: {err}")))??;
-    out.notice(&format!(
-        "mounted s3://{} on {} (read-only); press Ctrl-C to unmount",
-        args.bucket,
-        args.dir.display()
+    out.notice(&trf(
+        "mounted s3://{bucket} on {path} (read-only); press Ctrl-C to unmount",
+        &[
+            ("bucket", &args.bucket),
+            ("path", args.dir.display().to_string().as_str()),
+        ],
     ));
     loop {
         tokio::select! {

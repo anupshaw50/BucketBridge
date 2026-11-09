@@ -4,7 +4,8 @@ import { toBbError } from "../../api/errors";
 import type { ArchiveState, RestoreTier } from "../../api/types";
 import { useModel } from "../../app/context";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
-import { plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatCount } from "../../lib/format";
 import { restoreText } from "./restoreText";
 
 /** Restores archived objects: tier and days, and the current restore state of one object. */
@@ -58,7 +59,11 @@ export function RestoreDialog({
       if (failed.length > 0) {
         setError(failed.map((result) => `${result.key}: ${result.error?.message ?? ""}`).join("\n"));
       } else {
-        model.status.info(`Restore requested for ${plural(keys.length, "object")}.`);
+        model.status.info(
+          keys.length === 1
+            ? tr("Restore requested for 1 object.")
+            : tr("Restore requested for {n} objects.", { n: formatCount(keys.length) }),
+        );
         onClose();
       }
     } catch (raw) {
@@ -71,8 +76,8 @@ export function RestoreDialog({
   return (
     <OkCancelDialog
       opened
-      title="Restore from Glacier"
-      okLabel="Request restore"
+      title={tr("Restore from Glacier")}
+      okLabel={tr("Request restore")}
       onOk={() => void submit()}
       onCancel={onClose}
       busy={busy}
@@ -82,16 +87,16 @@ export function RestoreDialog({
       <Stack gap="sm">
         {state !== null && <Text size="sm" data-testid="restore-state">{restoreText(state)}</Text>}
         <SegmentedControl
-          aria-label="Tier"
+          aria-label={tr("Tier")}
           value={tier}
           onChange={(value) => setTier(value)}
           data={[
-            { value: "expedited", label: "Expedited" },
-            { value: "standard", label: "Standard" },
-            { value: "bulk", label: "Bulk" },
+            { value: "expedited", label: tr("Expedited") },
+            { value: "standard", label: tr("Standard") },
+            { value: "bulk", label: tr("Bulk") },
           ]}
         />
-        <NumberInput label="Keep the restored copy for (days)" value={days} onChange={setDays} min={1} max={3650} allowDecimal={false} />
+        <NumberInput label={tr("Keep the restored copy for (days)")} value={days} onChange={setDays} min={1} max={3650} allowDecimal={false} />
       </Stack>
     </OkCancelDialog>
   );

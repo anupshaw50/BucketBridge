@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiagnosticsReport } from "../api/types";
-import { failedSteps, formatMillis, formatReport, verdict } from "./diagnostics";
+import { tr } from "../i18n";
+import { failedSteps, formatMillis, formatReport, STEP_LABELS, STATUS_LABELS, verdict } from "./diagnostics";
 
 function report(overrides: Partial<DiagnosticsReport> = {}): DiagnosticsReport {
   return {
@@ -50,7 +51,7 @@ describe("formatMillis", () => {
 
 describe("verdict", () => {
   it("says all checks passed, or names the failed steps", () => {
-    expect(verdict(report())).toBe("All checks passed.");
+    expect(verdict(report())).toBe(tr("All checks passed."));
     const failing = report({
       ok: false,
       steps: report().steps.map((step) =>
@@ -58,33 +59,39 @@ describe("verdict", () => {
       ),
     });
     expect(failedSteps(failing).map((step) => step.id)).toEqual(["credentials", "region"]);
-    expect(verdict(failing)).toBe("2 checks failed: Credentials, Bucket region.");
+    expect(verdict(failing)).toBe(
+      tr("{n} checks failed: {names}.", { n: 2, names: `${tr("Credentials")}, ${tr("Bucket region")}` }),
+    );
     const one = report({ steps: report().steps.map((step) => (step.id === "dns" ? { ...step, status: "fail" as const } : step)) });
-    expect(verdict(one)).toBe("1 check failed: DNS lookup.");
+    expect(verdict(one)).toBe(tr("1 check failed: {names}.", { names: tr("DNS lookup") }));
   });
 });
 
 describe("formatReport", () => {
   it("produces the copyable text", () => {
+    const nameWidth = Math.max(...Object.values(STEP_LABELS).map((label) => label.length));
+    const codeWidth = Math.max(0, ...report().steps.map((step) => step.code.length));
+    const line = (status: "pass" | "fail" | "skip", id: "dns" | "tcp" | "proxy" | "tls" | "credentials" | "region", time: string, code: string, summary: string) =>
+      `[${STATUS_LABELS[status].toUpperCase()}] ${STEP_LABELS[id].padEnd(nameWidth)}  ${time.padStart(7)}  ${code.padEnd(codeWidth)}  ${summary}`;
     expect(formatReport(report())).toBe(
       [
-        "BucketBridge diagnostics",
-        "Endpoint: https://s3.eu-west-1.amazonaws.com",
-        "Region: eu-west-1",
-        "Bucket: demo-photos",
-        "Started: 2026-10-29T08:15:00Z (412 ms in total)",
-        "Result: All checks passed.",
+        tr("BucketBridge diagnostics"),
+        tr("Endpoint: {target}", { target: "https://s3.eu-west-1.amazonaws.com" }),
+        tr("Region: {region}", { region: "eu-west-1" }),
+        tr("Bucket: {bucket}", { bucket: "demo-photos" }),
+        tr("Started: {start} ({elapsed} in total)", { start: "2026-10-29T08:15:00Z", elapsed: "412 ms" }),
+        tr("Result: {verdict}", { verdict: tr("All checks passed.") }),
         "",
-        "[PASS] DNS lookup        12 ms  resolved   s3.eu-west-1.amazonaws.com resolves to 2 addresses.",
+        line("pass", "dns", "12 ms", "resolved", "s3.eu-west-1.amazonaws.com resolves to 2 addresses."),
         "      192.0.2.10, 198.51.100.7",
-        "[PASS] TCP connection    31 ms  connected  Connected to 192.0.2.10:443.",
-        "[SKIP] Proxy                 -  none       No proxy is configured.",
-        "[PASS] TLS handshake     58 ms  handshake  TLS 1.3 handshake succeeded.",
+        line("pass", "tcp", "31 ms", "connected", "Connected to 192.0.2.10:443."),
+        line("skip", "proxy", "-", "none", "No proxy is configured."),
+        line("pass", "tls", "58 ms", "handshake", "TLS 1.3 handshake succeeded."),
         "      Certificate for CN=*.s3.example.com",
         "      Issued by CN=Example CA",
         "      Expires 2027-03-01",
-        "[PASS] Credentials       1.2 s  valid      The server accepted the credentials.",
-        "[PASS] Bucket region     95 ms  found      Bucket demo-photos is in eu-west-1.",
+        line("pass", "credentials", "1.2 s", "valid", "The server accepted the credentials."),
+        line("pass", "region", "95 ms", "found", "Bucket demo-photos is in eu-west-1."),
         "",
       ].join("\n"),
     );
@@ -101,9 +108,9 @@ describe("formatReport", () => {
       ),
     });
     const text = formatReport(failing);
-    expect(text).toContain("Bucket: (none)");
-    expect(text).toContain("Result: 1 check failed: Credentials.");
-    expect(text).toContain("[FAIL] Credentials");
+    expect(text).toContain(tr("Bucket: {bucket}", { bucket: tr("(none)") }));
+    expect(text).toContain(tr("1 check failed: {names}.", { names: tr("Credentials") }));
+    expect(text).toContain(`[${STATUS_LABELS.fail.toUpperCase()}] ${tr("Credentials")}`);
     expect(text).toContain("invalid_access_key");
     expect(text.includes(String.fromCodePoint(0x2014))).toBe(false);
   });

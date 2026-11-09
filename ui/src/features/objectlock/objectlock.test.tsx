@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MockBackend } from "../../mock/mockBackend";
 import { LOCKED_MESSAGE } from "../../mock/objectLock";
+import { tr } from "../../i18n";
 import { AVAILABLE } from "../menus/available";
 import { restoreText } from "./restoreText";
 
@@ -57,7 +58,9 @@ describe("object lock mock", () => {
     expect(first[0]?.changed).toBe(true);
     const second = await mock.restore_objects({ ...base, keys: ["c"], days: 3, tier: "bulk", version_id: null });
     expect(second[0]?.error?.code).toBe("conflict");
-    expect(restoreText(await mock.get_restore_state({ ...base, key: "c", version_id: null }))).toBe("A restore is in progress.");
+    expect(restoreText(await mock.get_restore_state({ ...base, key: "c", version_id: null }))).toBe(
+      tr("A restore is in progress."),
+    );
   });
 
   it("turns the four menu entries on", () => {

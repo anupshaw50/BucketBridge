@@ -7,6 +7,7 @@ import { BucketTree } from "../features/buckets/BucketTree";
 import { LogPanel } from "../features/log/LogPanel";
 import { ObjectBrowser } from "../features/objects/ObjectBrowser";
 import { TransferPanel } from "../features/transfers/TransferPanel";
+import { tr } from "../i18n";
 import { useModel, useSlice } from "./context";
 import { StatusBar } from "./StatusBar";
 import { Toolbar } from "./Toolbar";
@@ -16,13 +17,13 @@ function Welcome() {
   return (
     <EmptyState
       icon={<BrandLogo height={40} />}
-      title="Welcome to BucketBridge"
-      description="Add an S3 account to browse buckets, transfer files and keep folders in sync. Secret keys are kept in the operating system's credential store."
+      title={tr("Welcome to BucketBridge")}
+      description={tr("Add an S3 account to browse buckets, transfer files and keep folders in sync. Secret keys are kept in the operating system's credential store.")}
       py="xl"
     >
       <Group justify="center" mt="md">
         <Button leftSection={<IconUserPlus size={16} />} onClick={() => model.dialogs.open({ kind: "add-account" })}>
-          Add account
+          {tr("Add account")}
         </Button>
       </Group>
     </EmptyState>
@@ -56,7 +57,7 @@ export function MainWindow() {
   if (!ready && !accountsLoaded) {
     workspace = (
       <Stack align="center" justify="center" h="100%">
-        <Loader size="sm" aria-label="Loading" />
+        <Loader size="sm" aria-label={tr("Loading")} />
       </Stack>
     );
   } else if (accountCount === 0) {
@@ -66,7 +67,7 @@ export function MainWindow() {
           {accountsError}
         </Text>
         <Button variant="default" onClick={() => void model.session.refreshAccounts().catch(() => undefined)}>
-          Try again
+          {tr("Try again")}
         </Button>
       </Stack>
     ) : (
@@ -75,7 +76,7 @@ export function MainWindow() {
   } else {
     workspace = (
       <div className="bb-workspace">
-        <aside className="bb-sidebar" aria-label="Buckets">
+        <aside className="bb-sidebar" aria-label={tr("Buckets")}>
           <BookmarksSection />
           <BucketTree />
         </aside>

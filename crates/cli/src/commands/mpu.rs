@@ -6,6 +6,7 @@ use bucketbridge_core::model::MultipartUpload;
 use super::timestamp;
 use crate::cli::{MpuAbortArgs, MpuListArgs};
 use crate::context::Context;
+use crate::i18n::{tr, trf};
 use crate::output::{Batch, Failure, Output};
 use crate::records::{AbortRecord, UploadRecord};
 
@@ -49,9 +50,14 @@ pub async fn abort(ctx: &Context, args: &MpuAbortArgs, out: &mut Output) -> Resu
                 }
                 Some(err) => {
                     batch.failed(err.kind(), err.to_string());
-                    let message = format!(
-                        "failed to abort upload {} of s3://{bucket}/{}: {err}",
-                        record.upload_id, record.key
+                    let message = trf(
+                        "failed to abort upload {id} of s3://{bucket}/{key}: {error}",
+                        &[
+                            ("id", record.upload_id.as_str()),
+                            ("bucket", bucket),
+                            ("key", record.key.as_str()),
+                            ("error", &err.to_string()),
+                        ],
                     );
                     out.item_failed(&record, || message)?;
                 }
@@ -60,7 +66,7 @@ pub async fn abort(ctx: &Context, args: &MpuAbortArgs, out: &mut Output) -> Resu
         return batch.finish("uploads", "could not be aborted");
     }
     let (Some(key), Some(upload_id)) = (&args.key, &args.upload_id) else {
-        return Err(Error::Usage("give --key and --upload-id, or --all".into()).into());
+        return Err(Error::Usage(tr("give --key and --upload-id, or --all")).into());
     };
     match abort_one(ctx, bucket, key, upload_id, args.dry_run).await {
         (record, None) => out.change(&record, || abort_line(&record)),
@@ -122,20 +128,25 @@ fn upload_line(record: &UploadRecord) -> String {
 }
 
 fn abort_line(record: &AbortRecord) -> String {
-    let verb = if record.dry_run {
-        "would abort"
+    let template = if record.dry_run {
+        "would abort upload {id} of s3://{bucket}/{key}"
     } else {
-        "aborted"
+        "aborted upload {id} of s3://{bucket}/{key}"
     };
-    format!(
-        "{verb} upload {} of s3://{}/{}",
-        record.upload_id, record.bucket, record.key
+    trf(
+        template,
+        &[
+            ("id", record.upload_id.as_str()),
+            ("bucket", record.bucket.as_str()),
+            ("key", record.key.as_str()),
+        ],
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::trf;
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -162,6 +173,12 @@ mod tests {
             aborted: false,
             error: None,
         };
-        assert_eq!(abort_line(&abort), "would abort upload u1 of s3://b/k");
+        assert_eq!(
+            abort_line(&abort),
+            trf(
+                "would abort upload {id} of s3://{bucket}/{key}",
+                &[("id", "u1"), ("bucket", "b"), ("key", "k")]
+            )
+        );
     }
 }

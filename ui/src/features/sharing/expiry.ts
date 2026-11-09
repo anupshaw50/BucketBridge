@@ -1,4 +1,5 @@
 import { isFolderKey } from "../../lib/s3keys";
+import { tr } from "../../i18n";
 
 export type ExpiryUnit = "seconds" | "minutes" | "hours" | "days";
 
@@ -10,10 +11,10 @@ export const MAX_PRESIGN_SECONDS = 7 * 86_400;
 /** The key problem of the first wizard step, or null when the key names an object. */
 export function keyProblem(key: string): string | null {
   if (key.trim().length === 0) {
-    return "Enter the key of the object to share.";
+    return tr("Enter the key of the object to share.");
   }
   if (isFolderKey(key)) {
-    return "Choose an object, not a folder.";
+    return tr("Choose an object, not a folder.");
   }
   return null;
 }

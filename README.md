@@ -53,6 +53,11 @@ There is no account, activation or licence key, and no telemetry: the app
 never contacts a server on its own. Secrets stay in the operating system's
 credential store.
 
+> **Chinese interface:** the desktop app and `bb` also speak Simplified Chinese.
+> The app follows the system language; use Settings → Interface → Language to
+> switch, and run `BB_LANG=zh bb --help` for Chinese help. The translation rules
+> and the glossary are in [docs/i18n.md](docs/i18n.md).
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/main-dark.png">

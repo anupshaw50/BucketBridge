@@ -45,6 +45,9 @@ use bucketbridge_core::session::{Session, SessionOptions};
 use bucketbridge_tests::{Backend, MockS3, TestS3};
 use tempfile::TempDir;
 
+// Assertions go through `bucketbridge_cli::i18n::tr`, so each test holds
+// under either interface language; no environment pinning is needed.
+
 /// Every variable `bb` reads, removed from the inherited environment.
 pub const BB_VARS: [&str; 8] = [
     "BB_ACCESS_KEY_ID",
@@ -67,11 +70,26 @@ pub const PROXY_VARS: [&str; 6] = [
     "all_proxy",
 ];
 
-/// What a `bb` run produced.
+/// The `bb` run produced.
 pub struct Output {
     pub code: i32,
     pub stdout: String,
     pub stderr: String,
+}
+
+/// The batch summary line ("2 of 3 objects could not be deleted"),
+/// translated exactly like the code builds it.
+pub fn batch_summary(failed: usize, total: usize, noun: &str, failure: &str) -> String {
+    use bucketbridge_cli::i18n::{tr, trf};
+    trf(
+        "{failed} of {total} {noun} {failure}",
+        &[
+            ("failed", failed.to_string().as_str()),
+            ("total", total.to_string().as_str()),
+            ("noun", tr(noun).as_str()),
+            ("failure", tr(failure).as_str()),
+        ],
+    )
 }
 
 impl Output {

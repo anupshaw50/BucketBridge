@@ -2,6 +2,8 @@
 
 use bucketbridge_tests::MockResponse;
 
+use bucketbridge_cli::i18n::{tr, trf};
+
 use super::*;
 
 const NS: &str = xml::NS;
@@ -55,7 +57,15 @@ async fn restore_version_makes_an_old_version_current() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        "restored version v1 of s3://bucket/dir/doc.txt (new version v4)"
+        trf(
+            "restored version {version} of s3://{bucket}/{key} (new version {new_version})",
+            &[
+                ("version", "v1"),
+                ("bucket", "bucket"),
+                ("key", "dir/doc.txt"),
+                ("new_version", "v4"),
+            ],
+        )
     );
     let copy = mock
         .requests()
@@ -149,7 +159,10 @@ async fn rm_version_id_deletes_one_version_for_good() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        "deleted s3://bucket/doc.txt (version v1)"
+        trf(
+            "deleted s3://{bucket}/{key} (version {version})",
+            &[("bucket", "bucket"), ("key", "doc.txt"), ("version", "v1")],
+        )
     );
     let delete = mock
         .requests()
@@ -212,7 +225,7 @@ async fn rm_version_id_dry_run_and_errors_delete_nothing() {
     let out =
         run(bb_mock(&mock, config.path()).args(["rm", "s3://bucket/dir/", "--version-id", "v1"]));
     out.expect_code(1);
-    assert!(out.stderr.contains("object key"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("object key")), "{}", out.stderr);
     for args in [
         vec![
             "rm",

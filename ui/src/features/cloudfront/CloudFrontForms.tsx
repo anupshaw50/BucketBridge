@@ -4,11 +4,12 @@ import { toBbError } from "../../api/errors";
 import type { CloudFrontDistribution, CreatedDistribution } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 
 const PRICE_CLASSES = [
-  { value: "PriceClass_All", label: "All edge locations" },
-  { value: "PriceClass_200", label: "North America, Europe, Asia, Middle East and Africa" },
-  { value: "PriceClass_100", label: "North America and Europe" },
+  { value: "PriceClass_All", label: tr("All edge locations") },
+  { value: "PriceClass_200", label: tr("North America, Europe, Asia, Middle East and Africa") },
+  { value: "PriceClass_100", label: tr("North America and Europe") },
 ];
 
 /** At most 128 characters, the limit of the service. */
@@ -39,11 +40,11 @@ export function AttachDialog({
 
   const problem =
     region.trim() === ""
-      ? "Enter the region of the bucket."
+      ? tr("Enter the region of the bucket.")
       : comment.length > MAX_COMMENT
-        ? `The comment is limited to ${MAX_COMMENT} characters.`
+        ? tr("The comment is limited to {n} characters.", { n: MAX_COMMENT })
         : root.startsWith("/")
-          ? "The default root object has no leading '/'."
+          ? tr("The default root object has no leading '/'.")
           : null;
 
   const submit = async () => {
@@ -56,7 +57,7 @@ export function AttachDialog({
       });
       setCreated(result);
       onCreated(result);
-      model.status.info(`Distribution ${result.distribution.id} created for ${bucket}.`);
+      model.status.info(tr("Distribution {id} created for {bucket}.", { id: result.distribution.id, bucket }));
     } catch (raw) {
       setError(toBbError(raw).message);
     } finally {
@@ -65,26 +66,26 @@ export function AttachDialog({
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Attach distribution" size="lg">
+    <AppModal opened onClose={onClose} title={tr("Attach distribution")} size="lg">
       <Stack gap="sm">
         {created === null ? (
           <>
             <Text size="sm" c="dimmed">
-              Creates a distribution that serves s3://{bucket} through an origin access control. The bucket is not changed.
+              {tr("Creates a distribution that serves s3://{bucket} through an origin access control. The bucket is not changed.", { bucket })}
             </Text>
             {error !== null && <Alert color="red">{error}</Alert>}
-            <TextInput label="Bucket region" value={region} onChange={(event) => setRegion(event.currentTarget.value)} />
-            <TextInput label="Comment" value={comment} onChange={(event) => setComment(event.currentTarget.value)} />
-            <TextInput label="Default root object" value={root} onChange={(event) => setRoot(event.currentTarget.value)} />
+            <TextInput label={tr("Bucket region")} value={region} onChange={(event) => setRegion(event.currentTarget.value)} />
+            <TextInput label={tr("Comment")} value={comment} onChange={(event) => setComment(event.currentTarget.value)} />
+            <TextInput label={tr("Default root object")} value={root} onChange={(event) => setRoot(event.currentTarget.value)} />
             <Select
-              label="Price class"
+              label={tr("Price class")}
               data={PRICE_CLASSES}
               value={priceClass}
               onChange={(value) => setPriceClass(value ?? "PriceClass_All")}
               allowDeselect={false}
               comboboxProps={{ withinPortal: false }}
             />
-            <Checkbox label="Enabled" checked={enabled} onChange={(event) => setEnabled(event.currentTarget.checked)} />
+            <Checkbox label={tr("Enabled")} checked={enabled} onChange={(event) => setEnabled(event.currentTarget.checked)} />
             {problem !== null && (
               <Text size="sm" c="red">
                 {problem}
@@ -92,22 +93,22 @@ export function AttachDialog({
             )}
             <Group justify="flex-end">
               <Button variant="default" onClick={onClose}>
-                Cancel
+                {tr("Cancel")}
               </Button>
               <Button loading={busy} disabled={problem !== null} onClick={() => void submit()}>
-                Create distribution
+                {tr("Create distribution")}
               </Button>
             </Group>
           </>
         ) : (
           <>
-            <Alert color="green" title="Distribution created">
-              {created.distribution.id} ({created.distribution.domain_name}) is deploying.
+            <Alert color="green" title={tr("Distribution created")}>
+              {tr("{id} ({domain}) is deploying.", { id: created.distribution.id, domain: created.distribution.domain_name })}
             </Alert>
-            <Text size="sm">Add this statement to the bucket policy so the distribution can read the objects.</Text>
-            <Textarea label="Bucket policy" readOnly rows={6} value={created.bucket_policy} />
+            <Text size="sm">{tr("Add this statement to the bucket policy so the distribution can read the objects.")}</Text>
+            <Textarea label={tr("Bucket policy")} readOnly rows={6} value={created.bucket_policy} />
             <Group justify="flex-end">
-              <Button onClick={onClose}>Close</Button>
+              <Button onClick={onClose}>{tr("Close")}</Button>
             </Group>
           </>
         )}
@@ -160,7 +161,7 @@ export function EditDialog({
   }, [model, accountId, id]);
 
   const problem =
-    comment.length > MAX_COMMENT ? `The comment is limited to ${MAX_COMMENT} characters.` : root.startsWith("/") ? "The default root object has no leading '/'." : null;
+    comment.length > MAX_COMMENT ? tr("The comment is limited to {n} characters.", { n: MAX_COMMENT }) : root.startsWith("/") ? tr("The default root object has no leading '/'.") : null;
 
   const save = async () => {
     if (loaded === null) {
@@ -185,7 +186,7 @@ export function EditDialog({
         expected_etag: loaded.etag,
       });
       onSaved(updated);
-      model.status.info(`Distribution ${id} saved.`);
+      model.status.info(tr("Distribution {id} saved.", { id }));
       onClose();
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -195,21 +196,21 @@ export function EditDialog({
   };
 
   return (
-    <AppModal opened onClose={onClose} title={`Edit distribution ${id}`} size="lg">
+    <AppModal opened onClose={onClose} title={tr("Edit distribution {id}", { id })} size="lg">
       <Stack gap="sm">
         {error !== null && <Alert color="red">{error}</Alert>}
-        <TextInput label="Comment" disabled={loaded === null} value={comment} onChange={(event) => setComment(event.currentTarget.value)} />
+        <TextInput label={tr("Comment")} disabled={loaded === null} value={comment} onChange={(event) => setComment(event.currentTarget.value)} />
         <Textarea
-          label="Aliases"
-          description="One domain name per line."
+          label={tr("Aliases")}
+          description={tr("One domain name per line.")}
           disabled={loaded === null}
           rows={3}
           value={aliases}
           onChange={(event) => setAliases(event.currentTarget.value)}
         />
-        <TextInput label="Default root object" disabled={loaded === null} value={root} onChange={(event) => setRoot(event.currentTarget.value)} />
+        <TextInput label={tr("Default root object")} disabled={loaded === null} value={root} onChange={(event) => setRoot(event.currentTarget.value)} />
         <Select
-          label="Price class"
+          label={tr("Price class")}
           data={PRICE_CLASSES}
           value={priceClass}
           disabled={loaded === null}
@@ -217,7 +218,7 @@ export function EditDialog({
           allowDeselect={false}
           comboboxProps={{ withinPortal: false }}
         />
-        <Checkbox label="Enabled" disabled={loaded === null} checked={enabled} onChange={(event) => setEnabled(event.currentTarget.checked)} />
+        <Checkbox label={tr("Enabled")} disabled={loaded === null} checked={enabled} onChange={(event) => setEnabled(event.currentTarget.checked)} />
         {problem !== null && (
           <Text size="sm" c="red">
             {problem}
@@ -225,10 +226,10 @@ export function EditDialog({
         )}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Cancel
+            {tr("Cancel")}
           </Button>
           <Button loading={busy} disabled={loaded === null || problem !== null} onClick={() => void save()}>
-            Save
+            {tr("Save")}
           </Button>
         </Group>
       </Stack>

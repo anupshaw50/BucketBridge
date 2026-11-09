@@ -5,6 +5,7 @@ import { toBbError } from "../../api/errors";
 import type { SavedFilter } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import { compileFilter, compileGlob, describeFilter, matchesObject } from "../../lib/filters";
 import { formatCount } from "../../lib/format";
 import { SIZE_UNITS, type SizeUnit } from "../../lib/tools";
@@ -34,7 +35,7 @@ function SizeField({
         style={{ flex: 1 }}
       />
       <Select
-        aria-label={`${label} unit`}
+        aria-label={tr("{label} unit", { label })}
         data={UNIT_OPTIONS}
         value={unit}
         allowDeselect={false}
@@ -79,7 +80,12 @@ function FilterForm({
       return null;
     }
     const kept = listing.entries.filter((entry) => matchesObject(compiled.filter, entry, listing.prefix)).length;
-    return `Matches ${formatCount(kept)} of ${formatCount(listing.entries.length)} items loaded in s3://${listing.bucket}/${listing.prefix}.`;
+    return tr("Matches {kept} of {total} items loaded in s3://{bucket}/{prefix}.", {
+      kept: formatCount(kept),
+      total: formatCount(listing.entries.length),
+      bucket: listing.bucket,
+      prefix: listing.prefix,
+    });
   }, [compiled, listing]);
   const classOptions = useMemo(
     () => [...new Set([...STORAGE_CLASS_OPTIONS, ...draft.classes])],
@@ -94,7 +100,7 @@ function FilterForm({
     setError(null);
     try {
       await model.filters.save({ name, filter: spec }, replaces);
-      model.status.info(`Filter "${name}" saved.`);
+      model.status.info(tr("Filter \"{name}\" saved.", { name }));
       onDone();
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -113,10 +119,10 @@ function FilterForm({
     >
       <Stack gap="sm">
         <Text size="sm" fw={600}>
-          {replaces === null ? "New filter" : `Edit filter ${replaces}`}
+          {replaces === null ? tr("New filter") : tr("Edit filter {name}", { name: replaces })}
         </Text>
         <TextInput
-          label="Filter name"
+          label={tr("Filter name")}
           value={draft.name}
           onChange={(event) => patch({ name: event.currentTarget.value })}
           maxLength={100}
@@ -126,16 +132,16 @@ function FilterForm({
         />
         <Group align="flex-start" gap="sm" grow>
           <TextInput
-            label="Prefix"
-            description="The path below the folder you browse starts with this text."
+            label={tr("Prefix")}
+            description={tr("The path below the folder you browse starts with this text.")}
             value={draft.prefix}
             onChange={(event) => patch({ prefix: event.currentTarget.value })}
             autoComplete="off"
             spellCheck={false}
           />
           <TextInput
-            label="Glob pattern"
-            description="For example **/*.jpg. * stays within a folder, ** crosses folders."
+            label={tr("Glob pattern")}
+            description={tr("For example **/*.jpg. * stays within a folder, ** crosses folders.")}
             value={draft.glob}
             onChange={(event) => patch({ glob: event.currentTarget.value })}
             error={globProblem}
@@ -145,13 +151,13 @@ function FilterForm({
         </Group>
         <Group align="flex-start" gap="sm" grow>
           <SizeField
-            label="Minimum size"
+            label={tr("Minimum size")}
             value={draft.minSize}
             unit={draft.minUnit}
             onChange={(minSize, minUnit) => patch({ minSize, minUnit })}
           />
           <SizeField
-            label="Maximum size"
+            label={tr("Maximum size")}
             value={draft.maxSize}
             unit={draft.maxUnit}
             onChange={(maxSize, maxUnit) => patch({ maxSize, maxUnit })}
@@ -160,20 +166,20 @@ function FilterForm({
         <Group align="flex-start" gap="sm" grow>
           <TextInput
             type="date"
-            label="Modified on or after"
+            label={tr("Modified on or after")}
             value={draft.after}
             onChange={(event) => patch({ after: event.currentTarget.value })}
           />
           <TextInput
             type="date"
-            label="Modified before"
+            label={tr("Modified before")}
             value={draft.before}
             onChange={(event) => patch({ before: event.currentTarget.value })}
           />
         </Group>
         <MultiSelect
-          label="Storage classes"
-          placeholder={draft.classes.length === 0 ? "Any storage class" : undefined}
+          label={tr("Storage classes")}
+          placeholder={draft.classes.length === 0 ? tr("Any storage class") : undefined}
           data={classOptions}
           value={draft.classes}
           onChange={(classes) => patch({ classes })}
@@ -196,10 +202,10 @@ function FilterForm({
         ) : null}
         <Group justify="flex-end" gap="xs">
           <Button variant="default" onClick={onDone}>
-            Cancel
+            {tr("Cancel")}
           </Button>
           <Button type="submit" loading={busy} disabled={name.length === 0 || problem !== null}>
-            Save filter
+            {tr("Save filter")}
           </Button>
         </Group>
       </Stack>
@@ -220,9 +226,9 @@ export function FiltersDialog({ onClose }: { onClose: () => void }) {
 
   const remove = async (filter: SavedFilter) => {
     const confirmed = await model.dialogs.confirm({
-      title: "Delete filter",
-      message: `Delete the saved filter "${filter.name}"?`,
-      confirmLabel: "Delete filter",
+      title: tr("Delete filter"),
+      message: tr("Delete the saved filter \"{name}\"?", { name: filter.name }),
+      confirmLabel: tr("Delete filter"),
       danger: true,
     });
     if (!confirmed) {
@@ -230,21 +236,22 @@ export function FiltersDialog({ onClose }: { onClose: () => void }) {
     }
     try {
       await model.filters.remove(filter.name);
-      model.status.info(`Filter "${filter.name}" deleted.`);
+      model.status.info(tr("Filter \"{name}\" deleted.", { name: filter.name }));
     } catch (error) {
-      model.status.error(error, { notify: "The filter could not be deleted" });
+      model.status.error(error, { notify: tr("The filter could not be deleted") });
     }
   };
 
   return (
-    <AppModal opened onClose={onClose} title="Saved filters" size="xl" closeOnClickOutside={false}>
+    <AppModal opened onClose={onClose} title={tr("Saved filters")} size="xl" closeOnClickOutside={false}>
       {editing !== null ? (
         <FilterForm replaces={editing.replaces} initial={editing.initial} onDone={() => setEditing(null)} />
       ) : (
         <Stack gap="sm">
           <Text size="sm">
-            A saved filter narrows the object list to the items you have loaded that match it: a prefix or glob pattern, a size
-            range, a modification date range and storage classes. Pick one from the Filter menu of the toolbar.
+            {tr(
+              "A saved filter narrows the object list to the items you have loaded that match it: a prefix or glob pattern, a size range, a modification date range and storage classes. Pick one from the Filter menu of the toolbar.",
+            )}
           </Text>
           {loadError !== null ? (
             <Alert color="red" role="alert" py="xs">
@@ -253,16 +260,16 @@ export function FiltersDialog({ onClose }: { onClose: () => void }) {
           ) : null}
           {saved.length === 0 ? (
             <Text size="sm" c="dimmed">
-              No saved filters yet.
+              {tr("No saved filters yet.")}
             </Text>
           ) : (
-            <Table aria-label="Stored filters" verticalSpacing={6} fz="sm" highlightOnHover>
+            <Table aria-label={tr("Stored filters")} verticalSpacing={6} fz="sm" highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>What it matches</Table.Th>
+                  <Table.Th>{tr("Name")}</Table.Th>
+                  <Table.Th>{tr("What it matches")}</Table.Th>
                   <Table.Th>
-                    <span className="bb-visually-hidden">Actions</span>
+                    <span className="bb-visually-hidden">{tr("Actions")}</span>
                   </Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -276,7 +283,7 @@ export function FiltersDialog({ onClose }: { onClose: () => void }) {
                         </Text>
                         {active?.name.toLowerCase() === filter.name.toLowerCase() ? (
                           <Badge size="xs" variant="light">
-                            Applied
+                            {tr("Applied")}
                           </Badge>
                         ) : null}
                       </Group>
@@ -287,27 +294,27 @@ export function FiltersDialog({ onClose }: { onClose: () => void }) {
                         <Button
                           size="compact-xs"
                           variant="subtle"
-                          aria-label={`Apply filter ${filter.name}`}
+                          aria-label={tr("Apply filter {name}", { name: filter.name })}
                           onClick={() => model.filters.apply(filter.name)}
                         >
-                          Apply
+                          {tr("Apply")}
                         </Button>
                         <Button
                           size="compact-xs"
                           variant="subtle"
-                          aria-label={`Edit filter ${filter.name}`}
+                          aria-label={tr("Edit filter {name}", { name: filter.name })}
                           onClick={() => setEditing({ replaces: filter.name, initial: draftFromSaved(filter) })}
                         >
-                          Edit
+                          {tr("Edit")}
                         </Button>
                         <Button
                           size="compact-xs"
                           variant="subtle"
                           color="red"
-                          aria-label={`Delete filter ${filter.name}`}
+                          aria-label={tr("Delete filter {name}", { name: filter.name })}
                           onClick={() => void remove(filter)}
                         >
-                          Delete
+                          {tr("Delete")}
                         </Button>
                       </Group>
                     </Table.Td>
@@ -318,10 +325,10 @@ export function FiltersDialog({ onClose }: { onClose: () => void }) {
           )}
           <Group justify="space-between">
             <Button leftSection={<IconPlus size={14} />} onClick={() => setEditing({ replaces: null, initial: emptyDraft() })}>
-              New filter
+              {tr("New filter")}
             </Button>
             <Button variant="default" onClick={onClose}>
-              Close
+              {tr("Close")}
             </Button>
           </Group>
         </Stack>

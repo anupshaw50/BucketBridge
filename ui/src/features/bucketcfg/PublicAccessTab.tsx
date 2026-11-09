@@ -2,6 +2,7 @@ import { Button, Group, Stack, Switch, Text } from "@mantine/core";
 import { useState } from "react";
 import type { PublicAccessBlock } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { ActionError, SectionGate, type TabProps } from "./common";
 import { useAction } from "./useAction";
 
@@ -56,14 +57,14 @@ function PublicAccessEditor({
   const save = () =>
     action.run(async () => {
       await model.api.put_public_access_block({ account_id: accountId, bucket, config: draft });
-      model.status.info(`The public access block of ${bucket} was saved.`);
+      model.status.info(tr("The public access block of {bucket} was saved.", { bucket }));
       await reload();
     });
   const remove = async () => {
     const confirmed = await model.dialogs.confirm({
-      title: "Remove public access block",
-      message: `The public access block of ${bucket} is removed, so S3 stops blocking public access to it. The bucket is then only as private as its ACLs and policy make it.`,
-      confirmLabel: "Remove configuration",
+      title: tr("Remove public access block"),
+      message: tr("The public access block of {bucket} is removed, so S3 stops blocking public access to it. The bucket is then only as private as its ACLs and policy make it.", { bucket }),
+      confirmLabel: tr("Remove configuration"),
       danger: true,
     });
     if (!confirmed) {
@@ -71,7 +72,7 @@ function PublicAccessEditor({
     }
     await action.run(async () => {
       await model.api.delete_public_access_block({ account_id: accountId, bucket });
-      model.status.info(`The public access block of ${bucket} was removed.`);
+      model.status.info(tr("The public access block of {bucket} was removed.", { bucket }));
       await reload();
     });
   };
@@ -80,14 +81,14 @@ function PublicAccessEditor({
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
         {block === null
-          ? "No public access block is configured, so S3 blocks nothing on this bucket."
-          : "These switches limit how public the bucket and its objects can become."}
+          ? tr("No public access block is configured, so S3 blocks nothing on this bucket.")
+          : tr("These switches limit how public the bucket and its objects can become.")}
       </Text>
       {FIELDS.map(({ key, label, description }) => (
         <Switch
           key={key}
-          label={label}
-          description={description}
+          label={tr(label)}
+          description={tr(description)}
           checked={draft[key]}
           onChange={(event) => {
             const checked = event.currentTarget.checked;
@@ -98,11 +99,11 @@ function PublicAccessEditor({
       <ActionError message={action.error} />
       <Group gap="xs">
         <Button loading={action.busy} disabled={!changed} onClick={() => void save()}>
-          Save
+          {tr("Save")}
         </Button>
         {block !== null ? (
           <Button color="red" variant="light" ml="auto" disabled={action.busy} onClick={() => void remove()}>
-            Remove configuration
+            {tr("Remove configuration")}
           </Button>
         ) : null}
       </Group>

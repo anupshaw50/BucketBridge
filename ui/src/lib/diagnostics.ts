@@ -1,19 +1,20 @@
 import type { DiagnosticStatus, DiagnosticStep, DiagnosticStepId, DiagnosticsReport } from "../api/types";
+import { tr } from "../i18n";
 
 /** Display names of the diagnostic steps, in report order. */
 export const STEP_LABELS: Record<DiagnosticStepId, string> = {
-  dns: "DNS lookup",
-  tcp: "TCP connection",
-  proxy: "Proxy",
-  tls: "TLS handshake",
-  credentials: "Credentials",
-  region: "Bucket region",
+  dns: tr("DNS lookup"),
+  tcp: tr("TCP connection"),
+  proxy: tr("Proxy"),
+  tls: tr("TLS handshake"),
+  credentials: tr("Credentials"),
+  region: tr("Bucket region"),
 };
 
 export const STATUS_LABELS: Record<DiagnosticStatus, string> = {
-  pass: "Pass",
-  fail: "Fail",
-  skip: "Skip",
+  pass: tr("Pass"),
+  fail: tr("Fail"),
+  skip: tr("Skip"),
 };
 
 /** The steps that failed, in report order. */
@@ -25,10 +26,12 @@ export function failedSteps(report: DiagnosticsReport): DiagnosticStep[] {
 export function verdict(report: DiagnosticsReport): string {
   const failed = failedSteps(report);
   if (failed.length === 0) {
-    return "All checks passed.";
+    return tr("All checks passed.");
   }
   const names = failed.map((step) => STEP_LABELS[step.id]).join(", ");
-  return `${failed.length === 1 ? "1 check failed" : `${failed.length} checks failed`}: ${names}.`;
+  return failed.length === 1
+    ? tr("1 check failed: {names}.", { names })
+    : tr("{n} checks failed: {names}.", { n: failed.length, names });
 }
 
 /** "12 ms" below a second, "1.4 s" above. */
@@ -46,12 +49,12 @@ export function formatMillis(ms: number): string {
  */
 export function formatReport(report: DiagnosticsReport): string {
   const lines = [
-    "BucketBridge diagnostics",
-    `Endpoint: ${report.target}`,
-    `Region: ${report.region}`,
-    `Bucket: ${report.bucket ?? "(none)"}`,
-    `Started: ${report.started_at} (${formatMillis(report.elapsed_ms)} in total)`,
-    `Result: ${verdict(report)}`,
+    tr("BucketBridge diagnostics"),
+    tr("Endpoint: {target}", { target: report.target }),
+    tr("Region: {region}", { region: report.region }),
+    tr("Bucket: {bucket}", { bucket: report.bucket ?? tr("(none)") }),
+    tr("Started: {start} ({elapsed} in total)", { start: report.started_at, elapsed: formatMillis(report.elapsed_ms) }),
+    tr("Result: {verdict}", { verdict: verdict(report) }),
     "",
   ];
   const nameWidth = Math.max(...Object.values(STEP_LABELS).map((label) => label.length));

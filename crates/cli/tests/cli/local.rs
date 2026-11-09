@@ -6,6 +6,7 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
+use bucketbridge_cli::i18n::{tr, trf};
 use bucketbridge_tests::MockResponse;
 
 use super::*;
@@ -65,7 +66,13 @@ async fn single_files_go_up_and_down() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("uploaded note.txt to s3://{bucket}/note.txt")
+        trf(
+            "uploaded {source} to {destination}",
+            &[
+                ("source", "note.txt"),
+                ("destination", &format!("s3://{bucket}/note.txt")),
+            ],
+        )
     );
     env.run_in(
         dir,
@@ -85,9 +92,15 @@ async fn single_files_go_up_and_down() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!(
-            "downloaded s3://{bucket}/docs/renamed.txt to {}",
-            Path::new("in").join("renamed.txt").display()
+        trf(
+            "downloaded {source} to {destination}",
+            &[
+                ("source", &format!("s3://{bucket}/docs/renamed.txt")),
+                (
+                    "destination",
+                    &Path::new("in").join("renamed.txt").display().to_string()
+                ),
+            ],
         )
     );
     env.run_in(dir, &["cp", &format!("s3://{bucket}/note.txt"), "new/"])
@@ -300,9 +313,31 @@ async fn dry_runs_write_nothing() {
     assert_eq!(
         out.stdout.trim(),
         format!(
-            "would download s3://{bucket}/remote/ to {}\nwould download s3://{bucket}/remote/r.txt to {}",
-            Path::new("out").join("remote").display(),
-            Path::new("out").join("remote").join("r.txt").display()
+            "{}\n{}",
+            trf(
+                "would download {source} to {destination}",
+                &[
+                    ("source", &format!("s3://{bucket}/remote/")),
+                    (
+                        "destination",
+                        &Path::new("out").join("remote").display().to_string()
+                    ),
+                ],
+            ),
+            trf(
+                "would download {source} to {destination}",
+                &[
+                    ("source", &format!("s3://{bucket}/remote/r.txt")),
+                    (
+                        "destination",
+                        &Path::new("out")
+                            .join("remote")
+                            .join("r.txt")
+                            .display()
+                            .to_string()
+                    ),
+                ],
+            )
         )
     );
     assert!(!dir.join("out").exists());
@@ -318,7 +353,13 @@ async fn dry_runs_write_nothing() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("would move s3://{bucket}/remote/r.txt to r.txt")
+        trf(
+            "would move {source} to {destination}",
+            &[
+                ("source", &format!("s3://{bucket}/remote/r.txt")),
+                ("destination", "r.txt"),
+            ],
+        )
     );
     assert!(!dir.join("r.txt").exists());
     assert!(env.s3.exists(&bucket, "remote/r.txt").await);
@@ -454,7 +495,10 @@ async fn unreadable_files_are_reported_and_the_rest_is_transferred() {
     // The summary of an I/O failure carries the first one's cause.
     let message = out.error_record()["message"].as_str().unwrap().to_owned();
     assert!(
-        message.starts_with("1 of 5 files could not be uploaded: ") && message.contains("c.jpg"),
+        message.starts_with(&format!(
+            "{}: ",
+            batch_summary(1, 5, "files", "could not be uploaded")
+        )) && message.contains("c.jpg"),
         "{message}"
     );
     assert_eq!(env.keys(&bucket).await.len(), 3);
@@ -467,10 +511,17 @@ async fn unreadable_files_are_reported_and_the_rest_is_transferred() {
     );
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
     out.expect_code(2);
-    assert!(out.stderr.contains("bb: cannot upload "), "{}", out.stderr);
     assert!(
+        out.stderr.contains("bb: ") && out.stderr.contains(&tr("cannot upload")),
+        "{}",
         out.stderr
-            .contains("bb: error: 1 of 5 files could not be uploaded: "),
+    );
+    assert!(
+        out.stderr.contains("bb: error: ")
+            && out.stderr.contains(&format!(
+                "{}: ",
+                batch_summary(1, 5, "files", "could not be uploaded")
+            )),
         "{}",
         out.stderr
     );
@@ -498,14 +549,18 @@ async fn usage_errors_and_missing_sources() {
         args = fixed.iter().map(String::as_str).collect();
         let out = env.run_in(dir, &args);
         out.expect_code(code);
-        assert!(out.stderr.contains(expected), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(&tr(expected)),
+            "{args:?}: {}",
+            out.stderr
+        );
     }
     // A file where a folder is needed.
     fs::write(dir.join("file"), "x").unwrap();
     env.s3.put(&bucket, "p/k", "v").await;
     let out = env.run_in(dir, &["cp", "-r", &format!("s3://{bucket}/p/"), "file"]);
     out.expect_code(1);
-    assert!(out.stderr.contains("is a file"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("is a file")), "{}", out.stderr);
     assert!(env.keys(&bucket).await.len() == 1);
 }
 
@@ -530,7 +585,7 @@ async fn clashing_destinations_stop_everything_before_it_starts() {
         error["message"]
             .as_str()
             .unwrap()
-            .contains("nothing was downloaded"),
+            .contains(&tr("nothing was downloaded")),
         "{error}"
     );
     assert!(out.stdout.is_empty());

@@ -29,8 +29,9 @@ impl<T: Eq + Hash + Clone> SeenTokens<T> {
         if self.seen.insert(token.clone()) {
             Ok(token)
         } else {
-            Err(Error::Remote(format!(
-                "{what}: the server returned a continuation token it had already sent; stopping to avoid an endless listing"
+            Err(Error::Remote(crate::i18n::trf(
+                "{what}: the server returned a continuation token it had already sent; stopping to avoid an endless listing",
+                &[("what", what)],
             )))
         }
     }
@@ -41,6 +42,13 @@ mod tests {
     use super::*;
     use bucketbridge_core::ErrorKind;
 
+    /// The tail of the endless-listing error, translated like the code.
+    fn tr_full_suffix() -> String {
+        crate::i18n::tr(
+            "the server returned a continuation token it had already sent; stopping to avoid an endless listing",
+        )
+    }
+
     #[test]
     fn repeats_and_cycles_are_refused() {
         let mut seen = SeenTokens::default();
@@ -48,7 +56,8 @@ mod tests {
         assert_eq!(seen.follow("B".to_owned(), "listing").unwrap(), "B");
         let err = seen.follow("A".to_owned(), "listing s3://b/").unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Remote);
-        assert!(err.to_string().starts_with("listing s3://b/: "), "{err}");
+        // The `what` prefix is data here; the translated part is the tail.
+        assert!(err.to_string().ends_with(&tr_full_suffix()), "{err}");
 
         let mut seen = SeenTokens::default();
         seen.follow(("k".to_owned(), Some("v".to_owned())), "x")

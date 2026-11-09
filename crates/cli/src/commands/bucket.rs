@@ -2,6 +2,7 @@
 
 use crate::cli::{MbArgs, RbArgs};
 use crate::context::Context;
+use crate::i18n::trf;
 use crate::output::{Failure, Output};
 use crate::records::BucketRecord;
 
@@ -15,8 +16,11 @@ pub async fn make(ctx: &Context, args: &MbArgs, out: &mut Output) -> Result<(), 
         region: args.region.clone(),
     };
     out.change(&record, || match &args.region {
-        Some(region) => format!("created bucket {} in {region}", args.bucket),
-        None => format!("created bucket {}", args.bucket),
+        Some(region) => trf(
+            "created bucket {bucket} in {region}",
+            &[("bucket", &args.bucket), ("region", region)],
+        ),
+        None => trf("created bucket {bucket}", &[("bucket", &args.bucket)]),
     })
 }
 
@@ -28,5 +32,7 @@ pub async fn remove(ctx: &Context, args: &RbArgs, out: &mut Output) -> Result<()
         bucket: args.bucket.clone(),
         region: None,
     };
-    out.change(&record, || format!("removed bucket {}", args.bucket))
+    out.change(&record, || {
+        trf("removed bucket {bucket}", &[("bucket", &args.bucket)])
+    })
 }

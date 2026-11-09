@@ -13,6 +13,7 @@ use bucketbridge_core::settings::TransferSettings;
 use bucketbridge_core::transfer::BandwidthLimiter;
 use tokio::task::JoinHandle;
 
+use crate::i18n::trf;
 use crate::output::Stderr;
 
 /// How often the progress line is redrawn.
@@ -85,13 +86,22 @@ impl Totals {
         let seconds = elapsed.as_secs_f64().max(0.001);
         // Display only: rounding to whole bytes per second is fine.
         let rate = (done as f64 / seconds) as u64;
-        format!(
-            "{} of {} ({percent}%), {}/s, {} of {} done",
-            human_bytes(done),
-            human_bytes(total),
-            human_bytes(rate),
-            self.items_done.load(Ordering::Relaxed),
-            self.items.load(Ordering::Relaxed)
+        trf(
+            "{done} of {total} ({percent}%), {rate}/s, {items_done} of {items} done",
+            &[
+                ("done", human_bytes(done).as_str()),
+                ("total", human_bytes(total).as_str()),
+                ("percent", percent.to_string().as_str()),
+                ("rate", human_bytes(rate).as_str()),
+                (
+                    "items_done",
+                    self.items_done.load(Ordering::Relaxed).to_string().as_str(),
+                ),
+                (
+                    "items",
+                    self.items.load(Ordering::Relaxed).to_string().as_str(),
+                ),
+            ],
         )
     }
 }
@@ -273,14 +283,32 @@ mod tests {
         assert_eq!(totals.total.load(Ordering::Relaxed), 140);
         assert_eq!(totals.done.load(Ordering::Relaxed), 30);
         let line = totals.line(Duration::from_secs(1));
-        assert_eq!(line, "30 B of 140 B (21%), 30 B/s, 1 of 2 done");
-        assert!(
-            Totals::new(0, 0)
-                .line(Duration::ZERO)
-                .starts_with("0 B of 0 B (0%)")
+        assert_eq!(
+            line,
+            trf(
+                "{done} of {total} ({percent}%), {rate}/s, {items_done} of {items} done",
+                &[
+                    ("done", "30 B"),
+                    ("total", "140 B"),
+                    ("percent", "21"),
+                    ("rate", "30 B"),
+                    ("items_done", "1"),
+                    ("items", "2"),
+                ],
+            )
         );
+        assert!(Totals::new(0, 0).line(Duration::ZERO).starts_with(&trf(
+            "{done} of {total} ({percent}%), {rate}/s, {items_done} of {items} done",
+            &[
+                ("done", "0 B"),
+                ("total", "0 B"),
+                ("percent", "0"),
+                ("rate", "0 B"),
+                ("items_done", "0"),
+                ("items", "0"),
+            ],
+        )));
     }
-
     #[test]
     fn unlimited_settings_do_not_throttle() {
         let settings = Settings::default();
@@ -291,7 +319,6 @@ mod tests {
         limited.bandwidth_limit_kibps = Some(1024 * 1024);
         assert_eq!(throttle(&limited).max_grant(), DEFAULT_MAX_GRANT);
     }
-
     #[derive(Clone, Default)]
     struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
 
@@ -313,8 +340,16 @@ mod tests {
             ProgressLine::start(Arc::clone(&totals), Stderr::new(Box::new(captured.clone())));
         tokio::time::sleep(REDRAW_INTERVAL / 2).await;
         let text = || String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
-        assert!(text().starts_with("\r0 B of 2.0 KiB (0%)"), "{:?}", text());
-        let width = text().len() - 1;
+        assert!(
+            text().starts_with('\r')
+                && text().contains(&trf(
+                    "{done} of {total}",
+                    &[("done", "0 B"), ("total", "2.0 KiB")]
+                )),
+            "{:?}",
+            text()
+        );
+        let width = text().chars().count() - 1;
         line.print_above(|| captured.clone().write_all(b"record\n").unwrap());
         assert!(
             text().ends_with(&format!("\r{}\rrecord\n", " ".repeat(width))),
@@ -322,7 +357,14 @@ mod tests {
             text()
         );
         tokio::time::sleep(REDRAW_INTERVAL).await;
-        assert!(text().ends_with("0 of 1 done"), "{:?}", text());
+        assert!(
+            text().ends_with(&crate::i18n::trf(
+                "{items_done} of {items} done",
+                &[("items_done", "0"), ("items", "1")]
+            )),
+            "{:?}",
+            text()
+        );
         drop(line);
         let after = text();
         assert!(

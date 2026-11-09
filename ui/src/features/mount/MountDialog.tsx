@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { MountInfo, MountStatus } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
 
 /**
@@ -42,12 +43,12 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
 
   const choose = async () => {
     try {
-      const picked = await model.platform.pickFolder("Choose the mount folder");
+      const picked = await model.platform.pickFolder(tr("Choose the mount folder"));
       if (picked !== null) {
         setMountPoint(picked);
       }
     } catch (raw) {
-      model.status.error(raw, { notify: "The folder dialog could not be opened" });
+      model.status.error(raw, { notify: tr("The folder dialog could not be opened") });
     }
   };
 
@@ -61,7 +62,7 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
         prefix: prefix.trim() === "" ? null : prefix.trim(),
         mount_point: mountPoint.trim(),
       });
-      model.status.info(`Mounted ${info.bucket} on ${info.mount_point}.`);
+      model.status.info(tr("Mounted {bucket} on {point}.", { bucket: info.bucket, point: info.mount_point }));
     } catch (raw) {
       setError(toBbError(raw).message);
     } finally {
@@ -73,7 +74,7 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
     setError(null);
     try {
       await model.api.unmount_bucket({ mount_point: info.mount_point });
-      model.status.info(`Unmounted ${info.mount_point}.`);
+      model.status.info(tr("Unmounted {point}.", { point: info.mount_point }));
     } catch (raw) {
       setError(toBbError(raw).message);
     }
@@ -83,26 +84,28 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
   const driverName = windows ? "Dokan" : "FUSE";
   const ready = status !== null && status.supported && status.fuse_installed;
   return (
-    <AppModal opened onClose={onClose} title={`Mount ${bucket} as drive`} size="lg">
+    <AppModal opened onClose={onClose} title={tr("Mount {bucket} as drive", { bucket })} size="lg">
       <Stack gap="sm">
         {status !== null && !status.supported && (
-          <Alert color="yellow">This build of BucketBridge cannot mount buckets. See docs/mount.md.</Alert>
+          <Alert color="yellow">{tr("This build of BucketBridge cannot mount buckets. See docs/mount.md.")}</Alert>
         )}
         {status !== null && status.supported && !status.fuse_installed && (
           <Alert color="yellow">
             {windows
-              ? "Dokan is not installed. Install the Dokan 2 runtime (github.com/dokan-dev/dokany/releases) and try again."
-              : "FUSE is not installed. Install macFUSE or FUSE-T (macOS) or fuse3 (Linux) and try again."}
+              ? tr("Dokan is not installed. Install the Dokan 2 runtime (github.com/dokan-dev/dokany/releases) and try again.")
+              : tr("FUSE is not installed. Install macFUSE or FUSE-T (macOS) or fuse3 (Linux) and try again.")}
           </Alert>
         )}
         <Text size="sm">
-          The bucket appears as a read-only {windows ? "drive or folder" : "folder"} ({driverName}). Nothing in it can
-          be changed from there.
+          {tr("The bucket appears as a read-only {form} ({driver}). Nothing in it can be changed from there.", {
+            form: windows ? tr("drive or folder") : tr("folder"),
+            driver: driverName,
+          })}
         </Text>
         {windows && (
           <Select
-            label="Drive letter"
-            placeholder="Pick a free drive letter"
+            label={tr("Drive letter")}
+            placeholder={tr("Pick a free drive letter")}
             data={status.drive_letters.map((letter) => `${letter}:`)}
             value={/^[A-Za-z]:$/.test(mountPoint.trim()) ? mountPoint.trim().toUpperCase() : null}
             onChange={(value) => setMountPoint(value ?? "")}
@@ -110,30 +113,30 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
           />
         )}
         <TextInput
-          label="Mount folder"
+          label={tr("Mount folder")}
           description={
             windows
-              ? "A free drive letter such as X:, or an existing empty folder on an NTFS drive."
-              : "An existing, empty folder (absolute path)."
+              ? tr("A free drive letter such as X:, or an existing empty folder on an NTFS drive.")
+              : tr("An existing, empty folder (absolute path).")
           }
           value={mountPoint}
           onChange={(event) => setMountPoint(event.currentTarget.value)}
           rightSectionWidth={90}
           rightSection={
             <Button size="compact-sm" variant="default" onClick={() => void choose()}>
-              Browse...
+              {tr("Browse...")}
             </Button>
           }
         />
         <TextInput
-          label="Prefix (optional)"
-          description="Mount only this folder of the bucket."
+          label={tr("Prefix (optional)")}
+          description={tr("Mount only this folder of the bucket.")}
           value={prefix}
           onChange={(event) => setPrefix(event.currentTarget.value)}
         />
         <Group>
           <Button onClick={() => void mount()} loading={busy} disabled={!ready || mountPoint.trim() === ""}>
-            Mount
+            {tr("Mount")}
           </Button>
         </Group>
         {error !== null && (
@@ -142,11 +145,11 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
           </Alert>
         )}
         {status !== null && status.mounts.length > 0 && (
-          <Table aria-label="Active mounts">
+          <Table aria-label={tr("Active mounts")}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Bucket</Table.Th>
-                <Table.Th>Folder</Table.Th>
+                <Table.Th>{tr("Bucket")}</Table.Th>
+                <Table.Th>{tr("Folder")}</Table.Th>
                 <Table.Th />
               </Table.Tr>
             </Table.Thead>
@@ -157,7 +160,7 @@ export function MountDialog({ accountId, bucket, onClose }: { accountId: string;
                   <Table.Td>{info.mount_point}</Table.Td>
                   <Table.Td>
                     <Button size="compact-sm" variant="default" onClick={() => void unmount(info)}>
-                      Unmount
+                      {tr("Unmount")}
                     </Button>
                   </Table.Td>
                 </Table.Tr>

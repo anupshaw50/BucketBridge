@@ -10,8 +10,9 @@ use bucketbridge_core::ops::{MAX_PRESIGN_EXPIRY, MIN_PRESIGN_EXPIRY};
 /// are rejected.
 pub fn parse_duration(text: &str) -> Result<Duration, String> {
     let invalid = || {
-        format!(
-            "invalid duration '{text}': use seconds (90) or a number with a unit s, m, h or d (30s, 15m, 1h, 7d, 1h30m)"
+        crate::i18n::trf(
+            "invalid duration '{text}': use seconds (90) or a number with a unit s, m, h or d (30s, 15m, 1h, 7d, 1h30m)",
+            &[("text", text)],
         )
     };
     if text.is_empty() {
@@ -58,9 +59,12 @@ pub fn parse_duration(text: &str) -> Result<Duration, String> {
 pub fn parse_expiry(text: &str) -> Result<Duration, String> {
     let duration = parse_duration(text)?;
     if !(MIN_PRESIGN_EXPIRY..=MAX_PRESIGN_EXPIRY).contains(&duration) {
-        return Err(format!(
-            "'{text}' is out of range: a presigned URL is valid for 1s to 7d ({} seconds)",
-            MAX_PRESIGN_EXPIRY.as_secs()
+        return Err(crate::i18n::trf(
+            "'{text}' is out of range: a presigned URL is valid for 1s to 7d ({seconds} seconds)",
+            &[
+                ("text", text),
+                ("seconds", MAX_PRESIGN_EXPIRY.as_secs().to_string().as_str()),
+            ],
         ));
     }
     Ok(duration)
@@ -109,7 +113,10 @@ mod tests {
             "999999999999999999d",
         ] {
             let err = parse_duration(text).unwrap_err();
-            assert!(err.contains("invalid duration"), "{text:?}: {err}");
+            assert!(
+                err.contains(&crate::i18n::tr("invalid duration")),
+                "{text:?}: {err}"
+            );
         }
     }
 
@@ -121,12 +128,15 @@ mod tests {
         assert_eq!(parse_expiry("604800s").unwrap().as_secs(), 604_800);
         for text in ["0s", "0", "7d1s", "8d", "604801"] {
             let err = parse_expiry(text).unwrap_err();
-            assert!(err.contains("out of range"), "{text}: {err}");
+            assert!(
+                err.contains(&crate::i18n::tr("out of range")),
+                "{text}: {err}"
+            );
         }
         assert!(
             parse_expiry("soon")
                 .unwrap_err()
-                .contains("invalid duration")
+                .contains(&crate::i18n::tr("invalid duration"))
         );
     }
 }

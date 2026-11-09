@@ -28,6 +28,7 @@ use crate::cli::{
     IamPolicyCommand, IamScopeArg, IamUserCommand,
 };
 use crate::context::{Inputs, iam_client};
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 
 /// Characters of a generated password.
@@ -68,25 +69,35 @@ fn check(command: &IamCommand) -> Result<()> {
     let (yes, what) = match command {
         IamCommand::User(IamUserCommand::Delete(args)) => (
             args.yes,
-            format!("deleting user {} and everything it owns", args.name),
+            trf(
+                "deleting user {name} and everything it owns",
+                &[("name", &args.name)],
+            ),
         ),
-        IamCommand::Keys(IamKeysCommand::Delete(args)) => {
-            (args.yes, format!("deleting access key {}", args.key_id))
-        }
+        IamCommand::Keys(IamKeysCommand::Delete(args)) => (
+            args.yes,
+            trf("deleting access key {key_id}", &[("key_id", &args.key_id)]),
+        ),
         IamCommand::Inline(IamInlineCommand::Delete(args)) => (
             args.yes,
-            format!("deleting the inline policy {}", args.policy),
+            trf(
+                "deleting the inline policy {policy}",
+                &[("policy", &args.policy)],
+            ),
         ),
         IamCommand::LoginProfile(IamLoginProfileCommand::Delete(args)) => (
             args.yes,
-            format!("removing the console password of {}", args.name),
+            trf(
+                "removing the console password of {name}",
+                &[("name", &args.name)],
+            ),
         ),
         _ => return Ok(()),
     };
     if yes {
         Ok(())
     } else {
-        Err(Error::Usage(format!("{what} needs --yes")))
+        Err(Error::Usage(trf("{what} needs --yes", &[("what", &what)])))
     }
 }
 
@@ -124,7 +135,10 @@ async fn user(
         IamUserCommand::Create(args) => {
             let user = iam.create_user(&args.name, args.path.as_deref()).await?;
             out.change(&user, || {
-                format!("created user {} ({})", user.name, user.arn)
+                trf(
+                    "created user {name} ({arn})",
+                    &[("name", user.name.as_str()), ("arn", user.arn.as_str())],
+                )
             })
         }
         IamUserCommand::Update(args) => {
@@ -136,7 +150,10 @@ async fn user(
                 )
                 .await?;
             out.change(&user, || {
-                format!("updated user {} ({})", user.name, user.arn)
+                trf(
+                    "updated user {name} ({arn})",
+                    &[("name", user.name.as_str()), ("arn", user.arn.as_str())],
+                )
             })
         }
         IamUserCommand::Delete(args) => {
@@ -145,24 +162,37 @@ async fn user(
             for step in &outcome.steps {
                 if let Some(error) = &step.error {
                     first_error.get_or_insert_with(|| error.clone());
-                    let line = format!(
-                        "bb: failed to remove {} {}: {}",
-                        step.kind, step.target, error.message
+                    let line = trf(
+                        "bb: failed to remove {kind} {target}: {message}",
+                        &[
+                            ("kind", step.kind.as_str()),
+                            ("target", step.target.as_str()),
+                            ("message", error.message.as_str()),
+                        ],
                     );
                     out.notice(&line);
                 }
             }
             out.change(&outcome, || {
                 if outcome.deleted {
-                    format!("deleted user {}", outcome.user_name)
+                    trf(
+                        "deleted user {name}",
+                        &[("name", outcome.user_name.as_str())],
+                    )
                 } else {
-                    format!("did not delete user {}", outcome.user_name)
+                    trf(
+                        "did not delete user {name}",
+                        &[("name", outcome.user_name.as_str())],
+                    )
                 }
             })?;
             match first_error {
-                Some(error) if !outcome.deleted => Err(Error::Remote(format!(
-                    "user {} was not deleted: {}",
-                    outcome.user_name, error.message
+                Some(error) if !outcome.deleted => Err(Error::Remote(trf(
+                    "user {name} was not deleted: {message}",
+                    &[
+                        ("name", outcome.user_name.as_str()),
+                        ("message", error.message.as_str()),
+                    ],
                 ))
                 .into()),
                 _ => Ok(()),
@@ -176,18 +206,23 @@ fn section_lines<T>(
     section: &Section<T>,
     lines: impl FnOnce(&T) -> Vec<String>,
 ) -> Vec<String> {
-    let mut all = vec![format!("{title}:")];
+    let mut all = vec![trf("{title}:", &[("title", tr(title).as_str())])];
     match section {
         Section::Loaded { value } => {
             let rows = lines(value);
             if rows.is_empty() {
-                all.push("  (none)".to_owned());
+                all.push(tr("  (none)"));
             } else {
                 all.extend(rows.into_iter().map(|row| format!("  {row}")));
             }
         }
-        Section::Unsupported { message } => all.push(format!("  (not available: {message})")),
-        Section::Failed { error } => all.push(format!("  (could not be read: {})", error.message)),
+        Section::Unsupported { message } => {
+            all.push(trf("  (not available: {message})", &[("message", message)]))
+        }
+        Section::Failed { error } => all.push(trf(
+            "  (could not be read: {message})",
+            &[("message", error.message.as_str())],
+        )),
     }
     all
 }
@@ -195,11 +230,17 @@ fn section_lines<T>(
 fn details_text(details: &UserDetails) -> String {
     let user = &details.user;
     let mut lines = vec![
-        format!("user: {}", user.name),
-        format!("arn: {}", user.arn),
-        format!("path: {}", user.path),
-        format!("created: {}", timestamp(user.created)),
-        format!("password last used: {}", timestamp(user.password_last_used)),
+        trf("user: {name}", &[("name", user.name.as_str())]),
+        trf("arn: {arn}", &[("arn", user.arn.as_str())]),
+        trf("path: {path}", &[("path", user.path.as_str())]),
+        trf(
+            "created: {time}",
+            &[("time", timestamp(user.created).as_str())],
+        ),
+        trf(
+            "password last used: {time}",
+            &[("time", timestamp(user.password_last_used).as_str())],
+        ),
     ];
     lines.extend(section_lines(
         "managed policies",
@@ -245,14 +286,20 @@ fn status_text(status: KeyStatus) -> &'static str {
 }
 
 fn login_text(profile: &LoginProfile) -> String {
-    format!(
-        "set {}{}",
-        timestamp(profile.created),
-        if profile.password_reset_required {
-            ", must be changed at the next sign-in"
-        } else {
-            ""
-        }
+    trf(
+        "set {time}{reset}",
+        &[
+            ("time", timestamp(profile.created).as_str()),
+            (
+                "reset",
+                tr(if profile.password_reset_required {
+                    ", must be changed at the next sign-in"
+                } else {
+                    ""
+                })
+                .as_str(),
+            ),
+        ],
     )
 }
 
@@ -300,15 +347,17 @@ async fn keys(
         }
         IamKeysCommand::Create(args) => {
             let key = iam.create_access_key(&args.name).await?;
-            out.notice(
+            out.notice(&tr(
                 "bb: warning: the secret access key is shown only now; IAM cannot show it again",
-            );
+            ));
             out.row(&key, || {
-                format!(
-                    "user: {}\naccess key ID: {}\nsecret access key: {}",
-                    key.user_name,
-                    key.access_key_id,
-                    key.secret_access_key.expose()
+                trf(
+                    "user: {user}\naccess key ID: {key_id}\nsecret access key: {secret}",
+                    &[
+                        ("user", key.user_name.to_string().as_str()),
+                        ("key_id", key.access_key_id.to_string().as_str()),
+                        ("secret", key.secret_access_key.expose()),
+                    ],
                 )
             })
         }
@@ -327,7 +376,10 @@ async fn keys(
                 status: "deleted",
             };
             out.change(&record, || {
-                format!("deleted access key {} of {}", args.key_id, args.name)
+                trf(
+                    "deleted access key {key_id} of {user}",
+                    &[("key_id", &args.key_id), ("user", &args.name)],
+                )
             })
         }
     }
@@ -348,9 +400,13 @@ async fn set_active(
         status,
     };
     out.change(&record, || {
-        format!(
-            "{} access key {key_id} of {user}",
-            if active { "activated" } else { "deactivated" }
+        trf(
+            if active {
+                "activated access key {key_id} of {user}"
+            } else {
+                "deactivated access key {key_id} of {user}"
+            },
+            &[("key_id", key_id), ("user", user)],
         )
     })
 }
@@ -403,7 +459,10 @@ async fn policy(
                 attached: true,
             };
             out.change(&record, || {
-                format!("attached {} to {}", args.policy_arn, args.name)
+                trf(
+                    "attached {policy} to {user}",
+                    &[("policy", &args.policy_arn), ("user", &args.name)],
+                )
             })
         }
         IamPolicyCommand::Detach(args) => {
@@ -414,7 +473,10 @@ async fn policy(
                 attached: false,
             };
             out.change(&record, || {
-                format!("detached {} from {}", args.policy_arn, args.name)
+                trf(
+                    "detached {policy} from {user}",
+                    &[("policy", &args.policy_arn), ("user", &args.name)],
+                )
             })
         }
     }
@@ -481,7 +543,10 @@ async fn inline(
                 action: "put",
             };
             out.change(&record, || {
-                format!("saved inline policy {} of {}", args.policy, args.name)
+                trf(
+                    "saved inline policy {policy} of {user}",
+                    &[("policy", &args.policy), ("user", &args.name)],
+                )
             })
         }
         IamInlineCommand::Delete(args) => {
@@ -493,7 +558,10 @@ async fn inline(
                 action: "deleted",
             };
             out.change(&record, || {
-                format!("deleted inline policy {} of {}", args.policy, args.name)
+                trf(
+                    "deleted inline policy {policy} of {user}",
+                    &[("policy", &args.policy), ("user", &args.name)],
+                )
             })
         }
     }
@@ -536,14 +604,17 @@ async fn login_profile(
                 password_reset_required: profile.as_ref().map(|p| p.password_reset_required),
             };
             out.row(&record, || match &profile {
-                Some(profile) => format!("{}: {}", args.name, login_text(profile)),
-                None => format!("{}: no console password", args.name),
+                Some(profile) => trf(
+                    "{name}: {what}",
+                    &[("name", &args.name), ("what", login_text(profile).as_str())],
+                ),
+                None => trf("{name}: no console password", &[("name", &args.name)]),
             })
         }
         IamLoginProfileCommand::Create(args) => {
             let (password, generated) =
                 password_for(args.password_stdin, args.generate, true, inputs)?
-                    .ok_or_else(|| Error::Usage("no password".into()))?;
+                    .ok_or_else(|| Error::Usage(tr("no password")))?;
             iam.create_login_profile(&args.name, &password, args.reset_required)
                 .await?;
             report_password(&args.name, "created", &password, generated, out)
@@ -568,7 +639,10 @@ async fn login_profile(
                         password: None,
                     };
                     out.change(&record, || {
-                        format!("updated the console password settings of {}", args.name)
+                        trf(
+                            "updated the console password settings of {user}",
+                            &[("user", &args.name)],
+                        )
                     })
                 }
             }
@@ -581,7 +655,10 @@ async fn login_profile(
                 password: None,
             };
             out.change(&record, || {
-                format!("removed the console password of {}", args.name)
+                trf(
+                    "removed the console password of {user}",
+                    &[("user", &args.name)],
+                )
             })
         }
     }
@@ -602,19 +679,47 @@ fn report_password(
             password: None,
         };
         return out.change(&record, || {
-            format!("{action} the console password of {user}")
+            trf(
+                "{verb} the console password of {user}",
+                &[
+                    (
+                        "verb",
+                        tr(match action {
+                            "created" => "created",
+                            "updated" => "updated",
+                            _ => "removed",
+                        })
+                        .as_str(),
+                    ),
+                    ("user", user),
+                ],
+            )
         });
     }
-    out.notice("bb: warning: the generated password is shown only now; it cannot be read again");
+    out.notice(&tr(
+        "bb: warning: the generated password is shown only now; it cannot be read again",
+    ));
     let record = LoginChangeRecord {
         user,
         action,
         password: Some(password.expose()),
     };
     out.row(&record, || {
-        format!(
-            "{action} the console password of {user}\npassword: {}",
-            password.expose()
+        trf(
+            "{verb} the console password of {user}\npassword: {password}",
+            &[
+                (
+                    "verb",
+                    tr(match action {
+                        "created" => "created",
+                        "updated" => "updated",
+                        _ => "removed",
+                    })
+                    .as_str(),
+                ),
+                ("user", user),
+                ("password", password.expose()),
+            ],
         )
     })
 }
@@ -634,7 +739,7 @@ fn password_for(
         let mut stdin = inputs
             .stdin
             .lock()
-            .map_err(|_| Error::Internal("standard input is unavailable".into()))?;
+            .map_err(|_| Error::Internal(tr("standard input is unavailable")))?;
         let mut line = String::new();
         stdin
             .read_line(&mut line)
@@ -642,23 +747,22 @@ fn password_for(
         let password = SecretString::new(line.trim_end_matches(['\r', '\n']).to_owned());
         drop(line);
         if password.is_empty() {
-            return Err(Error::Usage(
-                "--password-stdin: standard input is empty; expected the password on the first line"
-                    .into(),
-            ));
+            return Err(Error::Usage(tr(
+                "--password-stdin: standard input is empty; expected the password on the first line",
+            )));
         }
         return Ok(Some((password, false)));
     }
     if !required {
         return Ok(None);
     }
-    match inputs.console.read_secret("Console password: ") {
+    match inputs.console.read_secret(&tr("Console password: ")) {
         Ok(Some(password)) if !password.is_empty() => {
             Ok(Some((SecretString::new(password), false)))
         }
-        _ => Err(Error::Usage(
-            "no password: use --password-stdin or --generate, or run bb in a terminal".into(),
-        )),
+        _ => Err(Error::Usage(tr(
+            "no password: use --password-stdin or --generate, or run bb in a terminal",
+        ))),
     }
 }
 
@@ -744,15 +848,25 @@ fn validate_policy(
     };
     out.row(&record, || {
         if issues.is_empty() {
-            format!("{name}: valid")
+            trf("{name}: valid", &[("name", &name)])
         } else {
             issues
                 .iter()
                 .map(|issue| {
                     if issue.path.is_empty() {
-                        format!("{name}: {}", issue.message)
+                        trf(
+                            "{name}: {message}",
+                            &[("name", &name), ("message", issue.message.as_str())],
+                        )
                     } else {
-                        format!("{name}: {}: {}", issue.path, issue.message)
+                        trf(
+                            "{name}: {path}: {message}",
+                            &[
+                                ("name", &name),
+                                ("path", issue.path.as_str()),
+                                ("message", issue.message.as_str()),
+                            ],
+                        )
                     }
                 })
                 .collect::<Vec<_>>()
@@ -762,7 +876,14 @@ fn validate_policy(
     if issues.is_empty() {
         Ok(())
     } else {
-        Err(Error::Usage(format!("{} problem(s) found in {name}", issues.len())).into())
+        Err(Error::Usage(trf(
+            "{count} problem(s) found in {name}",
+            &[
+                ("count", issues.len().to_string().as_str()),
+                ("name", &name),
+            ],
+        ))
+        .into())
     }
 }
 

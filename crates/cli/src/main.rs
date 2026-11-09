@@ -5,6 +5,7 @@ use std::io::Write;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use bucketbridge_cli::i18n::trf;
 use bucketbridge_cli::{Io, Secrets};
 use bucketbridge_core::ErrorKind;
 
@@ -29,7 +30,14 @@ fn main() -> ExitCode {
         // exit code of a panic in the main thread.
         Ok(thread) => thread.join().unwrap_or(ExitCode::from(101)),
         Err(err) => {
-            let _ = writeln!(std::io::stderr(), "bb: error: starting the command: {err}");
+            let _ = writeln!(
+                std::io::stderr(),
+                "{}",
+                trf(
+                    "bb: error: starting the command: {error}",
+                    &[("error", &err.to_string())]
+                )
+            );
             ExitCode::from(2)
         }
     }
@@ -44,7 +52,11 @@ fn run_command() -> ExitCode {
         Err(err) => {
             let _ = writeln!(
                 std::io::stderr(),
-                "bb: error: starting the async runtime: {err}"
+                "{}",
+                trf(
+                    "bb: error: starting the async runtime: {error}",
+                    &[("error", &err.to_string())]
+                )
             );
             return ExitCode::from(2);
         }

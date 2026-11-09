@@ -239,8 +239,13 @@ Rules the menus follow:
   existing delete confirmation with the count and the size.
 - Work goes through the existing enqueue commands, so it appears in the
   transfer queue.
-- Menu text lives in `src/i18n/en.ts`, keyed by action id. A label that is
-  missing or misspelled does not compile.
+- Menu text lives in `src/i18n/en.ts` (English) and `src/i18n/zh/menu.ts`
+  (Chinese), keyed by action id. A label that is missing or misspelled does not
+  compile. Other interface text stays English in the source and is translated at
+  run time with `tr()` from `src/i18n`; the Chinese texts live in
+  `src/i18n/zh/<area>.ts`. The interface is Chinese by default and can be
+  switched to English in Settings → Interface → Language. See
+  [i18n.md](i18n.md).
 
 ### Which entries are live
 

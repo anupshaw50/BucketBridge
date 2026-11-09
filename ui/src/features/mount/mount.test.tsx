@@ -1,9 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { tr } from "../../i18n";
 import { renderApp } from "../../test/renderApp";
 
 async function bucketRow(name: string): Promise<HTMLElement> {
-  const tree = await screen.findByRole("tree", { name: "Buckets and folders" });
+  const tree = await screen.findByRole("tree", { name: tr("Buckets and folders") });
   const row = (await within(tree).findByText(name)).closest<HTMLElement>('[role="treeitem"]');
   if (row === null) {
     throw new Error(`no tree row for ${name}`);
@@ -16,27 +17,27 @@ describe("mount as drive (T04)", () => {
     await renderApp();
     fireEvent.contextMenu(await bucketRow("demo-photos"));
     await screen.findByRole("menu");
-    expect(screen.queryByRole("menuitem", { name: "Mount as drive" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: tr("Mount as drive") })).toBeNull();
   });
 
   it("mounts a bucket on a chosen folder and unmounts it", async () => {
     const { user, mock } = await renderApp({ mock: { mountSupported: true } });
     await waitFor(async () => expect((await mock.mount_status()).supported).toBe(true));
     fireEvent.contextMenu(await bucketRow("demo-photos"));
-    await user.click(await screen.findByRole("menuitem", { name: "Mount as drive" }));
-    const dialog = await screen.findByRole("dialog", { name: "Mount demo-photos as drive" });
-    const mountButton = within(dialog).getByRole("button", { name: "Mount" });
+    await user.click(await screen.findByRole("menuitem", { name: tr("Mount as drive") }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Mount {bucket} as drive", { bucket: "demo-photos" }) });
+    const mountButton = within(dialog).getByRole("button", { name: tr("Mount") });
     await waitFor(() => expect(mountButton).toBeDisabled());
 
-    await user.type(within(dialog).getByLabelText("Mount folder"), "/mnt/photos");
+    await user.type(within(dialog).getByLabelText(tr("Mount folder")), "/mnt/photos");
     await waitFor(() => expect(mountButton).toBeEnabled());
     await user.click(mountButton);
-    const table = await within(dialog).findByRole("table", { name: "Active mounts" });
+    const table = await within(dialog).findByRole("table", { name: tr("Active mounts") });
     expect(within(table).getByText("/mnt/photos")).toBeInTheDocument();
     expect((await mock.mount_status()).mounts).toHaveLength(1);
 
-    await user.click(within(table).getByRole("button", { name: "Unmount" }));
-    await waitFor(() => expect(within(dialog).queryByRole("table", { name: "Active mounts" })).toBeNull());
+    await user.click(within(table).getByRole("button", { name: tr("Unmount") }));
+    await waitFor(() => expect(within(dialog).queryByRole("table", { name: tr("Active mounts") })).toBeNull());
     expect((await mock.mount_status()).mounts).toHaveLength(0);
   });
 
@@ -58,11 +59,11 @@ describe("mount as drive (T04)", () => {
     await waitFor(async () => expect((await mock.mount_status()).supported).toBe(true));
     expect((await mock.mount_status()).drive_letters).toEqual(["D", "E", "Z"]);
     fireEvent.contextMenu(await bucketRow("demo-photos"));
-    await user.click(await screen.findByRole("menuitem", { name: "Mount as drive" }));
-    const dialog = await screen.findByRole("dialog", { name: "Mount demo-photos as drive" });
-    await user.type(within(dialog).getByLabelText("Mount folder"), "z");
-    await user.click(within(dialog).getByRole("button", { name: "Mount" }));
-    const table = await within(dialog).findByRole("table", { name: "Active mounts" });
+    await user.click(await screen.findByRole("menuitem", { name: tr("Mount as drive") }));
+    const dialog = await screen.findByRole("dialog", { name: tr("Mount {bucket} as drive", { bucket: "demo-photos" }) });
+    await user.type(within(dialog).getByLabelText(tr("Mount folder")), "z");
+    await user.click(within(dialog).getByRole("button", { name: tr("Mount") }));
+    const table = await within(dialog).findByRole("table", { name: tr("Active mounts") });
     expect(within(table).getByText("Z:")).toBeInTheDocument();
   });
 

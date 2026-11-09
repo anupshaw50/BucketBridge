@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { tr } from "../i18n";
 import {
   baseName,
   breadcrumbs,
@@ -29,7 +30,7 @@ describe("key helpers", () => {
     expect(relativeName("photos/2024/", "photos/")).toBe("2024");
     expect(relativeName("photos/2024/a.jpg", "photos/")).toBe("2024/a.jpg");
     expect(relativeName("odd//", "odd/")).toBe("");
-    expect(displaySegment("")).toBe(EMPTY_SEGMENT_LABEL);
+    expect(displaySegment("")).toBe(tr(EMPTY_SEGMENT_LABEL));
     expect(displaySegment("café")).toBe("café");
   });
 
@@ -53,23 +54,23 @@ describe("key helpers", () => {
 
   it("validates new names", () => {
     const existing = new Set(["docs/", "readme.md"]);
-    expect(validateNewName("", { prefix: "", folder: true })).toMatch(/name/);
-    expect(validateNewName("   ", { prefix: "", folder: true })).toMatch(/spaces/);
-    expect(validateNewName("a/b", { prefix: "", folder: true })).toMatch(/slash/);
-    expect(validateNewName("..", { prefix: "", folder: false })).toMatch(/reserved/);
-    expect(validateNewName("docs", { prefix: "", folder: true, existingKeys: existing })).toMatch(/already exists/);
-    expect(validateNewName("readme.md", { prefix: "", folder: false, existingKeys: existing })).toMatch(/already/);
-    expect(validateNewName("x".repeat(1025), { prefix: "", folder: false })).toMatch(/1024 bytes/);
+    expect(validateNewName("", { prefix: "", folder: true })).toBe(tr("Enter a name."));
+    expect(validateNewName("   ", { prefix: "", folder: true })).toBe(tr("The name cannot consist of spaces only."));
+    expect(validateNewName("a/b", { prefix: "", folder: true })).toBe(tr("A name cannot contain a slash."));
+    expect(validateNewName("..", { prefix: "", folder: false })).toBe(tr("This name is reserved."));
+    expect(validateNewName("docs", { prefix: "", folder: true, existingKeys: existing })).toBe(tr("A folder with this name already exists."));
+    expect(validateNewName("readme.md", { prefix: "", folder: false, existingKeys: existing })).toBe(tr("An object with this name already exists."));
+    expect(validateNewName("x".repeat(1025), { prefix: "", folder: false })).toBe(tr("The full key would exceed {n} bytes.", { n: 1024 }));
     expect(validateNewName("new folder", { prefix: "a/", folder: true, existingKeys: existing })).toBeNull();
   });
 
   it("refuses pastes into the same folder or into the copied folder itself", () => {
-    expect(pasteProblem("b", ["a/x.txt"], "b", "a/")).toMatch(/already in this folder/);
-    expect(pasteProblem("b", ["a/"], "b", "a/sub/")).toMatch(/into itself/);
-    expect(pasteProblem("b", ["a/"], "b", "a/")).toMatch(/into itself/);
+    expect(pasteProblem("b", ["a/x.txt"], "b", "a/")).toBe(tr("The items are already in this folder."));
+    expect(pasteProblem("b", ["a/"], "b", "a/sub/")).toBe(tr("A folder cannot be pasted into itself or one of its subfolders."));
+    expect(pasteProblem("b", ["a/"], "b", "a/")).toBe(tr("A folder cannot be pasted into itself or one of its subfolders."));
     expect(pasteProblem("b", ["a/x.txt"], "other", "a/")).toBeNull();
     expect(pasteProblem("b", ["a/x.txt"], "b", "c/")).toBeNull();
-    expect(pasteProblem("b", [], "b", "c/")).toMatch(/empty/);
+    expect(pasteProblem("b", [], "b", "c/")).toBe(tr("The clipboard is empty."));
   });
 
   it("normalises typed prefixes and local names", () => {

@@ -1,6 +1,7 @@
 import { Alert, Button, Group, Stack, Stepper } from "@mantine/core";
 import { IconAlertCircle } from "@tabler/icons-react";
 import type { FormEvent, ReactNode } from "react";
+import { tr } from "../i18n";
 
 export interface WizardStep {
   label: string;
@@ -35,9 +36,9 @@ export function Wizard({
   onBack,
   onFinish,
   onCancel,
-  finishLabel = "Finish",
-  nextLabel = "Next",
-  cancelLabel = "Cancel",
+  finishLabel = tr("Finish"),
+  nextLabel = tr("Next"),
+  cancelLabel = tr("Cancel"),
   showCancel = true,
   backDisabled = false,
   busy = false,
@@ -82,7 +83,7 @@ export function Wizard({
           )}
           <Group gap="xs">
             <Button variant="default" onClick={onBack} disabled={active === 0 || busy || backDisabled}>
-              Back
+              {tr("Back")}
             </Button>
             {last ? (
               <Button type="submit" loading={busy}>

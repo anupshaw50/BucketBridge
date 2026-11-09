@@ -3,6 +3,7 @@ import type { Backend } from "../api/backend";
 import { withSessionGuard } from "../api/guard";
 import type { Platform } from "../api/platform";
 import type { AppInfo, WindowLocation } from "../api/types";
+import { tr } from "../i18n";
 import { BookmarkController } from "./bookmarks";
 import { mountSupported } from "../features/mount/support";
 import { BrowserController } from "./browser";
@@ -152,7 +153,7 @@ export class AppModel {
     });
     // Settings first: the listing needs flat_browsing and the layout needs the panels.
     await this.settings.load().catch((error: unknown) => {
-      this.status.error(error, { notify: "Settings could not be loaded" });
+      this.status.error(error, { notify: tr("Settings could not be loaded") });
     });
     if (!alive()) {
       return;

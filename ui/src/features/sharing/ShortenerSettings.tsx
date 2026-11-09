@@ -4,9 +4,10 @@ import { useState } from "react";
 import { errorText } from "../../api/errors";
 import type { ShortenerProvider } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 
 const PROVIDERS: { value: ShortenerProvider; label: string }[] = [
-  { value: "none", label: "None (default)" },
+  { value: "none", label: tr("None (default)") },
   { value: "bitly", label: "Bitly" },
   { value: "tinyurl", label: "TinyURL" },
 ];
@@ -34,7 +35,7 @@ export function ShortenerSettings({
     try {
       await model.api.set_shortener_token({ token: value });
       onTokenSaved(await model.settings.refreshShortenerTokenRef());
-      model.status.info(value === null ? "Shortener token removed." : "Shortener token saved.");
+      model.status.info(value === null ? tr("Shortener token removed.") : tr("Shortener token saved."));
       setEditing(false);
       setToken("");
     } catch (failure) {
@@ -46,12 +47,10 @@ export function ShortenerSettings({
   return (
     <Stack gap="sm">
       <Alert color="yellow" icon={<IconInfoCircle size={16} />} py="xs">
-        A URL shortener is an outside service. When you press Shorten on a share link, the whole link, including the
-        signature of a presigned link, is sent to it. Nothing is sent otherwise, and nothing is sent while this is set
-        to None.
+        {tr("A URL shortener is an outside service. When you press Shorten on a share link, the whole link, including the signature of a presigned link, is sent to it. Nothing is sent otherwise, and nothing is sent while this is set to None.")}
       </Alert>
       <Select
-        label="URL shortener"
+        label={tr("URL shortener")}
         value={provider}
         allowDeselect={false}
         data={PROVIDERS}
@@ -65,17 +64,17 @@ export function ShortenerSettings({
       {provider !== "none" ? (
         <Stack gap={6}>
           <Text size="sm" fw={500}>
-            API token
+            {tr("API token")}
           </Text>
           <Text size="sm" c="dimmed">
-            {tokenSet ? "A token is stored in the credential store." : "No token is stored."}{" "}
-            {provider === "bitly" ? "Bitly needs a token." : "TinyURL works without a token."} Tokens are never shown
-            again; changes here apply immediately.
+            {tokenSet ? tr("A token is stored in the credential store.") : tr("No token is stored.")}{" "}
+            {provider === "bitly" ? tr("Bitly needs a token.") : tr("TinyURL works without a token.")}{" "}
+            {tr("Tokens are never shown again; changes here apply immediately.")}
           </Text>
           {editing ? (
             <Group align="flex-end" gap="xs">
               <PasswordInput
-                label="New token"
+                label={tr("New token")}
                 value={token}
                 onChange={(event) => setToken(event.currentTarget.value)}
                 w={260}
@@ -83,20 +82,20 @@ export function ShortenerSettings({
                 data-autofocus
               />
               <Button size="xs" loading={busy} disabled={token.length === 0} onClick={() => void store(token)}>
-                Save token
+                {tr("Save token")}
               </Button>
               <Button size="xs" variant="default" onClick={() => setEditing(false)}>
-                Cancel
+                {tr("Cancel")}
               </Button>
             </Group>
           ) : (
             <Group gap="xs">
               <Button size="xs" variant="default" onClick={() => setEditing(true)}>
-                {tokenSet ? "Change token..." : "Set token..."}
+                {tokenSet ? tr("Change token...") : tr("Set token...")}
               </Button>
               {tokenSet ? (
                 <Button size="xs" variant="subtle" color="red" loading={busy} onClick={() => void store(null)}>
-                  Remove token
+                  {tr("Remove token")}
                 </Button>
               ) : null}
             </Group>

@@ -1,5 +1,6 @@
 import type { IfExists, ObjectEntry, TransferTask } from "../../api/types";
-import { formatBytes, plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatBytes, formatCount } from "../../lib/format";
 import { isFolderEntry } from "../../lib/objects";
 import { downloadProblem, pasteProblem } from "../../lib/s3keys";
 import { invert, orderedSelection, selectAll } from "../../lib/selection";
@@ -69,10 +70,15 @@ async function enqueue(model: AppModel, what: string, run: () => Promise<Transfe
   try {
     const tasks = await run();
     model.transfers.addReturned(tasks);
-    model.status.info(`${what}: ${plural(tasks.length, "task")} added to the transfer queue.`);
+    const label = tr(what);
+    model.status.info(
+      tasks.length === 1
+        ? tr("{what}: 1 task added to the transfer queue.", { what: label })
+        : tr("{what}: {n} tasks added to the transfer queue.", { what: label, n: formatCount(tasks.length) }),
+    );
     return true;
   } catch (error) {
-    model.status.error(error, { notify: `${what} could not be started` });
+    model.status.error(error, { notify: tr("{what} could not be started", { what: tr(what) }) });
     return false;
   }
 }
@@ -81,7 +87,7 @@ async function pick<T>(model: AppModel, run: () => Promise<T | null>): Promise<T
   try {
     return await run();
   } catch (error) {
-    model.status.error(error, { notify: "The file dialog could not be opened" });
+    model.status.error(error, { notify: tr("The file dialog could not be opened") });
     return null;
   }
 }
@@ -91,7 +97,7 @@ export async function uploadFiles(model: AppModel, at?: Place): Promise<void> {
   if (location === null) {
     return;
   }
-  const paths = await pick(model, () => model.platform.pickFiles("Choose files to upload"));
+  const paths = await pick(model, () => model.platform.pickFiles(tr("Choose files to upload")));
   if (paths === null || paths.length === 0) {
     return;
   }
@@ -110,7 +116,7 @@ export async function uploadFolder(model: AppModel, at?: Place): Promise<void> {
   if (location === null) {
     return;
   }
-  const folder = await pick(model, () => model.platform.pickFolder("Choose a folder to upload"));
+  const folder = await pick(model, () => model.platform.pickFolder(tr("Choose a folder to upload")));
   if (folder === null) {
     return;
   }
@@ -129,14 +135,14 @@ async function downloadKeys(model: AppModel, accountId: string, bucket: string, 
   // The selected names land directly in one folder, so two items with one name would overwrite each other.
   const problem = downloadProblem(keys);
   if (problem !== null) {
-    model.status.error(problem, { notify: "Download not started" });
+    model.status.error(problem, { notify: tr("Download not started") });
     return;
   }
   const fallback = model.settings.current.general.default_download_dir;
   const destination =
     !choose && fallback !== null
       ? fallback
-      : await pick(model, () => model.platform.pickFolder("Choose the download folder"));
+      : await pick(model, () => model.platform.pickFolder(tr("Choose the download folder")));
   if (destination === null) {
     return;
   }
@@ -174,7 +180,7 @@ async function listLevel(model: AppModel, accountId: string, bucket: string, pre
       token = page.next_token;
     } while (token !== null);
   } catch (error) {
-    model.status.error(error, { notify: "The bucket could not be listed" });
+    model.status.error(error, { notify: tr("The bucket could not be listed") });
     return null;
   }
   return keys;
@@ -191,7 +197,7 @@ export async function downloadAll(model: AppModel, bucket: string): Promise<void
     return;
   }
   if (keys.length === 0) {
-    model.status.info(`${bucket} is empty: there is nothing to download.`);
+    model.status.info(tr("{bucket} is empty: there is nothing to download.", { bucket }));
     return;
   }
   await downloadKeys(model, accountId, bucket, keys, true);
@@ -210,16 +216,16 @@ export async function deleteSelected(
     const bytes = entries.reduce((sum, entry) => sum + (isFolderEntry(entry) ? 0 : entry.size), 0);
     const what =
       entries.length === 1
-        ? `"${entries[0]?.key ?? ""}"`
-        : `${plural(entries.length, "item")}${bytes > 0 ? ` (${formatBytes(bytes)})` : ""}`;
-    const message = `Delete ${what} from ${bucket}?`;
+        ? tr("\"{key}\"", { key: entries[0]?.key ?? "" })
+        : `${tr("{n} items", { n: formatCount(entries.length) })}${bytes > 0 ? tr(" ({size})", { size: formatBytes(bytes) }) : ""}`;
+    const message = tr("Delete {what} from {bucket}?", { what, bucket });
     const confirmed = await model.dialogs.confirm({
-      title: "Delete",
+      title: tr("Delete"),
       message:
         folders > 0
-          ? `${message}\nFolders are deleted together with everything inside them. This cannot be undone.`
-          : `${message}\nThis cannot be undone.`,
-      confirmLabel: "Delete",
+          ? `${message}\n${tr("Folders are deleted together with everything inside them. This cannot be undone.")}`
+          : `${message}\n${tr("This cannot be undone.")}`,
+      confirmLabel: tr("Delete"),
       danger: true,
     });
     if (!confirmed) {
@@ -257,21 +263,28 @@ export function copySelection(
   model.clipboard.setState({
     contents: { accountId: subject.accountId, bucket: subject.bucket, keys, mode },
   });
+  const count = formatCount(keys.length);
   model.status.info(
-    `${plural(keys.length, "item")} ${mode === "copy" ? "copied" : "cut"}. Open the destination folder and paste.`,
+    mode === "copy"
+      ? keys.length === 1
+        ? tr("1 item copied. Open the destination folder and paste.")
+        : tr("{n} items copied. Open the destination folder and paste.", { n: count })
+      : keys.length === 1
+        ? tr("1 item cut. Open the destination folder and paste.")
+        : tr("{n} items cut. Open the destination folder and paste.", { n: count }),
   );
 }
 
 /** Why pasting `contents` into `location` is not possible, or null when it is. */
 export function pasteBlockerFor(contents: ClipboardContents | null, location: OpenLocation | null): string | null {
   if (contents === null) {
-    return "Copy or cut items first.";
+    return tr("Copy or cut items first.");
   }
   if (location === null) {
-    return "Open a bucket to paste into.";
+    return tr("Open a bucket to paste into.");
   }
   if (contents.accountId !== location.accountId) {
-    return "The clipboard holds items from another account.";
+    return tr("The clipboard holds items from another account.");
   }
   return pasteProblem(contents.bucket, contents.keys, location.bucket, location.prefix);
 }
@@ -308,7 +321,7 @@ export async function paste(model: AppModel, at?: Place): Promise<void> {
   const blocker = pasteBlocker(model, at);
   if (blocker !== null || contents === null || location === null) {
     if (blocker !== null) {
-      model.status.error(blocker, { notify: "Paste not started" });
+      model.status.error(blocker, { notify: tr("Paste not started") });
     }
     return;
   }
@@ -336,9 +349,9 @@ export async function openEntry(model: AppModel, entry: ObjectEntry, bucket?: st
   }
   try {
     await model.api.open_object({ account_id: location.accountId, bucket: location.bucket, key: entry.key });
-    model.status.info(`Opening ${entry.key}.`);
+    model.status.info(tr("Opening {key}.", { key: entry.key }));
   } catch (error) {
-    model.status.error(error, { notify: "The object could not be opened" });
+    model.status.error(error, { notify: tr("The object could not be opened") });
   }
 }
 
@@ -389,7 +402,7 @@ export async function toggleFlatBrowsing(model: AppModel): Promise<void> {
       draft.interface.flat_browsing = !draft.interface.flat_browsing;
     });
   } catch (error) {
-    model.status.error(error, { notify: "The setting could not be saved" });
+    model.status.error(error, { notify: tr("The setting could not be saved") });
   }
 }
 
@@ -403,6 +416,6 @@ export async function togglePanel(model: AppModel, panel: "transfers" | "log"): 
       }
     });
   } catch (error) {
-    model.status.error(error, { notify: "The setting could not be saved" });
+    model.status.error(error, { notify: tr("The setting could not be saved") });
   }
 }

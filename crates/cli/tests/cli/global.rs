@@ -4,13 +4,14 @@
 use std::process::Stdio;
 
 use super::*;
+use bucketbridge_cli::i18n::{tr, trf};
 
 #[test]
 fn help_and_version_exit_with_0() {
     let config = tempfile::tempdir().unwrap();
     let out = run(bb(config.path()).arg("--help"));
     out.expect_code(0);
-    assert!(out.stdout.contains("Usage: bb"), "{}", out.stdout);
+    assert!(out.stdout.contains(tr("Usage:").as_str()), "{}", out.stdout);
     for command in [
         "ls", "mb", "rb", "rm", "cp", "mv", "sync", "presign", "mpu", "account",
     ] {
@@ -25,7 +26,7 @@ fn help_and_version_exit_with_0() {
     ] {
         let out = run(bb(config.path()).args(args));
         out.expect_code(0);
-        assert!(out.stdout.contains("Usage: bb"), "{args:?}");
+        assert!(out.stdout.contains(tr("Usage:").as_str()), "{args:?}");
     }
     let out = run(bb(config.path()).args(["sync", "--help"]));
     for flag in ["--direction", "--delete", "--dry-run", "--resume"] {
@@ -74,7 +75,11 @@ fn usage_errors_exit_with_1_before_any_request() {
     ] {
         let out = run(bb(config.path()).args(args));
         out.expect_code(1);
-        assert!(out.stderr.contains(expected), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(&tr(expected)),
+            "{args:?}: {}",
+            out.stderr
+        );
     }
 
     let with_credentials = |var: &str, value: &str| {
@@ -103,7 +108,10 @@ async fn account_flag_names_the_environment_account() {
     let out = env.run(&["ls", "--account", "work"]);
     out.expect_code(2);
     assert!(
-        out.stderr.contains("account 'work' not found"),
+        out.stderr.contains(&trf(
+            "account '{selector}' not found",
+            &[("selector", "work")],
+        )),
         "{}",
         out.stderr
     );

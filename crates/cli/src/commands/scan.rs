@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::cli::ScanArgs;
 use crate::context::Context;
+use crate::i18n::trf;
 use crate::output::{Failure, Output};
 
 /// One finding, one skipped check or one failed bucket.
@@ -55,12 +56,15 @@ pub async fn run(ctx: &Context, args: &ScanArgs, out: &mut Output) -> Result<(),
     for (bucket, f) in report.rows() {
         let record = finding(bucket, f);
         out.row(&record, || {
-            format!(
-                "{:<8} {bucket}  {}  [fix: {} tab]\n         {}",
-                f.severity.as_str(),
-                f.title,
-                f.fix_tab.as_str(),
-                f.explanation
+            trf(
+                "{severity} {bucket}  {title}  [fix: {tab} tab]\n         {explanation}",
+                &[
+                    ("severity", f.severity.as_str()),
+                    ("bucket", bucket),
+                    ("title", f.title.as_str()),
+                    ("tab", f.fix_tab.as_str()),
+                    ("explanation", f.explanation.as_str()),
+                ],
             )
         })?;
     }
@@ -68,24 +72,35 @@ pub async fn run(ctx: &Context, args: &ScanArgs, out: &mut Output) -> Result<(),
         for skip in &scan.skipped {
             let record = note(&scan.bucket, "skipped", &skip.message);
             out.row(&record, || {
-                format!("skipped  {}  {}", scan.bucket, skip.message)
+                trf(
+                    "skipped  {bucket}  {message}",
+                    &[("bucket", &scan.bucket), ("message", skip.message.as_str())],
+                )
             })?;
         }
         if let Some(error) = &scan.error {
             let record = note(&scan.bucket, "error", &error.message);
             out.row(&record, || {
-                format!("error    {}  {}", scan.bucket, error.message)
+                trf(
+                    "error    {bucket}  {message}",
+                    &[
+                        ("bucket", &scan.bucket),
+                        ("message", error.message.as_str()),
+                    ],
+                )
             })?;
         }
     }
     if !out.json() {
-        out.notice(&format!(
-            "{} buckets scanned: {} critical, {} high, {} medium, {} low",
-            report.buckets.len(),
-            report.count(scan::Severity::Critical),
-            report.count(scan::Severity::High),
-            report.count(scan::Severity::Medium),
-            report.count(scan::Severity::Low),
+        out.notice(&trf(
+            "{scanned} buckets scanned: {critical} critical, {high} high, {medium} medium, {low} low",
+            &[
+                ("scanned", report.buckets.len().to_string().as_str()),
+                ("critical", report.count(scan::Severity::Critical).to_string().as_str()),
+                ("high", report.count(scan::Severity::High).to_string().as_str()),
+                ("medium", report.count(scan::Severity::Medium).to_string().as_str()),
+                ("low", report.count(scan::Severity::Low).to_string().as_str()),
+            ],
         ));
     }
     Ok(())

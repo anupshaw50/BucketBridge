@@ -3,15 +3,16 @@ import { useEffect, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { AwsProfileEntry, AwsProfileKind, ImportOutcome } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 
 const KIND_LABELS: Record<AwsProfileKind, string> = {
-  static_keys: "Access keys",
-  assume_role: "Role",
+  static_keys: tr("Access keys"),
+  assume_role: tr("Role"),
   sso: "AWS SSO",
-  credential_process: "Credential process",
-  web_identity: "Web identity",
-  incomplete: "Incomplete",
+  credential_process: tr("Credential process"),
+  web_identity: tr("Web identity"),
+  incomplete: tr("Incomplete"),
 };
 
 /** Lists the profiles of the AWS config files and links the chosen ones as accounts (no secret is copied). */
@@ -65,7 +66,11 @@ export function ImportAwsDialog({ onClose }: { onClose: () => void }) {
       await model.session.refreshAccounts();
       setOutcome(result);
       if (result.imported.length > 0) {
-        model.status.info(`Imported ${result.imported.length} AWS profile${result.imported.length === 1 ? "" : "s"}.`);
+        model.status.info(
+          result.imported.length === 1
+            ? tr("Imported {n} AWS profile.", { n: result.imported.length })
+            : tr("Imported {n} AWS profiles.", { n: result.imported.length }),
+        );
       }
     } catch (raw) {
       setError(toBbError(raw).message);
@@ -76,17 +81,23 @@ export function ImportAwsDialog({ onClose }: { onClose: () => void }) {
 
   if (outcome !== null) {
     return (
-      <OkCancelDialog opened title="Import from AWS config" okLabel="Close" onOk={onClose} onCancel={onClose} size="lg">
+      <OkCancelDialog opened title={tr("Import from AWS config")} okLabel={tr("Close")} onOk={onClose} onCancel={onClose} size="lg">
         <Stack gap="xs">
           <Text size="sm">
             {outcome.imported.length === 0
-              ? "No profile was imported."
-              : `Imported ${outcome.imported.length} profile${outcome.imported.length === 1 ? "" : "s"}: ${outcome.imported
-                  .map((account) => account.label)
-                  .join(", ")}.`}
+              ? tr("No profile was imported.")
+              : outcome.imported.length === 1
+                ? tr("Imported {n} profile: {names}.", {
+                    n: outcome.imported.length,
+                    names: outcome.imported.map((account) => account.label).join(", "),
+                  })
+                : tr("Imported {n} profiles: {names}.", {
+                    n: outcome.imported.length,
+                    names: outcome.imported.map((account) => account.label).join(", "),
+                  })}
           </Text>
           {outcome.skipped.length > 0 ? (
-            <Alert color="yellow" variant="light" title="Left out">
+            <Alert color="yellow" variant="light" title={tr("Left out")}>
               <List size="sm">
                 {outcome.skipped.map((item) => (
                   <List.Item key={item.profile}>
@@ -104,8 +115,8 @@ export function ImportAwsDialog({ onClose }: { onClose: () => void }) {
   return (
     <OkCancelDialog
       opened
-      title="Import from AWS config"
-      okLabel="Import"
+      title={tr("Import from AWS config")}
+      okLabel={tr("Import")}
       onOk={() => void run()}
       onCancel={onClose}
       okDisabled={chosen.size === 0 || profiles === null}
@@ -114,27 +125,28 @@ export function ImportAwsDialog({ onClose }: { onClose: () => void }) {
       size="lg"
     >
       <Text size="sm">
-        Choose profiles from your AWS config and credentials files. The accounts stay linked to the files: no key is copied into
-        BucketBridge, and changes you make in the files apply the next time credentials are needed.
+        {tr(
+          "Choose profiles from your AWS config and credentials files. The accounts stay linked to the files: no key is copied into BucketBridge, and changes you make in the files apply the next time credentials are needed.",
+        )}
       </Text>
       {profiles === null ? (
-        <Loader size="sm" aria-label="Reading the AWS files" />
+        <Loader size="sm" aria-label={tr("Reading the AWS files")} />
       ) : profiles.length === 0 ? (
         <Text size="sm" c="dimmed" py="md">
-          No profiles were found in the AWS config files.
+          {tr("No profiles were found in the AWS config files.")}
         </Text>
       ) : (
         <Table.ScrollContainer minWidth={520} maxHeight={320}>
-          <Table verticalSpacing={6} fz="sm" aria-label="AWS profiles">
+          <Table verticalSpacing={6} fz="sm" aria-label={tr("AWS profiles")}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th w={40}>
-                  <span className="bb-visually-hidden">Import</span>
+                  <span className="bb-visually-hidden">{tr("Import")}</span>
                 </Table.Th>
-                <Table.Th>Profile</Table.Th>
-                <Table.Th>Type</Table.Th>
-                <Table.Th>Region</Table.Th>
-                <Table.Th>Status</Table.Th>
+                <Table.Th>{tr("Profile")}</Table.Th>
+                <Table.Th>{tr("Kind")}</Table.Th>
+                <Table.Th>{tr("Region")}</Table.Th>
+                <Table.Th>{tr("Status")}</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -142,7 +154,7 @@ export function ImportAwsDialog({ onClose }: { onClose: () => void }) {
                 <Table.Tr key={item.name}>
                   <Table.Td>
                     <Checkbox
-                      aria-label={`Import ${item.name}`}
+                      aria-label={tr("Import {name}", { name: item.name })}
                       checked={chosen.has(item.name)}
                       disabled={!isFree(item)}
                       onChange={(event) => toggle(item.name, event.currentTarget.checked)}
@@ -154,7 +166,7 @@ export function ImportAwsDialog({ onClose }: { onClose: () => void }) {
                   <Table.Td>
                     {item.account_id !== null ? (
                       <Badge size="xs" variant="light">
-                        Already imported
+                        {tr("Already imported")}
                       </Badge>
                     ) : item.importable ? null : (
                       <Text size="xs" c="dimmed">

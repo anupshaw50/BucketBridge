@@ -2,6 +2,7 @@ import { Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { s3Uri } from "../../lib/s3keys";
 
@@ -9,10 +10,10 @@ const MAX_LABEL = 100;
 
 function labelProblem(label: string, required: boolean): string | null {
   if (required && label.trim() === "") {
-    return "Enter a name for the bookmark.";
+    return tr("Enter a name for the bookmark.");
   }
   if ([...label.trim()].length > MAX_LABEL) {
-    return `Use at most ${MAX_LABEL} characters.`;
+    return tr("Use at most {n} characters.", { n: MAX_LABEL });
   }
   return null;
 }
@@ -49,10 +50,10 @@ export function BookmarkDialog({
     try {
       if (bookmarkId === undefined) {
         await model.bookmarks.add(accountId, bucket, prefix, label.trim() === "" ? null : label.trim());
-        model.status.info("Bookmark added.");
+        model.status.info(tr("Bookmark added."));
       } else {
         await model.bookmarks.rename(bookmarkId, label.trim());
-        model.status.info("Bookmark renamed.");
+        model.status.info(tr("Bookmark renamed."));
       }
       onClose();
     } catch (raw) {
@@ -65,8 +66,8 @@ export function BookmarkDialog({
   return (
     <OkCancelDialog
       opened
-      title={renaming ? "Rename bookmark" : "Add bookmark"}
-      okLabel={renaming ? "Rename" : "Add bookmark"}
+      title={renaming ? tr("Rename bookmark") : tr("Add bookmark")}
+      okLabel={renaming ? tr("Rename") : tr("Add bookmark")}
       onOk={() => void submit()}
       onCancel={onClose}
       okDisabled={problem !== null}
@@ -77,8 +78,8 @@ export function BookmarkDialog({
         {s3Uri(bucket, prefix)}
       </Text>
       <TextInput
-        label="Name"
-        placeholder={renaming ? undefined : "Defaults to the location"}
+        label={tr("Name")}
+        placeholder={renaming ? undefined : tr("Defaults to the location")}
         value={label}
         onChange={(event) => setLabel(event.currentTarget.value)}
         error={label === "" ? null : problem}

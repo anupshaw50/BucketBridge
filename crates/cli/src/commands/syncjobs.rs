@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::cli::{GlobalArgs, SyncJobsCommand};
 use crate::context::{Inputs, dirs, env};
+use crate::i18n::trf;
 use crate::output::{Failure, Output};
 
 /// The record of `bb sync jobs delete`.
@@ -29,16 +30,16 @@ pub fn run(
     out: &mut Output,
 ) -> Result<(), Failure> {
     if global.account.is_some() || global.mfa_code.is_some() {
-        return Err(Error::Usage(
-            "--account and --mfa-code do not apply to `bb sync jobs`; a job names its account"
-                .into(),
-        )
+        return Err(Error::Usage(trf(
+            "--account and --mfa-code do not apply to `bb sync jobs`; a job names its account",
+            &[],
+        ))
         .into());
     }
     let dirs = dirs(global, &inputs.env)?.ok_or_else(|| {
-        Error::Usage(format!(
-            "no configuration directory for the sync jobs: set {} or pass --config-dir",
-            env::CONFIG_DIR
+        Error::Usage(trf(
+            "no configuration directory for the sync jobs: set {env} or pass --config-dir",
+            &[("env", env::CONFIG_DIR)],
         ))
     })?;
     let store = ConfigStore::new(&dirs);
@@ -58,9 +59,9 @@ pub fn run(
         SyncJobsCommand::Delete(selector) => {
             let job = syncjobs::find(&store, &selector.name)?;
             if !selector.yes {
-                return Err(Error::Usage(format!(
-                    "deleting the sync job '{}' needs --yes",
-                    job.name
+                return Err(Error::Usage(trf(
+                    "deleting the sync job '{name}' needs --yes",
+                    &[("name", &job.name)],
                 ))
                 .into());
             }
@@ -70,7 +71,9 @@ pub fn run(
                 name: &job.name,
                 deleted: true,
             };
-            out.change(&record, || format!("deleted sync job {}", job.name))
+            out.change(&record, || {
+                trf("deleted sync job {name}", &[("name", &job.name)])
+            })
         }
     }
 }
@@ -102,32 +105,50 @@ fn one_line(job: &SyncJob) -> String {
 fn details(job: &SyncJob) -> String {
     let options = &job.options;
     let mut lines = vec![
-        format!("name: {}", job.name),
-        format!("id: {}", job.id),
-        format!("account: {}", job.account_id),
-        format!("direction: {}", direction_name(job.direction)),
-        format!("from: {}", from_side(job)),
-        format!("to: {}", job.s3_prefix),
-        format!("delete: {}", job.delete),
+        trf("name: {name}", &[("name", &job.name)]),
+        trf("id: {id}", &[("id", &job.id)]),
+        trf("account: {account}", &[("account", &job.account_id)]),
+        trf(
+            "direction: {direction}",
+            &[("direction", direction_name(job.direction))],
+        ),
+        trf("from: {from}", &[("from", from_side(job))]),
+        trf("to: {to}", &[("to", &job.s3_prefix)]),
+        trf(
+            "delete: {flag}",
+            &[("flag", job.delete.to_string().as_str())],
+        ),
     ];
     if !options.include.is_empty() {
-        lines.push(format!("include: {}", options.include.join(", ")));
+        lines.push(trf(
+            "include: {list}",
+            &[("list", options.include.join(", ").as_str())],
+        ));
     }
     if !options.exclude.is_empty() {
-        lines.push(format!("exclude: {}", options.exclude.join(", ")));
+        lines.push(trf(
+            "exclude: {list}",
+            &[("list", options.exclude.join(", ").as_str())],
+        ));
     }
     if let Some(file) = &options.exclude_file {
-        lines.push(format!("exclude file: {file}"));
+        lines.push(trf("exclude file: {file}", &[("file", file)]));
     }
-    lines.push(format!(
-        "skip empty folders: {}",
-        options.skip_empty_folders
+    lines.push(trf(
+        "skip empty folders: {flag}",
+        &[("flag", options.skip_empty_folders.to_string().as_str())],
     ));
-    lines.push(format!(
-        "skip duplicate content: {}",
-        options.skip_duplicate_content
+    lines.push(trf(
+        "skip duplicate content: {flag}",
+        &[("flag", options.skip_duplicate_content.to_string().as_str())],
     ));
-    lines.push(format!("use cache: {}", options.use_cache));
-    lines.push(format!("parallelism: {}", options.parallelism));
+    lines.push(trf(
+        "use cache: {flag}",
+        &[("flag", options.use_cache.to_string().as_str())],
+    ));
+    lines.push(trf(
+        "parallelism: {count}",
+        &[("count", options.parallelism.to_string().as_str())],
+    ));
     lines.join("\n")
 }

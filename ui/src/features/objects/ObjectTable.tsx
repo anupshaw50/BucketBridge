@@ -1,9 +1,20 @@
 import { Text, UnstyledButton } from "@mantine/core";
 import { IconChevronDown, IconChevronUp, IconFile, IconFolderFilled } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { type KeyboardEvent, type MouseEvent, memo, type ReactNode, useCallback, useId, useMemo, useRef } from "react";
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  memo,
+  type ReactNode,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import type { ObjectEntry } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
+import { getLocale, subscribeLocale, tr } from "../../i18n";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { isFolderEntry, type SortColumn } from "../../lib/objects";
 import { displaySegment, relativeName } from "../../lib/s3keys";
@@ -18,11 +29,11 @@ import { openEntry } from "./actions";
 
 export const OBJECT_ROW_HEIGHT = 28;
 
-const COLUMNS: { id: SortColumn; label: string; className: string }[] = [
-  { id: "name", label: "Name", className: "bb-col-name" },
-  { id: "size", label: "Size", className: "bb-col-size" },
-  { id: "modified", label: "Last modified", className: "bb-col-modified" },
-  { id: "class", label: "Storage class", className: "bb-col-class" },
+const COLUMNS: { id: SortColumn; label: string; sortKey: string; className: string }[] = [
+  { id: "name", label: "Name", sortKey: "Sort by name", className: "bb-col-name" },
+  { id: "size", label: "Size", sortKey: "Sort by size", className: "bb-col-size" },
+  { id: "modified", label: "Last modified", sortKey: "Sort by last modified", className: "bb-col-modified" },
+  { id: "class", label: "Storage class", sortKey: "Sort by storage class", className: "bb-col-class" },
 ];
 
 interface RowProps {
@@ -52,6 +63,8 @@ const ObjectRow = memo(function ObjectRow({
   onContextMenu,
   onOpen,
 }: RowProps) {
+  // The row is memoised, so it subscribes to the language itself.
+  useSyncExternalStore(subscribeLocale, getLocale);
   const folder = isFolderEntry(entry);
   return (
     <div
@@ -251,7 +264,7 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
     <div
       className="bb-grid"
       role="grid"
-      aria-label="Objects"
+      aria-label={tr("Objects")}
       aria-rowcount={placeholder === null ? visible.length + 1 : 2}
       aria-multiselectable
       aria-busy={busy || undefined}
@@ -279,10 +292,10 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
                 <UnstyledButton
                   className="bb-sort-button"
                   onClick={() => model.browser.setSort(column.id)}
-                  aria-label={`Sort by ${column.label.toLowerCase()}`}
+                  aria-label={tr(column.sortKey)}
                 >
                   <Text size="xs" fw={600} span>
-                    {column.label}
+                    {tr(column.label)}
                   </Text>
                   {active ? (
                     sort.direction === "asc" ? (

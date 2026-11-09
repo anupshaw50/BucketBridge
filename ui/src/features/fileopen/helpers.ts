@@ -1,3 +1,5 @@
+import { tr } from "../../i18n";
+
 /** The last segment of an application path, without the `.app` or `.exe` ending, for display. */
 export function applicationName(path: string): string {
   const name = path.split(/[\\/]/).filter((part) => part.length > 0).pop() ?? path;
@@ -10,5 +12,5 @@ export function redirectProblem(value: string): string | null {
   if (text.length === 0 || /^(\/|https?:\/\/)/.test(text)) {
     return null;
   }
-  return "Use a path that starts with / or an http:// or https:// URL.";
+  return tr("Use a path that starts with / or an http:// or https:// URL.");
 }

@@ -1,6 +1,8 @@
 // Helpers for S3 keys and prefixes. Keys ending in "/" denote prefixes
 // ("folders"). Keys may contain spaces, any Unicode and empty segments ("a//b").
 
+import { tr } from "../i18n";
+
 /** Shown wherever a key segment is empty, for example the middle of "a//b". */
 export const EMPTY_SEGMENT_LABEL = "(empty name)";
 
@@ -35,7 +37,7 @@ export function relativeName(key: string, prefix: string): string {
 
 /** Text for a key segment, making empty segments visible. */
 export function displaySegment(name: string): string {
-  return name === "" ? EMPTY_SEGMENT_LABEL : name;
+  return name === "" ? tr(EMPTY_SEGMENT_LABEL) : name;
 }
 
 export interface Crumb {
@@ -73,23 +75,25 @@ export function validateNewName(
   options: { prefix: string; folder: boolean; existingKeys?: ReadonlySet<string> },
 ): string | null {
   if (name.length === 0) {
-    return "Enter a name.";
+    return tr("Enter a name.");
   }
   if (name.trim().length === 0) {
-    return "The name cannot consist of spaces only.";
+    return tr("The name cannot consist of spaces only.");
   }
   if (name.includes("/")) {
-    return "A name cannot contain a slash.";
+    return tr("A name cannot contain a slash.");
   }
   if (name === "." || name === "..") {
-    return "This name is reserved.";
+    return tr("This name is reserved.");
   }
   const key = childKey(options.prefix, name, options.folder);
   if (utf8Length(key) > MAX_KEY_BYTES) {
-    return `The full key would exceed ${MAX_KEY_BYTES} bytes.`;
+    return tr("The full key would exceed {n} bytes.", { n: MAX_KEY_BYTES });
   }
   if (options.existingKeys?.has(key)) {
-    return options.folder ? "A folder with this name already exists." : "An object with this name already exists.";
+    return options.folder
+      ? tr("A folder with this name already exists.")
+      : tr("An object with this name already exists.");
   }
   return null;
 }
@@ -115,7 +119,7 @@ export function collidingNames(destinations: readonly string[]): string[] {
 
 /** Message for sources that would land on the same destination name. */
 export function sameNameMessage(name: string, verb: string): string {
-  return `Two or more selected items have the same name "${displaySegment(name)}" and would ${verb} to the same place. Select them separately.`;
+  return tr("Two or more selected items have the same name \"{name}\" and would {verb} to the same place. Select them separately.", { name: displaySegment(name), verb });
 }
 
 /**
@@ -124,7 +128,7 @@ export function sameNameMessage(name: string, verb: string): string {
  */
 export function downloadProblem(keys: readonly string[]): string | null {
   const [first] = collidingNames(keys.map((key) => baseName(key)));
-  return first === undefined ? null : sameNameMessage(first, "download");
+  return first === undefined ? null : sameNameMessage(first, tr("download"));
 }
 
 /**
@@ -138,20 +142,20 @@ export function pasteProblem(
   destinationPrefix: string,
 ): string | null {
   if (keys.length === 0) {
-    return "The clipboard is empty.";
+    return tr("The clipboard is empty.");
   }
   if (sourceBucket === destinationBucket) {
     for (const key of keys) {
       if (parentPrefix(key) === destinationPrefix) {
-        return "The items are already in this folder.";
+        return tr("The items are already in this folder.");
       }
       if (isFolderKey(key) && destinationPrefix.startsWith(key)) {
-        return "A folder cannot be pasted into itself or one of its subfolders.";
+        return tr("A folder cannot be pasted into itself or one of its subfolders.");
       }
     }
   }
   const [first] = collidingNames(keys.map((key) => destinationKey(key, destinationPrefix)));
-  return first === undefined ? null : sameNameMessage(baseName(first), "be pasted");
+  return first === undefined ? null : sameNameMessage(baseName(first), tr("be pasted"));
 }
 
 /** Ensures a typed prefix ends with "/" unless it is empty (the bucket root). */

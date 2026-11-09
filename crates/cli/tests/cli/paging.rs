@@ -4,6 +4,8 @@
 
 use bucketbridge_tests::{MockResponse, RecordedRequest};
 
+use bucketbridge_cli::i18n::tr;
+
 use super::*;
 
 fn is_list_v2(request: &RecordedRequest) -> bool {
@@ -109,7 +111,7 @@ async fn a_repeated_token_ends_the_listing() {
         error["message"]
             .as_str()
             .unwrap()
-            .contains("continuation token"),
+            .contains("same continuation token twice"),
         "{error}"
     );
     assert_eq!(mock.requests().len(), 2);
@@ -130,7 +132,11 @@ async fn a_token_cycle_ends_the_listing() {
     let config = tempfile::tempdir().unwrap();
     let out = run(bb_mock(&mock, config.path()).args(["ls", "-r", "s3://bucket/"]));
     out.expect_code(2);
-    assert!(out.stderr.contains("continuation token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&tr("continuation token")),
+        "{}",
+        out.stderr
+    );
     assert_eq!(mock.requests().len(), 3);
 }
 
@@ -154,7 +160,11 @@ async fn a_version_marker_cycle_ends_ls() {
     let config = tempfile::tempdir().unwrap();
     let out = run(bb_mock(&mock, config.path()).args(["ls", "--versions", "s3://bucket/"]));
     out.expect_code(2);
-    assert!(out.stderr.contains("continuation token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&tr("continuation token")),
+        "{}",
+        out.stderr
+    );
     assert_eq!(mock.requests().len(), 3);
 }
 
@@ -170,6 +180,10 @@ async fn a_version_marker_cycle_ends_rm_versions() {
         "s3://bucket/",
     ]));
     out.expect_code(2);
-    assert!(out.stderr.contains("continuation token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&tr("continuation token")),
+        "{}",
+        out.stderr
+    );
     assert_eq!(mock.requests().len(), 3);
 }

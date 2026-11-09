@@ -3,6 +3,7 @@ import { IconAlertCircle } from "@tabler/icons-react";
 import { useState } from "react";
 import type { HeaderChanges, ObjectMeta, TagEdit } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import {
   headerChange,
   metaPatch,
@@ -82,14 +83,14 @@ export function HeadersTab({ ctx }: { ctx: TabContext }) {
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
         {ctx.batch
-          ? "Fill in the headers to set on every selected object, or tick Remove. Empty fields leave each object's header as it is."
-          : "Clear a field to remove the header. S3 then falls back to its default (binary/octet-stream for Content-Type)."}
+          ? tr("Fill in the headers to set on every selected object, or tick Remove. Empty fields leave each object's header as it is.")
+          : tr("Clear a field to remove the header. S3 then falls back to its default (binary/octet-stream for Content-Type).")}
       </Text>
       {STANDARD_HEADERS.map((header) => (
         <Stack key={header.id} gap={2}>
           <TextInput
             label={header.label}
-            placeholder={ctx.batch ? "Leave empty to keep" : header.placeholder}
+            placeholder={ctx.batch ? tr("Leave empty to keep") : tr(header.placeholder)}
             value={values[header.id]}
             disabled={removes[header.id]}
             onChange={(event) => setValues({ ...values, [header.id]: event.currentTarget.value })}
@@ -100,7 +101,7 @@ export function HeadersTab({ ctx }: { ctx: TabContext }) {
           {ctx.batch ? (
             <Checkbox
               size="xs"
-              label={`Remove ${header.label}`}
+              label={tr("Remove {label}", { label: tr(header.label) })}
               checked={removes[header.id]}
               onChange={(event) => setRemoves({ ...removes, [header.id]: event.currentTarget.checked })}
             />
@@ -143,14 +144,15 @@ export function UserMetaTab({ ctx }: { ctx: TabContext }) {
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        Custom metadata is stored with the object as x-amz-meta-* headers. Keys are not case sensitive; all keys and
-        values together can take 2,048 bytes.
+        {tr(
+          "Custom metadata is stored with the object as x-amz-meta-* headers. Keys are not case sensitive; all keys and values together can take 2,048 bytes.",
+        )}
       </Text>
-      <KeyValueEditor rows={rows} onChange={setRows} keyLabel="Metadata key" valueLabel="Metadata value" addLabel="Add metadata" />
+      <KeyValueEditor rows={rows} onChange={setRows} keyLabel={tr("Metadata key")} valueLabel={tr("Metadata value")} addLabel={tr("Add metadata")} />
       {ctx.batch ? (
         <TextInput
-          label="Remove these keys"
-          description="Separate keys with commas."
+          label={tr("Remove these keys")}
+          description={tr("Separate keys with commas.")}
           value={removeText}
           onChange={(event) => setRemoveText(event.currentTarget.value)}
           autoComplete="off"
@@ -179,7 +181,7 @@ export function TagsTab({ ctx }: { ctx: TabContext }) {
   const tagsError = ctx.details?.tags_error ?? null;
   if (tagsError !== null) {
     return (
-      <Alert color="yellow" icon={<IconAlertCircle size={16} />} title="The tags could not be read" role="alert">
+      <Alert color="yellow" icon={<IconAlertCircle size={16} />} title={tr("The tags could not be read")} role="alert">
         {tagsError.message}
       </Alert>
     );
@@ -207,15 +209,15 @@ export function TagsTab({ ctx }: { ctx: TabContext }) {
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
         {ctx.batch
-          ? "Tags below are added to every selected object (an existing tag with the same key gets the new value). Other tags stay."
-          : "An object can have up to 10 tags. Keys and values may contain letters, digits, spaces and + - = . _ : / @."}
+          ? tr("Tags below are added to every selected object (an existing tag with the same key gets the new value). Other tags stay.")
+          : tr("An object can have up to 10 tags. Keys and values may contain letters, digits, spaces and + - = . _ : / @.")}
       </Text>
-      <KeyValueEditor rows={rows} onChange={setRows} keyLabel="Tag key" valueLabel="Tag value" addLabel="Add tag" />
+      <KeyValueEditor rows={rows} onChange={setRows} keyLabel={tr("Tag key")} valueLabel={tr("Tag value")} addLabel={tr("Add tag")} />
       {ctx.batch ? (
         <>
           <TextInput
-            label="Remove these tags"
-            description="Tag keys, separated by commas."
+            label={tr("Remove these tags")}
+            description={tr("Tag keys, separated by commas.")}
             value={removeText}
             disabled={replaceAll}
             onChange={(event) => setRemoveText(event.currentTarget.value)}
@@ -223,7 +225,7 @@ export function TagsTab({ ctx }: { ctx: TabContext }) {
             spellCheck={false}
           />
           <Switch
-            label="Replace all existing tags with the ones above"
+            label={tr("Replace all existing tags with the ones above")}
             checked={replaceAll}
             onChange={(event) => setReplaceAll(event.currentTarget.checked)}
           />

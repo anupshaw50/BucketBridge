@@ -3,6 +3,8 @@
 
 #![cfg(unix)]
 
+use bucketbridge_cli::i18n::{tr, trf};
+
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -132,12 +134,15 @@ async fn a_save_is_uploaded_and_ctrl_c_ends_the_session() {
     let (code, stdout, stderr) = session.interrupt().await;
 
     assert_eq!(code, 0, "{stderr}");
-    assert!(stdout.contains("editing s3://"), "{stdout}");
+    assert!(stdout.contains(&tr("editing s3://")), "{stdout}");
     assert!(
-        stdout.contains(&format!("uploaded s3://{bucket}/notes/todo.txt")),
+        stdout.contains(&trf(
+            "uploaded {uri}",
+            &[("uri", &format!("s3://{bucket}/notes/todo.txt"))],
+        )),
         "{stdout}"
     );
-    assert!(stdout.contains("stopped editing"), "{stdout}");
+    assert!(stdout.contains(&tr("stopped editing")), "{stdout}");
     // The copy is removed after a clean stop.
     let copies = env.config.path().join("data").join("edit");
     let left = fs::read_dir(&copies).map(|dir| dir.count()).unwrap_or(0);
@@ -165,13 +170,17 @@ async fn a_changed_object_is_never_overwritten_without_a_terminal() {
     // The conflict is reported while the session keeps running.
     let stderr_path = session.stderr.clone();
     wait_until("the conflict notice", || {
-        fs::read_to_string(&stderr_path).is_ok_and(|text| text.contains("changed on the server"))
+        fs::read_to_string(&stderr_path)
+            .is_ok_and(|text| text.contains(&tr("changed on the server")))
     })
     .await;
     let (code, stdout, stderr) = session.interrupt().await;
 
     assert_eq!(code, 2, "{stderr}");
-    assert!(stderr.contains("your edited copy is kept at"), "{stderr}");
+    assert!(
+        stderr.contains(&tr("your edited copy is kept at")),
+        "{stderr}"
+    );
     assert!(!stdout.contains("uploaded"), "{stdout}");
     assert_eq!(
         env.s3.get(&bucket, "c.txt").await,

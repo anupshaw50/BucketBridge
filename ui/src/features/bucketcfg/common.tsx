@@ -2,6 +2,7 @@ import { Alert, Button, Text } from "@mantine/core";
 import { IconAlertCircle, IconInfoCircle } from "@tabler/icons-react";
 import { type ReactNode, useState } from "react";
 import type { BbErrorCode, Section } from "../../api/types";
+import { tr } from "../../i18n";
 
 /** What every tab of the bucket properties dialog receives. */
 export interface TabProps<T> {
@@ -16,11 +17,11 @@ export interface TabProps<T> {
 function failureTitle(code: BbErrorCode): string {
   switch (code) {
     case "auth":
-      return "Access denied";
+      return tr("Access denied");
     case "not_found":
-      return "Not found";
+      return tr("Not found");
     default:
-      return "This setting could not be read";
+      return tr("This setting could not be read");
   }
 }
 
@@ -40,7 +41,7 @@ export function SectionGate<T>({
   const [retrying, setRetrying] = useState(false);
   if (section.type === "unsupported") {
     return (
-      <Alert color="gray" icon={<IconInfoCircle size={16} />} role="note" title="Not available">
+      <Alert color="gray" icon={<IconInfoCircle size={16} />} role="note" title={tr("Not available")}>
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {section.message}
         </Text>
@@ -67,7 +68,7 @@ export function SectionGate<T>({
             }
           }}
         >
-          Try again
+          {tr("Try again")}
         </Button>
       </Alert>
     );

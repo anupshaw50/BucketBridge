@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { IamManagedPolicy, IamNewAccessKey, IamSection, IamStatus, IamUser, IamUserDetails } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
+import { tr } from "../../i18n";
 import { AppModal } from "../../components/AppModal";
 
 /** The value of a section that loaded, else an empty fallback (the failure is shown next to it). */
@@ -28,25 +29,26 @@ function SecretPanel({ created, onDismiss }: { created: IamNewAccessKey; onDismi
     }
   };
   return (
-    <Alert color="yellow" title="Copy the secret access key now" data-testid="iam-secret">
+    <Alert color="yellow" title={tr("Copy the secret access key now")} data-testid="iam-secret">
       <Stack gap="xs">
         <Text size="sm">
-          This is the only time the secret access key is shown. It is not stored anywhere and cannot be recovered; if you lose it,
-          create a new key.
+          {tr(
+            "This is the only time the secret access key is shown. It is not stored anywhere and cannot be recovered; if you lose it, create a new key.",
+          )}
         </Text>
         <Text size="sm">
-          Access key ID: <Code>{created.access_key_id}</Code>
+          {tr("Access key ID")}: <Code>{created.access_key_id}</Code>
         </Text>
         <Text size="sm">
-          Secret access key: <Code data-testid="iam-secret-value">{created.secret_access_key}</Code>
+          {tr("Secret access key")}: <Code data-testid="iam-secret-value">{created.secret_access_key}</Code>
         </Text>
         {problem !== null ? <Text c="red" size="sm">{problem}</Text> : null}
         <Group>
           <Button size="xs" onClick={() => void copy()}>
-            {copied ? "Copied" : "Copy secret"}
+            {copied ? tr("Copied") : tr("Copy secret")}
           </Button>
           <Button size="xs" variant="default" onClick={onDismiss}>
-            I have saved it
+            {tr("I have saved it")}
           </Button>
         </Group>
       </Stack>
@@ -96,18 +98,27 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
     model.dialogs.confirm({ title, message, confirmLabel: label, danger: true, typedConfirmation: text });
 
   const deleteUser = async () => {
-    if (!(await confirmTyped("Delete user", `Delete ${user} with its access keys, policies, login profile and group memberships? This cannot be undone.`, user, "Delete user"))) {
+    if (
+      !(await confirmTyped(
+        tr("Delete user"),
+        tr("Delete {user} with its access keys, policies, login profile and group memberships? This cannot be undone.", { user }),
+        user,
+        tr("Delete user"),
+      ))
+    ) {
       return;
     }
     setError(null);
     try {
       const outcome = await model.api.iam_delete_user({ account_id: accountId, name: user, confirm: user });
       if (outcome.deleted) {
-        model.status.info(`User ${user} deleted.`);
+        model.status.info(tr("User {user} deleted.", { user }));
         onDeleted();
       } else {
-        const failed = outcome.steps.filter((step) => !step.ok).map((step) => `${step.kind} ${step.target}: ${step.error?.message ?? "failed"}`);
-        setError(`The user was not deleted. ${failed.join("; ")}`);
+        const failed = outcome.steps
+          .filter((step) => !step.ok)
+          .map((step) => `${step.kind} ${step.target}: ${step.error?.message ?? tr("failed")}`);
+        setError(`${tr("The user was not deleted.")} ${failed.join("; ")}`);
         await reload();
       }
     } catch (raw) {
@@ -125,27 +136,27 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
       <Group justify="space-between">
         <Text fw={600}>{user}</Text>
         <Button size="xs" color="red" variant="light" onClick={() => void deleteUser()}>
-          Delete user...
+          {tr("Delete user...")}
         </Button>
       </Group>
       {error !== null ? <Alert color="red">{error}</Alert> : null}
       {secret !== null ? <SecretPanel created={secret} onDismiss={() => setSecret(null)} /> : null}
 
-      <Text fw={600} size="sm">Managed policies</Text>
+      <Text fw={600} size="sm">{tr("Managed policies")}</Text>
       {details !== null && failure(details.managed_policies) !== null ? <Text size="xs" c="red">{failure(details.managed_policies)}</Text> : null}
       {managed.map((policy) => (
         <Group key={policy.arn} justify="space-between">
           <Text size="sm" style={{ overflowWrap: "anywhere" }}>{policy.name}</Text>
           <Button size="compact-xs" variant="default" onClick={() => void act(() => model.api.iam_detach_policy({ account_id: accountId, user, policy_arn: policy.arn }))}>
-            Detach
+            {tr("Detach")}
           </Button>
         </Group>
       ))}
       <Group align="flex-end" wrap="nowrap">
         <Select
-          label="Attach a policy"
+          label={tr("Attach a policy")}
           searchable
-          placeholder="Choose a managed policy"
+          placeholder={tr("Choose a managed policy")}
           data={catalog.filter((p) => !managed.some((m) => m.arn === p.arn)).map((p) => ({ value: p.arn, label: p.name }))}
           value={arn}
           onChange={setArn}
@@ -160,11 +171,11 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
             }
           }}
         >
-          Attach
+          {tr("Attach")}
         </Button>
       </Group>
 
-      <Text fw={600} size="sm">Inline policies</Text>
+      <Text fw={600} size="sm">{tr("Inline policies")}</Text>
       {inline.map((name) => (
         <Group key={name} justify="space-between">
           <Text size="sm">{name}</Text>
@@ -180,7 +191,7 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
                 })
               }
             >
-              Edit
+              {tr("Edit")}
             </Button>
             <Button
               size="compact-xs"
@@ -188,30 +199,30 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
               variant="light"
               onClick={() =>
                 void (async () => {
-                  if (await confirmTyped("Delete inline policy", `Delete the inline policy ${name} of ${user}?`, name, "Delete policy")) {
+                  if (await confirmTyped(tr("Delete inline policy"), tr("Delete the inline policy {name} of {user}?", { name, user }), name, tr("Delete policy"))) {
                     await act(() => model.api.iam_delete_inline_policy({ account_id: accountId, user, name, confirm: name }));
                   }
                 })()
               }
             >
-              Delete...
+              {tr("Delete...")}
             </Button>
           </Group>
         </Group>
       ))}
-      <TextInput label="Policy name" value={policyName} onChange={(e) => setPolicyName(e.currentTarget.value)} />
-      <Textarea label="Policy document (JSON)" rows={6} value={document} onChange={(e) => setDocument(e.currentTarget.value)} styles={{ input: { fontFamily: "monospace" } }} />
+      <TextInput label={tr("Policy name")} value={policyName} onChange={(e) => setPolicyName(e.currentTarget.value)} />
+      <Textarea label={tr("Policy document (JSON)")} rows={6} value={document} onChange={(e) => setDocument(e.currentTarget.value)} styles={{ input: { fontFamily: "monospace" } }} />
       <Group>
         <Button size="xs" disabled={policyName === "" || document === ""} onClick={() => void act(async () => {
           await model.api.iam_put_inline_policy({ account_id: accountId, user, name: policyName, document });
           setPolicyName("");
           setDocument("");
         })}>
-          Save inline policy
+          {tr("Save inline policy")}
         </Button>
       </Group>
 
-      <Text fw={600} size="sm">Access keys</Text>
+      <Text fw={600} size="sm">{tr("Access keys")}</Text>
       {details !== null && failure(details.access_keys) !== null ? <Text size="xs" c="red">{failure(details.access_keys)}</Text> : null}
       {keys.length > 0 ? (
         <Table>
@@ -223,7 +234,7 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
                 <Table.Td>
                   <Group gap={4} justify="flex-end">
                     <Button size="compact-xs" variant="default" onClick={() => void act(() => model.api.iam_set_access_key_active({ account_id: accountId, user, access_key_id: key.access_key_id, active: key.status !== "active" }))}>
-                      {key.status === "active" ? "Deactivate" : "Activate"}
+                      {key.status === "active" ? tr("Deactivate") : tr("Activate")}
                     </Button>
                     <Button
                       size="compact-xs"
@@ -231,13 +242,13 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
                       variant="light"
                       onClick={() =>
                         void (async () => {
-                          if (await confirmTyped("Delete access key", `Delete the access key ${key.access_key_id}? Anything that uses it stops working.`, key.access_key_id, "Delete key")) {
+                          if (await confirmTyped(tr("Delete access key"), tr("Delete the access key {key}? Anything that uses it stops working.", { key: key.access_key_id }), key.access_key_id, tr("Delete key"))) {
                             await act(() => model.api.iam_delete_access_key({ account_id: accountId, user, access_key_id: key.access_key_id, confirm: key.access_key_id }));
                           }
                         })()
                       }
                     >
-                      Delete...
+                      {tr("Delete...")}
                     </Button>
                   </Group>
                 </Table.Td>
@@ -246,49 +257,49 @@ function UserPanel({ accountId, user, onChanged, onDeleted }: { accountId: strin
           </Table.Tbody>
         </Table>
       ) : (
-        <Text size="sm" c="dimmed">No access keys.</Text>
+        <Text size="sm" c="dimmed">{tr("No access keys.")}</Text>
       )}
       <Group>
         <Button size="xs" onClick={() => void act(async () => setSecret(await model.api.iam_create_access_key({ account_id: accountId, user })))}>
-          Create access key
+          {tr("Create access key")}
         </Button>
       </Group>
 
-      <Text fw={600} size="sm">Console login profile</Text>
+      <Text fw={600} size="sm">{tr("Console login profile")}</Text>
       {profile !== null ? (
         <Group justify="space-between">
-          <Text size="sm">Password set{profile.password_reset_required ? " (reset required at next sign-in)" : ""}</Text>
+          <Text size="sm">{profile.password_reset_required ? tr("Password set (reset required at next sign-in)") : tr("Password set")}</Text>
           <Button
             size="compact-xs"
             color="red"
             variant="light"
             onClick={() =>
               void (async () => {
-                if (await confirmTyped("Delete login profile", `Remove the console password of ${user}?`, user, "Delete profile")) {
+                if (await confirmTyped(tr("Delete login profile"), tr("Remove the console password of {user}?", { user }), user, tr("Delete profile"))) {
                   await act(() => model.api.iam_delete_login_profile({ account_id: accountId, user, confirm: user }));
                 }
               })()
             }
           >
-            Delete...
+            {tr("Delete...")}
           </Button>
         </Group>
       ) : (
         <Stack gap="xs">
-          <PasswordInput label="Console password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} autoComplete="new-password" />
-          <Checkbox label="Require a new password at the next sign-in" checked={reset} onChange={(e) => setReset(e.currentTarget.checked)} />
+          <PasswordInput label={tr("Console password")} value={password} onChange={(e) => setPassword(e.currentTarget.value)} autoComplete="new-password" />
+          <Checkbox label={tr("Require a new password at the next sign-in")} checked={reset} onChange={(e) => setReset(e.currentTarget.checked)} />
           <Group>
             <Button size="xs" disabled={password === ""} onClick={() => void act(async () => {
               await model.api.iam_create_login_profile({ account_id: accountId, user, password, reset_required: reset });
               setPassword("");
             })}>
-              Create login profile
+              {tr("Create login profile")}
             </Button>
           </Group>
         </Stack>
       )}
       <Button size="xs" variant="subtle" onClick={onChanged}>
-        Refresh list
+        {tr("Refresh list")}
       </Button>
     </Stack>
   );
@@ -349,17 +360,17 @@ export function IamDialog({ onClose }: { onClose: () => void }) {
 
   let body;
   if (accountId === null) {
-    body = <Text size="sm">Add or choose an account first.</Text>;
+    body = <Text size="sm">{tr("Add or choose an account first.")}</Text>;
   } else if (status !== null && !status.supported) {
-    body = <Alert color="gray">{status.message ?? "IAM is not available for this endpoint"}</Alert>;
+    body = <Alert color="gray">{status.message ?? tr("IAM is not available for this endpoint")}</Alert>;
   } else {
     body = (
       <Group align="flex-start" wrap="nowrap" gap="md">
         <Stack gap="xs" w={240}>
           <Group align="flex-end" wrap="nowrap" gap="xs">
-            <TextInput label="New user" placeholder="user name" value={name} onChange={(e) => setName(e.currentTarget.value)} style={{ flex: 1 }} />
+            <TextInput label={tr("New user")} placeholder={tr("user name")} value={name} onChange={(e) => setName(e.currentTarget.value)} style={{ flex: 1 }} />
             <Button size="xs" disabled={name === ""} onClick={() => void create()}>
-              Create
+              {tr("Create")}
             </Button>
           </Group>
           <ScrollArea h={380}>
@@ -368,7 +379,7 @@ export function IamDialog({ onClose }: { onClose: () => void }) {
                 {user.name}
               </Button>
             ))}
-            {users !== null && users.length === 0 ? <Text size="sm" c="dimmed">No users.</Text> : null}
+            {users !== null && users.length === 0 ? <Text size="sm" c="dimmed">{tr("No users.")}</Text> : null}
           </ScrollArea>
         </Stack>
         <ScrollArea h={440} style={{ flex: 1 }}>
@@ -385,19 +396,19 @@ export function IamDialog({ onClose }: { onClose: () => void }) {
               }}
             />
           ) : (
-            <Text size="sm" c="dimmed">Choose a user.</Text>
+            <Text size="sm" c="dimmed">{tr("Choose a user.")}</Text>
           )}
         </ScrollArea>
       </Group>
     );
   }
   return (
-    <AppModal opened onClose={onClose} title="IAM manager" size="xl" closeOnClickOutside={false}>
+    <AppModal opened onClose={onClose} title={tr("IAM manager")} size="xl" closeOnClickOutside={false}>
       <Stack gap="sm">
         {body}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

@@ -2,6 +2,8 @@
 //! secret store: secrets come from stdin, the environment or a prompt, never
 //! from arguments, and a master password locks them.
 
+use bucketbridge_cli::i18n::{tr, trf};
+
 use super::*;
 
 const SECRET: &str = "example-secret-access-key";
@@ -56,7 +58,8 @@ async fn add_list_default_and_remove() {
         .await;
     out.expect_code(0);
     assert!(
-        out.stdout.starts_with("added account Work ("),
+        out.stdout
+            .starts_with(&trf("added account {label}", &[("label", "Work")])),
         "{}",
         out.stdout
     );
@@ -116,7 +119,10 @@ async fn add_list_default_and_remove() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("default account is now home ({home_id})")
+        trf(
+            "default account is now {label} ({id})",
+            &[("label", "home"), ("id", &home_id)],
+        )
     );
     let out = bb.run(&["account", "list", "--json"]).await;
     let defaults: Vec<(String, bool)> = out
@@ -149,7 +155,7 @@ async fn add_list_default_and_remove() {
         .run(&["account", "remove", "home", "--account", "home"])
         .await;
     out.expect_code(1);
-    assert!(out.stderr.contains("do not apply"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("do not apply")), "{}", out.stderr);
     bb.run(&["--mfa-code", "123456", "account", "list"])
         .await
         .expect_code(1);
@@ -192,14 +198,14 @@ async fn the_secret_comes_from_stdin_the_environment_or_a_prompt_only() {
     let out = bb.run_with(&base, &[], b"", &terminal).await;
     out.expect_code(1);
     assert!(out.stderr.contains("--secret-stdin"), "{}", out.stderr);
-    assert_eq!(terminal.prompts(), ["Secret access key: "]);
+    assert_eq!(terminal.prompts(), [tr("Secret access key: ")]);
     // --secret-stdin with nothing on stdin.
     let mut args = base.to_vec();
     args.push("--secret-stdin");
     let out = bb.run_with(&args, &[], b"", &Terminal::default()).await;
     out.expect_code(1);
     assert!(
-        out.stderr.contains("standard input is empty"),
+        out.stderr.contains(&tr("standard input is empty")),
         "{}",
         out.stderr
     );
@@ -207,7 +213,7 @@ async fn the_secret_comes_from_stdin_the_environment_or_a_prompt_only() {
     let terminal = Terminal::answering(&[SECRET]);
     let out = bb.run_with(&base, &[], b"", &terminal).await;
     out.expect_code(0);
-    assert_eq!(terminal.prompts(), ["Secret access key: "]);
+    assert_eq!(terminal.prompts(), [tr("Secret access key: ")]);
     assert!(
         bb.store
             .snapshot()
@@ -311,7 +317,7 @@ async fn a_master_password_locks_stored_secrets() {
     let stdin = format!("{}\n", s3.secret_key());
     let out = bb.run_with(&args, &[], stdin.as_bytes(), &terminal).await;
     out.expect_code(0);
-    assert_eq!(terminal.prompts(), ["Master password: "]);
+    assert_eq!(terminal.prompts(), [tr("Master password: ")]);
     // Under a master password the stored secret is encrypted.
     assert!(
         bb.store
@@ -339,5 +345,5 @@ async fn a_master_password_locks_stored_secrets() {
     let terminal = Terminal::answering(&["correct horse"]);
     let out = bb.run_with(&["ls"], &[], b"", &terminal).await;
     out.expect_code(0);
-    assert_eq!(terminal.prompts(), ["Master password: "]);
+    assert_eq!(terminal.prompts(), [tr("Master password: ")]);
 }

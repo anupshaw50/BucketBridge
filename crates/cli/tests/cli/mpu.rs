@@ -2,6 +2,8 @@
 
 use bucketbridge_tests::MockResponse;
 
+use bucketbridge_cli::i18n::trf;
+
 use super::*;
 
 #[tokio::test]
@@ -35,7 +37,14 @@ async fn abort_one_upload() {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("would abort upload {upload_id} of s3://{bucket}/big.bin")
+        trf(
+            "would abort upload {id} of s3://{bucket}/{key}",
+            &[
+                ("id", upload_id.as_str()),
+                ("bucket", bucket.as_str()),
+                ("key", "big.bin"),
+            ],
+        )
     );
     assert_eq!(env.s3.pending_uploads(&bucket, "big.bin").await, 1);
 
@@ -160,8 +169,14 @@ async fn abort_all_reports_each_upload() {
     assert_eq!(
         out.lines(),
         [
-            "would abort upload u1 of s3://b1/big.bin",
-            "would abort upload u2 of s3://b1/tmp/part.bin"
+            trf(
+                "would abort upload {id} of s3://{bucket}/{key}",
+                &[("id", "u1"), ("bucket", "b1"), ("key", "big.bin")],
+            ),
+            trf(
+                "would abort upload {id} of s3://{bucket}/{key}",
+                &[("id", "u2"), ("bucket", "b1"), ("key", "tmp/part.bin")],
+            ),
         ]
     );
     assert!(
@@ -180,7 +195,7 @@ async fn abort_all_reports_each_upload() {
     assert_eq!(records[1]["error"]["code"], "not_found");
     assert_eq!(
         out.error_record()["message"],
-        "1 of 2 uploads could not be aborted"
+        super::batch_summary(1, 2, "uploads", "could not be aborted")
     );
     let aborted: Vec<String> = mock
         .requests()

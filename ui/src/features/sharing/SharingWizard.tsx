@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { PresignMethod } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 import { CopyField } from "../../components/CopyField";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { formatDateTime } from "../../lib/format";
@@ -57,7 +58,7 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
   const keyError = keyProblem(key);
   const expiryError =
     !Number.isInteger(amount) || seconds < 1 || seconds > MAX_PRESIGN_SECONDS
-      ? "Choose an expiry between 1 second and 7 days."
+      ? tr("Choose an expiry between 1 second and 7 days.")
       : null;
 
   const invalidate = () => {
@@ -108,34 +109,35 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
   return (
     <OkCancelDialog
       opened
-      title={`Sharing wizard: ${bucket}`}
-      okLabel={step === 0 ? "Next" : step === 1 ? "Create link" : "Done"}
+      title={tr("Sharing wizard: {bucket}", { bucket })}
+      okLabel={step === 0 ? tr("Next") : step === 1 ? tr("Create link") : tr("Done")}
       onOk={next}
       onCancel={onClose}
-      cancelLabel="Close"
+      cancelLabel={tr("Close")}
       busy={busy}
       error={error}
       size="lg"
       extraActions={
         step > 0 ? (
           <Button variant="default" onClick={back} disabled={busy}>
-            Back
+            {tr("Back")}
           </Button>
         ) : undefined
       }
     >
       <Stepper active={step} size="xs" allowNextStepsSelect={false}>
-        <Stepper.Step label="Object" />
-        <Stepper.Step label="Access" />
-        <Stepper.Step label="Link" />
+        <Stepper.Step label={tr("Object")} />
+        <Stepper.Step label={tr("Access")} />
+        <Stepper.Step label={tr("Link")} />
       </Stepper>
       {step === 0 ? (
         <Stack gap="xs">
           <Text size="sm">
-            Create a temporary link that gives anyone who has it access to one object in <strong>{bucket}</strong>.
+            {tr("Create a temporary link that gives anyone who has it access to one object in")} <strong>{bucket}</strong>
+            {tr(".")}
           </Text>
           <Autocomplete
-            label="Object key"
+            label={tr("Object key")}
             placeholder="folder/report.pdf"
             value={key}
             data={suggestions}
@@ -152,7 +154,7 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
       {step === 1 ? (
         <Stack gap="xs">
           <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-            Link to <strong>{s3Uri(bucket, key)}</strong>
+            {tr("Link to")} <strong>{s3Uri(bucket, key)}</strong>
           </Text>
           <SegmentedControl<PresignMethod>
             value={method}
@@ -161,14 +163,14 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
               invalidate();
             }}
             data={[
-              { value: "get", label: "Download (GET)" },
-              { value: "put", label: "Upload (PUT)" },
+              { value: "get", label: tr("Download (GET)") },
+              { value: "put", label: tr("Upload (PUT)") },
             ]}
-            aria-label="Link type"
+            aria-label={tr("Link type")}
           />
           <Group align="flex-start" gap="sm">
             <NumberInput
-              label="Valid for"
+              label={tr("Valid for")}
               w={120}
               min={1}
               allowDecimal={false}
@@ -180,15 +182,15 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
               error={expiryError}
             />
             <Select
-              label="Unit"
+              label={tr("Unit")}
               w={130}
               value={unit}
               allowDeselect={false}
               data={[
-                { value: "seconds", label: "Seconds" },
-                { value: "minutes", label: "Minutes" },
-                { value: "hours", label: "Hours" },
-                { value: "days", label: "Days" },
+                { value: "seconds", label: tr("Seconds") },
+                { value: "minutes", label: tr("Minutes") },
+                { value: "hours", label: tr("Hours") },
+                { value: "days", label: tr("Days") },
               ]}
               onChange={(value) => {
                 if (value === "seconds" || value === "minutes" || value === "hours" || value === "days") {
@@ -199,20 +201,20 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
             />
           </Group>
           <Text size="xs" c="dimmed">
-            The link works until it expires, or until the access of the account that signed it ends.
+            {tr("The link works until it expires, or until the access of the account that signed it ends.")}
           </Text>
         </Stack>
       ) : null}
       {step === 2 && created !== null ? (
         <Stack gap={6}>
-          <CopyField label="Link" value={created.url} multiline sensitive />
+          <CopyField label={tr("Link")} value={created.url} multiline sensitive />
           <Group gap={4}>
             <IconLink size={12} aria-hidden />
             <Text size="xs" c="dimmed">
-              Expires around {created.expiresAt}.{" "}
+              {tr("Expires around {time}.", { time: created.expiresAt })}{" "}
               {created.method === "get"
-                ? "Anyone with the link can download the object until then."
-                : "Upload with an HTTP PUT request to this link until then."}
+                ? tr("Anyone with the link can download the object until then.")
+                : tr("Upload with an HTTP PUT request to this link until then.")}
             </Text>
           </Group>
           <ShortenControl url={created.url} />

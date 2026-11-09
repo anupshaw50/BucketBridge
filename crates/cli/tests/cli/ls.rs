@@ -2,6 +2,8 @@
 
 use bucketbridge_tests::MockResponse;
 
+use bucketbridge_cli::i18n::tr;
+
 use super::*;
 
 async fn sample_bucket(env: &Env) -> String {
@@ -143,7 +145,7 @@ async fn versions_show_markers_and_folders_across_pages() {
         lines[0]
     );
     assert!(
-        lines[1].contains(" DEL ") && lines[1].contains("latest") && lines[1].contains("dm1"),
+        lines[1].contains(" DEL ") && lines[1].contains(&tr("latest")) && lines[1].contains("dm1"),
         "{}",
         lines[1]
     );

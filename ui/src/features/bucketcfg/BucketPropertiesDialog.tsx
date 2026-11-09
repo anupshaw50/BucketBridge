@@ -6,6 +6,7 @@ import { toBbError } from "../../api/errors";
 import type { BucketConfig, Section } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
+import { tr } from "../../i18n";
 import type { BucketPropertiesTab } from "../../state/dialogs";
 import { AccelerationTab } from "./AccelerationTab";
 import { LoggingTab } from "./LoggingTab";
@@ -136,7 +137,7 @@ export function BucketPropertiesDialog({
   let content;
   if (state.status === "loading") {
     content = (
-      <Stack gap={8} aria-busy="true" aria-label="Loading the bucket settings">
+      <Stack gap={8} aria-busy="true" aria-label={tr("Loading the bucket settings")}>
         {Array.from({ length: 5 }, (_, index) => (
           <Skeleton key={index} height={18} width={`${90 - index * 10}%`} />
         ))}
@@ -144,7 +145,7 @@ export function BucketPropertiesDialog({
     );
   } else if (state.status === "failed") {
     content = (
-      <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title="The bucket settings could not be read">
+      <Alert color="red" icon={<IconAlertCircle size={16} />} role="alert" title={tr("The bucket settings could not be read")}>
         <div style={{ overflowWrap: "anywhere" }}>{state.message}</div>
         <Button
           mt="xs"
@@ -155,7 +156,7 @@ export function BucketPropertiesDialog({
             setAttempt((count) => count + 1);
           }}
         >
-          Try again
+          {tr("Try again")}
         </Button>
       </Alert>
     );
@@ -173,7 +174,7 @@ export function BucketPropertiesDialog({
         <Tabs.List>
           {TABS.map(({ id, label }) => (
             <Tabs.Tab key={id} value={id}>
-              {label}
+              {tr(label)}
             </Tabs.Tab>
           ))}
         </Tabs.List>
@@ -236,12 +237,12 @@ export function BucketPropertiesDialog({
   }
 
   return (
-    <AppModal opened onClose={onClose} title={`Bucket properties: ${bucket}`} size="xl">
+    <AppModal opened onClose={onClose} title={tr("Bucket properties: {bucket}", { bucket })} size="xl">
       <Stack gap="md">
         {content}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

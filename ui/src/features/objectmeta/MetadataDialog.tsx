@@ -6,7 +6,8 @@ import type { ObjectDetails, ObjectEntry } from "../../api/types";
 import { useModel } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
 import { CopyField } from "../../components/CopyField";
-import { plural } from "../../lib/format";
+import { tr } from "../../i18n";
+import { formatCount } from "../../lib/format";
 import { isFolderEntry } from "../../lib/objects";
 import { baseName, displaySegment, s3Uri } from "../../lib/s3keys";
 import { validateCustomerKey } from "../../lib/objectMeta";
@@ -29,7 +30,7 @@ function needsKey(error: BackendError): boolean {
 function FolderProperties({ bucket, entries, onClose }: { bucket: string; entries: readonly ObjectEntry[]; onClose: () => void }) {
   const only = entries.length === 1 ? entries[0] : undefined;
   return (
-    <AppModal opened onClose={onClose} title="Properties" size="lg">
+    <AppModal opened onClose={onClose} title={tr("Properties")} size="lg">
       <Stack gap="sm">
         {only !== undefined ? (
           <>
@@ -37,25 +38,25 @@ function FolderProperties({ bucket, entries, onClose }: { bucket: string; entrie
               <Table.Tbody>
                 <Table.Tr>
                   <Table.Th scope="row" w={150} fw={500}>
-                    Name
+                    {tr("Name")}
                   </Table.Th>
                   <Table.Td>{displaySegment(baseName(only.key))}</Table.Td>
                 </Table.Tr>
                 <Table.Tr>
                   <Table.Th scope="row" fw={500}>
-                    Type
+                    {tr("Type of object")}
                   </Table.Th>
-                  <Table.Td>Folder</Table.Td>
+                  <Table.Td>{tr("Folder")}</Table.Td>
                 </Table.Tr>
                 <Table.Tr>
                   <Table.Th scope="row" fw={500}>
-                    Bucket
+                    {tr("Bucket")}
                   </Table.Th>
                   <Table.Td>{bucket}</Table.Td>
                 </Table.Tr>
                 <Table.Tr>
                   <Table.Th scope="row" fw={500}>
-                    Key
+                    {tr("Key")}
                   </Table.Th>
                   <Table.Td style={{ overflowWrap: "anywhere" }}>
                     <Text size="sm" ff="monospace">
@@ -69,12 +70,13 @@ function FolderProperties({ bucket, entries, onClose }: { bucket: string; entrie
           </>
         ) : null}
         <Text size="sm" c="dimmed">
-          A folder has no metadata of its own: tags, storage class, encryption, headers and ACLs belong to the objects
-          in it. Select objects to edit them.
+          {tr(
+            "A folder has no metadata of its own: tags, storage class, encryption, headers and ACLs belong to the objects in it. Select objects to edit them.",
+          )}
         </Text>
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>
@@ -175,25 +177,33 @@ export function MetadataDialog({
 
   const details = state.status === "ready" ? state.details : null;
   const ctx: TabContext = { accountId, bucket, keys, details: single ? details : null, batch: !single, sseKey, setSseKey, changed };
-  const title = single ? "Properties" : `Properties of ${plural(objects.length, "object")}`;
+  const title = single
+    ? tr("Properties")
+    : objects.length === 1
+      ? tr("Properties of 1 object")
+      : tr("Properties of {n} objects", { n: formatCount(objects.length) });
   const showTabs = !single || state.status === "ready";
   return (
     <AppModal opened onClose={onClose} title={title} size="xl">
       <Stack gap="sm">
         {folders > 0 ? (
           <Text size="sm" c="dimmed">
-            {plural(folders, "folder")} in the selection {folders === 1 ? "is" : "are"} left out: folders have no metadata of their own.
+            {folders === 1
+              ? tr("1 folder in the selection is left out: folders have no metadata of their own.")
+              : tr("{n} folders in the selection are left out: folders have no metadata of their own.", {
+                  n: formatCount(folders),
+                })}
           </Text>
         ) : null}
         {single && state.status === "loading" ? (
           <Group gap="xs" role="status">
             <Loader size="sm" />
-            <Text size="sm">Loading properties</Text>
+            <Text size="sm">{tr("Loading properties")}</Text>
           </Group>
         ) : null}
         {single && state.status === "error" ? (
           <Stack gap="xs">
-            <Alert color="red" icon={<IconAlertCircle size={16} />} title="The properties could not be read" role="alert">
+            <Alert color="red" icon={<IconAlertCircle size={16} />} title={tr("The properties could not be read")} role="alert">
               <Text size="sm" style={{ overflowWrap: "anywhere" }}>
                 {state.error.message}
               </Text>
@@ -201,8 +211,10 @@ export function MetadataDialog({
             {needsKey(state.error) ? (
               <Group align="flex-end" gap="xs">
                 <PasswordInput
-                  label="Customer key (SSE-C)"
-                  description="If the object is encrypted with a customer-provided key, enter it to read the object. It is never stored."
+                  label={tr("Customer key (SSE-C)")}
+                  description={tr(
+                    "If the object is encrypted with a customer-provided key, enter it to read the object. It is never stored.",
+                  )}
                   value={sseKey}
                   onChange={(event) => setSseKey(event.currentTarget.value)}
                   error={sseKey.length > 0 ? validateCustomerKey(sseKey) : null}
@@ -210,13 +222,13 @@ export function MetadataDialog({
                   style={{ flex: 1 }}
                 />
                 <Button disabled={typedKey === null} onClick={() => read(typedKey, false)}>
-                  Read with key
+                  {tr("Read with key")}
                 </Button>
               </Group>
             ) : (
               <Group>
                 <Button variant="default" onClick={() => read(null, false)}>
-                  Try again
+                  {tr("Try again")}
                 </Button>
               </Group>
             )}
@@ -225,13 +237,13 @@ export function MetadataDialog({
         {showTabs ? (
           <Tabs value={tab} onChange={setTab} keepMounted={false}>
             <Tabs.List>
-              <Tabs.Tab value="general">General</Tabs.Tab>
-              <Tabs.Tab value="headers">HTTP headers</Tabs.Tab>
-              <Tabs.Tab value="metadata">User metadata</Tabs.Tab>
-              <Tabs.Tab value="tags">Tags</Tabs.Tab>
-              <Tabs.Tab value="class">Storage class</Tabs.Tab>
-              <Tabs.Tab value="encryption">Encryption</Tabs.Tab>
-              <Tabs.Tab value="permissions">Permissions</Tabs.Tab>
+              <Tabs.Tab value="general">{tr("General")}</Tabs.Tab>
+              <Tabs.Tab value="headers">{tr("HTTP headers")}</Tabs.Tab>
+              <Tabs.Tab value="metadata">{tr("User metadata")}</Tabs.Tab>
+              <Tabs.Tab value="tags">{tr("Tags")}</Tabs.Tab>
+              <Tabs.Tab value="class">{tr("Storage class")}</Tabs.Tab>
+              <Tabs.Tab value="encryption">{tr("Encryption")}</Tabs.Tab>
+              <Tabs.Tab value="permissions">{tr("Permissions")}</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="general" pt="sm">
               <GeneralTab ctx={ctx} entries={objects} />
@@ -258,7 +270,7 @@ export function MetadataDialog({
         ) : null}
         <Group justify="flex-end">
           <Button variant="default" onClick={onClose}>
-            Close
+            {tr("Close")}
           </Button>
         </Group>
       </Stack>

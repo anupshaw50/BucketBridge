@@ -1,6 +1,7 @@
 import { ActionIcon, Alert, Button, Group, PasswordInput, Stack, Table, Text, TextInput } from "@mantine/core";
 import { IconAlertCircle, IconCheck, IconInfoCircle, IconPlus, IconTrash } from "@tabler/icons-react";
 import type { Row } from "../../lib/objectMeta";
+import { tr } from "../../i18n";
 import { baseName, displaySegment } from "../../lib/s3keys";
 import { type Applier, type TabContext, sseKeyProblem, summarize } from "./apply";
 
@@ -33,7 +34,7 @@ export function ResultList({ applier, batch }: { applier: Applier; batch: boolea
         role="status"
         py="xs"
       >
-        <Text size="sm">{only.changed ? "Changed." : "Already up to date; nothing was changed."}</Text>
+        <Text size="sm">{only.changed ? tr("Changed.") : tr("Already up to date; nothing was changed.")}</Text>
         {only.warnings.map((warning) => (
           <Text key={warning} size="xs" style={{ overflowWrap: "anywhere" }}>
             {warning}
@@ -43,15 +44,15 @@ export function ResultList({ applier, batch }: { applier: Applier; batch: boolea
     );
   }
   return (
-    <Stack gap={4} role="status" aria-label="Results">
+    <Stack gap={4} role="status" aria-label={tr("Results")}>
       <Text size="sm" fw={500}>
         {summarize(results)}
       </Text>
       <Table withTableBorder verticalSpacing={2} fz="xs">
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Object</Table.Th>
-            <Table.Th>Result</Table.Th>
+            <Table.Th>{tr("Object")}</Table.Th>
+            <Table.Th>{tr("Result")}</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -61,11 +62,15 @@ export function ResultList({ applier, batch }: { applier: Applier; batch: boolea
               <Table.Td style={{ overflowWrap: "anywhere" }}>
                 {result.error !== null ? (
                   <Text size="xs" c="red">
-                    Failed: {result.error.message}
+                    {tr("Failed: {message}", { message: result.error.message })}
                   </Text>
                 ) : (
                   <>
-                    {result.changed ? (result.previous !== null ? `Changed (was ${result.previous})` : "Changed") : "Unchanged"}
+                    {result.changed
+                      ? result.previous !== null
+                        ? tr("Changed (was {previous})", { previous: result.previous })
+                        : tr("Changed")
+                      : tr("Unchanged")}
                     {result.warnings.map((warning) => (
                       <Text key={warning} size="xs" c="orange">
                         {warning}
@@ -87,7 +92,7 @@ export function ApplyBar({
   batch,
   disabled,
   onApply,
-  label = "Apply",
+  label = tr("Apply"),
 }: {
   applier: Applier;
   batch: boolean;
@@ -128,7 +133,7 @@ export function KeyValueEditor({
       {rows.map((row, index) => (
         <Group key={index} gap="xs" wrap="nowrap" align="flex-end">
           <TextInput
-            aria-label={`${keyLabel} ${index + 1}`}
+            aria-label={tr("{label} {n}", { label: keyLabel, n: index + 1 })}
             placeholder={keyLabel}
             value={row.key}
             onChange={(event) => update(index, { key: event.currentTarget.value })}
@@ -137,7 +142,7 @@ export function KeyValueEditor({
             style={{ flex: 1 }}
           />
           <TextInput
-            aria-label={`${valueLabel} ${index + 1}`}
+            aria-label={tr("{label} {n}", { label: valueLabel, n: index + 1 })}
             placeholder={valueLabel}
             value={row.value}
             onChange={(event) => update(index, { value: event.currentTarget.value })}
@@ -148,7 +153,7 @@ export function KeyValueEditor({
           <ActionIcon
             variant="subtle"
             color="red"
-            aria-label={`Remove ${keyLabel.toLowerCase()} ${index + 1}`}
+            aria-label={tr("Remove {label} {n}", { label: keyLabel.toLowerCase(), n: index + 1 })}
             onClick={() => onChange(rows.filter((_, at) => at !== index))}
           >
             <IconTrash size={16} />
@@ -172,8 +177,8 @@ export function CurrentKeyField({ ctx }: { ctx: TabContext }) {
   }
   return (
     <PasswordInput
-      label="Key of objects encrypted with SSE-C"
-      description="Only for objects that are encrypted with a customer-provided key. It is sent with the request and never stored."
+      label={tr("Key of objects encrypted with SSE-C")}
+      description={tr("Only for objects that are encrypted with a customer-provided key. It is sent with the request and never stored.")}
       value={ctx.sseKey}
       onChange={(event) => ctx.setSseKey(event.currentTarget.value)}
       error={sseKeyProblem(ctx)}

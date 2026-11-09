@@ -41,6 +41,7 @@ import { useContextMenu } from "../features/menus/useContextMenu";
 import { downloadSelected, toggleFlatBrowsing, togglePanel } from "../features/objects/actions";
 import { FilterMenu } from "../features/tools/FilterControls";
 import { ToolsMenu } from "../features/tools/ToolsMenu";
+import { tr } from "../i18n";
 import { formatBinding } from "../lib/keys";
 import { useModel, useSlice } from "./context";
 
@@ -95,7 +96,7 @@ function AccountSwitcher() {
             size="xs"
             leftSection={<IconUsers size={14} />}
             rightSection={<IconChevronDown size={12} />}
-            aria-label={active ? `Account: ${active.label}` : "Choose an account"}
+            aria-label={active ? tr("Account: {label}", { label: active.label }) : tr("Choose an account")}
             maw={220}
             onContextMenu={(event) => {
               if (active) {
@@ -105,13 +106,13 @@ function AccountSwitcher() {
             }}
           >
             <Text size="xs" className="bb-ellipsis" span>
-              {active ? active.label : "No account"}
+              {active ? active.label : tr("No account")}
             </Text>
           </Button>
         </Menu.Target>
         <Menu.Dropdown>
-          <Menu.Label>Accounts</Menu.Label>
-          {accounts.length === 0 ? <Menu.Item disabled>No accounts yet</Menu.Item> : null}
+          <Menu.Label>{tr("Accounts")}</Menu.Label>
+          {accounts.length === 0 ? <Menu.Item disabled>{tr("No accounts yet")}</Menu.Item> : null}
           {accounts.map((account) => (
             <Menu.Item
               key={account.id}
@@ -119,7 +120,7 @@ function AccountSwitcher() {
               rightSection={
                 account.id === defaultId ? (
                   <Badge size="xs" variant="light" leftSection={<IconStar size={10} />}>
-                    Default
+                    {tr("Default")}
                   </Badge>
                 ) : null
               }
@@ -129,9 +130,9 @@ function AccountSwitcher() {
             </Menu.Item>
           ))}
           <Menu.Divider />
-          <Menu.Item onClick={() => model.dialogs.open({ kind: "add-account" })}>Add account...</Menu.Item>
-          <Menu.Item onClick={() => model.dialogs.open({ kind: "import-aws" })}>Import from AWS config...</Menu.Item>
-          <Menu.Item onClick={() => model.dialogs.open({ kind: "accounts" })}>Manage accounts...</Menu.Item>
+          <Menu.Item onClick={() => model.dialogs.open({ kind: "add-account" })}>{tr("Add account...")}</Menu.Item>
+          <Menu.Item onClick={() => model.dialogs.open({ kind: "import-aws" })}>{tr("Import from AWS config...")}</Menu.Item>
+          <Menu.Item onClick={() => model.dialogs.open({ kind: "accounts" })}>{tr("Manage accounts...")}</Menu.Item>
         </Menu.Dropdown>
       </Menu>
       <ContextMenu menu={menu.state} onClose={menu.close} />
@@ -156,27 +157,27 @@ function BucketActions() {
   return (
     <Menu position="bottom-start" withinPortal>
       <Menu.Target>
-        <Tooltip label="Buckets" openDelay={300}>
-          <ActionIcon variant="subtle" size="md" aria-label="Bucket actions" disabled={activeAccountId === null}>
+        <Tooltip label={tr("Buckets")} openDelay={300}>
+          <ActionIcon variant="subtle" size="md" aria-label={tr("Bucket actions")} disabled={activeAccountId === null}>
             <IconBucket size={17} />
           </ActionIcon>
         </Tooltip>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu.Item onClick={() => run("bucket.new")}>New bucket...</Menu.Item>
+        <Menu.Item onClick={() => run("bucket.new")}>{tr("New bucket...")}</Menu.Item>
         {/* The dialog opens on its first tab, the one of the policy entry of the Properties submenu. */}
         <Menu.Item disabled={!policy.visible || policy.disabled !== null} onClick={() => run("bucket.policy")}>
-          {bucket === null ? "Bucket properties..." : `Properties of ${bucket.name}...`}
+          {bucket === null ? tr("Bucket properties...") : tr("Properties of {name}...", { name: bucket.name })}
         </Menu.Item>
-        <Menu.Item onClick={() => run("bucket.add-external")}>Add external bucket...</Menu.Item>
+        <Menu.Item onClick={() => run("bucket.add-external")}>{tr("Add external bucket...")}</Menu.Item>
         {removeExternal.visible && bucket !== null ? (
           <Menu.Item disabled={removeExternal.disabled !== null} onClick={() => run("bucket.remove-external")}>
-            {`Remove external bucket ${bucket.name}...`}
+            {tr("Remove external bucket {name}...", { name: bucket.name })}
           </Menu.Item>
         ) : null}
         <Menu.Divider />
         <Menu.Item color="red" disabled={bucket === null || activeAccountId === null} onClick={() => run("bucket.delete")}>
-          {bucket === null ? "Delete bucket..." : `Delete bucket ${bucket.name}...`}
+          {bucket === null ? tr("Delete bucket...") : tr("Delete bucket {name}...", { name: bucket.name })}
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>
@@ -195,7 +196,7 @@ export function Toolbar() {
   const clipboard = useSlice(model.clipboard, (state) => state.contents);
   const settings = useSlice(model.settings.store, (state) => state.settings.interface);
   const settingsLoaded = useSlice(model.settings.store, (state) => state.loaded);
-  const notLoaded = settingsLoaded ? null : "the settings are not loaded yet";
+  const notLoaded = settingsLoaded ? null : tr("the settings are not loaded yet");
   const security = useSlice(model.session.store, (state) => state.security);
   const activeAccountId = useSlice(model.session.store, (state) => state.activeAccountId);
   const ready = status === "ready" && bucket !== null;
@@ -227,15 +228,15 @@ export function Toolbar() {
       } else {
         await model.raw.lock();
         await model.session.refreshSecurity();
-        model.status.info("Secrets locked. Enter the master password to use the accounts again.");
+        model.status.info(tr("Secrets locked. Enter the master password to use the accounts again."));
       }
     } catch (error) {
-      model.status.error(error, { notify: "Locking failed" });
+      model.status.error(error, { notify: tr("Locking failed") });
     }
   };
 
   return (
-    <header className="bb-toolbar" role="toolbar" aria-label="Main toolbar">
+    <header className="bb-toolbar" role="toolbar" aria-label={tr("Main toolbar")}>
       <AccountSwitcher />
       <Divider orientation="vertical" />
       <Menu position="bottom-start" withinPortal>
@@ -247,12 +248,12 @@ export function Toolbar() {
             rightSection={<IconChevronDown size={12} />}
             disabled={!ready}
           >
-            Upload
+            {tr("Upload")}
           </Button>
         </Menu.Target>
         <Menu.Dropdown>
-          <Menu.Item onClick={() => run("upload.files")}>Upload files...</Menu.Item>
-          <Menu.Item onClick={() => run("upload.folder")}>Upload folder...</Menu.Item>
+          <Menu.Item onClick={() => run("upload.files")}>{tr("Upload files...")}</Menu.Item>
+          <Menu.Item onClick={() => run("upload.folder")}>{tr("Upload folder...")}</Menu.Item>
         </Menu.Dropdown>
       </Menu>
       <Menu position="bottom-start" withinPortal>
@@ -264,44 +265,48 @@ export function Toolbar() {
             rightSection={<IconChevronDown size={12} />}
             disabled={!ready || !actionState("item.download", pane).visible}
           >
-            Download
+            {tr("Download")}
           </Button>
         </Menu.Target>
         <Menu.Dropdown>
-          <Menu.Item onClick={() => void downloadSelected(model, false)}>Download</Menu.Item>
-          <Menu.Item onClick={() => run("item.download")}>Download to...</Menu.Item>
+          <Menu.Item onClick={() => void downloadSelected(model, false)}>{tr("Download")}</Menu.Item>
+          <Menu.Item onClick={() => run("item.download")}>{tr("Download to...")}</Menu.Item>
         </Menu.Dropdown>
       </Menu>
-      <ToolButton label="New folder" icon={<IconFolderPlus size={17} />} {...twin("folder.new")} />
+      <ToolButton label={tr("New folder")} icon={<IconFolderPlus size={17} />} {...twin("folder.new")} />
       <Divider orientation="vertical" />
-      <ToolButton label="Copy" icon={<IconCopy size={17} />} {...twin("clipboard.copy")} />
-      <ToolButton label="Cut" icon={<IconCut size={17} />} {...twin("clipboard.cut")} />
-      <ToolButton label="Paste" icon={<IconClipboard size={17} />} {...twin("clipboard.paste")} />
-      <ToolButton label="Rename" icon={<IconEdit size={17} />} {...twin("item.rename")} />
-      <ToolButton label="Delete" icon={<IconTrash size={17} />} {...twin("item.delete")} />
+      <ToolButton label={tr("Copy")} icon={<IconCopy size={17} />} {...twin("clipboard.copy")} />
+      <ToolButton label={tr("Cut")} icon={<IconCut size={17} />} {...twin("clipboard.cut")} />
+      <ToolButton label={tr("Paste")} icon={<IconClipboard size={17} />} {...twin("clipboard.paste")} />
+      <ToolButton label={tr("Rename")} icon={<IconEdit size={17} />} {...twin("item.rename")} />
+      <ToolButton label={tr("Delete")} icon={<IconTrash size={17} />} {...twin("item.delete")} />
       <Divider orientation="vertical" />
-      <ToolButton label="Open" icon={<IconExternalLink size={17} />} {...twin("open")} />
-      <ToolButton label="Properties" icon={<IconInfoCircle size={17} />} {...twin("item.properties")} />
-      <ToolButton label="Share link" icon={<IconLink size={17} />} {...twin("item.share")} />
-      <ToolButton label="Export listing" icon={<IconTableExport size={17} />} {...twin("file.export")} />
-      <ToolButton label="Preview" icon={<IconEye size={17} />} {...twin("file.preview")} />
-      <ToolButton label="Versions" icon={<IconHistory size={17} />} {...twin("item.versions")} />
+      <ToolButton label={tr("Open")} icon={<IconExternalLink size={17} />} {...twin("open")} />
+      <ToolButton label={tr("Properties")} icon={<IconInfoCircle size={17} />} {...twin("item.properties")} />
+      <ToolButton label={tr("Share link")} icon={<IconLink size={17} />} {...twin("item.share")} />
+      <ToolButton label={tr("Export listing")} icon={<IconTableExport size={17} />} {...twin("file.export")} />
+      <ToolButton label={tr("Preview")} icon={<IconEye size={17} />} {...twin("file.preview")} />
+      <ToolButton label={tr("Versions")} icon={<IconHistory size={17} />} {...twin("item.versions")} />
       <Divider orientation="vertical" />
       <Menu position="bottom-start" withinPortal>
         <Menu.Target>
-          <Tooltip label="Selection" openDelay={300}>
-            <ActionIcon variant="subtle" size="md" aria-label="Selection" disabled={!ready}>
+          <Tooltip label={tr("Selection")} openDelay={300}>
+            <ActionIcon variant="subtle" size="md" aria-label={tr("Selection")} disabled={!ready}>
               <IconSelectAll size={17} />
             </ActionIcon>
           </Tooltip>
         </Menu.Target>
         <Menu.Dropdown>
-          <Menu.Item onClick={() => run("list.select-all")}>Select all ({shortcutOf("list.select-all")})</Menu.Item>
-          <Menu.Item onClick={() => run("list.invert")}>Invert selection ({shortcutOf("list.invert")})</Menu.Item>
+          <Menu.Item onClick={() => run("list.select-all")}>
+            {tr("Select all ({shortcut})", { shortcut: shortcutOf("list.select-all") ?? "" })}
+          </Menu.Item>
+          <Menu.Item onClick={() => run("list.invert")}>
+            {tr("Invert selection ({shortcut})", { shortcut: shortcutOf("list.invert") ?? "" })}
+          </Menu.Item>
         </Menu.Dropdown>
       </Menu>
       <ToolButton
-        label="Flat browsing"
+        label={tr("Flat browsing")}
         icon={<IconListTree size={17} />}
         pressed={settings.flat_browsing}
         disabled={!settingsLoaded}
@@ -309,7 +314,7 @@ export function Toolbar() {
         onClick={() => void toggleFlatBrowsing(model)}
       />
       <FilterMenu disabled={!ready} />
-      <ToolButton label="Refresh" icon={<IconRefresh size={17} />} {...twin("list.refresh", { needsList: false })} />
+      <ToolButton label={tr("Refresh")} icon={<IconRefresh size={17} />} {...twin("list.refresh", { needsList: false })} />
       <BucketActions />
       <Button
         variant="subtle"
@@ -318,12 +323,12 @@ export function Toolbar() {
         disabled={activeAccountId === null}
         onClick={() => run("sync.open")}
       >
-        Sync
+        {tr("Sync")}
       </Button>
       <ToolsMenu />
       <Group gap={2} ml="auto" wrap="nowrap">
         <ToolButton
-          label="Transfer queue"
+          label={tr("Transfer queue")}
           icon={<IconLayoutBottombar size={17} />}
           pressed={settings.show_transfer_panel}
           disabled={!settingsLoaded}
@@ -331,7 +336,7 @@ export function Toolbar() {
           onClick={() => void togglePanel(model, "transfers")}
         />
         <ToolButton
-          label="Event log"
+          label={tr("Event log")}
           icon={<IconListDetails size={17} />}
           pressed={settings.show_log_panel}
           disabled={!settingsLoaded}
@@ -340,14 +345,14 @@ export function Toolbar() {
         />
         {security?.master_password_set ? (
           <ToolButton
-            label={locked ? "Unlock secrets" : "Lock secrets"}
+            label={locked ? tr("Unlock secrets") : tr("Lock secrets")}
             icon={locked ? <IconLockOpen size={17} /> : <IconLock size={17} />}
             onClick={() => void lockOrUnlock()}
           />
         ) : null}
-        <ToolButton label="Accounts" icon={<IconUsers size={17} />} onClick={() => model.dialogs.open({ kind: "accounts" })} />
-        <ToolButton label="Settings" icon={<IconSettings size={17} />} onClick={() => model.dialogs.open({ kind: "settings" })} />
-        <ToolButton label="About" icon={<IconHelpCircle size={17} />} onClick={() => model.dialogs.open({ kind: "about" })} />
+        <ToolButton label={tr("Accounts")} icon={<IconUsers size={17} />} onClick={() => model.dialogs.open({ kind: "accounts" })} />
+        <ToolButton label={tr("Settings")} icon={<IconSettings size={17} />} onClick={() => model.dialogs.open({ kind: "settings" })} />
+        <ToolButton label={tr("About")} icon={<IconHelpCircle size={17} />} onClick={() => model.dialogs.open({ kind: "about" })} />
       </Group>
     </header>
   );

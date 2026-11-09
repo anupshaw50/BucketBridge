@@ -1,21 +1,22 @@
 import type { BucketPropertiesTab } from "../state/dialogs";
+import { tr } from "../i18n";
 import type { BucketScan, ScanFinding, ScanFixTab, ScanReport, ScanSeverity } from "../api/types";
 
 export const SEVERITY_LABELS: Readonly<Record<ScanSeverity, string>> = {
-  critical: "Critical",
-  high: "High",
-  medium: "Medium",
-  low: "Low",
+  critical: tr("Critical"),
+  high: tr("High"),
+  medium: tr("Medium"),
+  low: tr("Low"),
 };
 
 const RANK: Readonly<Record<ScanSeverity, number>> = { critical: 3, high: 2, medium: 1, low: 0 };
 
 export const FIX_TAB_LABELS: Readonly<Record<ScanFixTab, string>> = {
-  policy: "Policy",
-  "public-access": "Public access",
-  versioning: "Versioning",
-  encryption: "Encryption",
-  ownership: "Ownership",
+  policy: tr("Policy"),
+  "public-access": tr("Public access"),
+  versioning: tr("Versioning"),
+  encryption: tr("Encryption"),
+  ownership: tr("Ownership"),
 };
 
 /** The Properties tab of the dialog for a fix, or null when this build has no editor for that setting. */

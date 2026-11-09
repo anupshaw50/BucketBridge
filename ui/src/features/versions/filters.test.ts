@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { tr } from "../../i18n";
 import { DEFAULT_FILTER, DEFAULT_FORM, toVersionFilter, versionFileName, versionId } from "./filters";
 import { imageSource } from "./imageUrl";
 
@@ -35,15 +36,21 @@ describe("version filters", () => {
 
   it("refuses what no key can satisfy, with the rules of the backend", () => {
     const error = (patch: Partial<typeof DEFAULT_FORM>) => toVersionFilter({ ...DEFAULT_FORM, ...patch }).error;
-    expect(error({ showVersions: false, deleteMarkers: "exclude" })).toMatch(/Nothing would be listed/);
-    expect(error({ from: "2026-10-14", to: "2026-10-10" })).toMatch(/end date is before/);
-    expect(error({ from: "14/10/2026" })).toMatch(/YYYY-MM-DD/);
-    expect(error({ to: "2026-02-30" })).toMatch(/YYYY-MM-DD/);
-    expect(error({ moreThan: 5, fewerThan: 6 })).toMatch(/No key can have at least 6 and fewer than 6/);
-    expect(error({ multipleVersions: true, fewerThan: 2 })).toMatch(/at least 2 and fewer than 2/);
-    expect(error({ fewerThan: 1 })).toMatch(/at least 1 and fewer than 1/);
-    expect(error({ moreThan: -1 })).toMatch(/whole number/);
-    expect(error({ moreThan: 1.5 })).toMatch(/whole number/);
+    expect(error({ showVersions: false, deleteMarkers: "exclude" })).toBe(tr("Nothing would be listed: show versions or delete markers."));
+    expect(error({ from: "2026-10-14", to: "2026-10-10" })).toBe(tr("The end date is before the start date."));
+    expect(error({ from: "14/10/2026" })).toBe(tr("Enter dates as YYYY-MM-DD."));
+    expect(error({ to: "2026-02-30" })).toBe(tr("Enter dates as YYYY-MM-DD."));
+    expect(error({ moreThan: 5, fewerThan: 6 })).toBe(
+      tr("No key can have at least {least} and fewer than {fewer} versions.", { least: 6, fewer: 6 }),
+    );
+    expect(error({ multipleVersions: true, fewerThan: 2 })).toBe(
+      tr("No key can have at least {least} and fewer than {fewer} versions.", { least: 2, fewer: 2 }),
+    );
+    expect(error({ fewerThan: 1 })).toBe(
+      tr("No key can have at least {least} and fewer than {fewer} versions.", { least: 1, fewer: 1 }),
+    );
+    expect(error({ moreThan: -1 })).toBe(tr("{label} must be a whole number, 0 or more.", { label: tr("More than") }));
+    expect(error({ moreThan: 1.5 })).toBe(tr("{label} must be a whole number, 0 or more.", { label: tr("More than") }));
     expect(error({ moreThan: 1, fewerThan: 3 })).toBeNull();
     expect(error({ from: "2026-10-14", to: "2026-10-14" })).toBeNull();
   });

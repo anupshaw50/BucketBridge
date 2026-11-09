@@ -1,5 +1,7 @@
 //! `bb mb` and `bb rb`
 
+use bucketbridge_cli::i18n::trf;
+
 use super::*;
 
 async fn bucket_names(env: &Env) -> Vec<String> {
@@ -19,7 +21,10 @@ async fn mb_creates_and_rb_removes_a_bucket() {
     let name = env.s3.unique_bucket();
     let out = env.run(&["mb", &name]);
     out.expect_code(0);
-    assert_eq!(out.stdout.trim(), format!("created bucket {name}"));
+    assert_eq!(
+        out.stdout.trim(),
+        trf("created bucket {bucket}", &[("bucket", name.as_str())])
+    );
     assert!(bucket_names(&env).await.contains(&name));
 
     let out = env.run(&["rb", &format!("s3://{name}"), "--json"]);

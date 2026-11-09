@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toBbError } from "../../api/errors";
 import type { SyncJob } from "../../api/types";
 import { useModel } from "../../app/context";
+import { tr } from "../../i18n";
 
 const MAX_NAME = 100;
 
@@ -32,11 +33,11 @@ export function SaveJobSection({
     setSavedName(null);
     const trimmed = name.trim();
     if (trimmed === "") {
-      setError("Enter a name for the job.");
+      setError(tr("Enter a name for the job."));
       return;
     }
     if ([...trimmed].length > MAX_NAME) {
-      setError(`Use at most ${MAX_NAME} characters.`);
+      setError(tr("Use at most {n} characters.", { n: MAX_NAME }));
       return;
     }
     const job = build(trimmed);
@@ -57,10 +58,10 @@ export function SaveJobSection({
   };
 
   return (
-    <Group align="flex-end" gap="xs" wrap="nowrap" role="group" aria-label="Save as job">
+    <Group align="flex-end" gap="xs" wrap="nowrap" role="group" aria-label={tr("Save as job")}>
       <TextInput
-        label={editing ? "Job name" : "Save as job"}
-        placeholder="Name, for example Nightly photos"
+        label={editing ? tr("Job name") : tr("Save as job")}
+        placeholder={tr("Name, for example Nightly photos")}
         value={name}
         maxLength={MAX_NAME * 2}
         style={{ flex: 1 }}
@@ -75,11 +76,11 @@ export function SaveJobSection({
         }}
       />
       <Button variant="default" leftSection={<IconDeviceFloppy size={14} />} loading={busy} onClick={() => void save()}>
-        {editing ? "Save job" : "Save as job"}
+        {editing ? tr("Save job") : tr("Save as job")}
       </Button>
       {savedName !== null ? (
         <Alert color="teal" py={4} px="xs" role="status">
-          <Text size="xs">Saved job {savedName}.</Text>
+          <Text size="xs">{tr("Saved job {name}.", { name: savedName })}</Text>
         </Alert>
       ) : null}
     </Group>

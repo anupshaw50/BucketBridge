@@ -14,6 +14,7 @@ use crate::cli::{
     CloudfrontInvalidateArgs, CloudfrontInvalidationArgs, CloudfrontListArgs,
 };
 use crate::context::Context;
+use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 
 /// Runs one `bb cloudfront` subcommand.
@@ -78,42 +79,69 @@ async fn list(ctx: &Context, args: &CloudfrontListArgs, out: &mut Output) -> Res
 
 fn details(distribution: &Distribution) -> String {
     let mut lines = vec![
-        format!("id: {}", distribution.id),
-        format!("arn: {}", distribution.arn),
-        format!("domain: {}", distribution.domain_name),
-        format!("status: {}", distribution.status),
-        format!("state: {}", state(distribution.enabled)),
-        format!("comment: {}", distribution.comment),
-        format!("price class: {}", distribution.price_class),
-        format!("last modified: {}", timestamp(distribution.last_modified)),
+        trf("id: {id}", &[("id", distribution.id.as_str())]),
+        trf("arn: {arn}", &[("arn", distribution.arn.as_str())]),
+        trf(
+            "domain: {domain}",
+            &[("domain", distribution.domain_name.as_str())],
+        ),
+        trf(
+            "status: {status}",
+            &[("status", distribution.status.as_str())],
+        ),
+        trf("state: {state}", &[("state", state(distribution.enabled))]),
+        trf(
+            "comment: {comment}",
+            &[("comment", distribution.comment.as_str())],
+        ),
+        trf(
+            "price class: {price_class}",
+            &[("price_class", distribution.price_class.as_str())],
+        ),
+        trf(
+            "last modified: {time}",
+            &[("time", timestamp(distribution.last_modified).as_str())],
+        ),
     ];
     if !distribution.aliases.is_empty() {
-        lines.push(format!("aliases: {}", distribution.aliases.join(", ")));
+        lines.push(trf(
+            "aliases: {aliases}",
+            &[("aliases", distribution.aliases.join(", ").as_str())],
+        ));
     }
     if let Some(root) = distribution
         .default_root_object
         .as_deref()
         .filter(|root| !root.is_empty())
     {
-        lines.push(format!("default root object: {root}"));
+        lines.push(trf("default root object: {root}", &[("root", root)]));
     }
     if let Some(count) = distribution.in_progress_invalidations {
-        lines.push(format!("invalidations in progress: {count}"));
+        lines.push(trf(
+            "invalidations in progress: {count}",
+            &[("count", count.to_string().as_str())],
+        ));
     }
     for origin in &distribution.origins {
-        let mut line = format!("origin {}: {}", origin.id, origin.domain_name);
+        let mut line = trf(
+            "origin {id}: {domain}",
+            &[
+                ("id", origin.id.as_str()),
+                ("domain", origin.domain_name.as_str()),
+            ],
+        );
         if !origin.origin_path.is_empty() {
             line.push_str(&origin.origin_path);
         }
         if let Some(bucket) = &origin.bucket {
-            line.push_str(&format!(" (bucket {bucket}"));
+            line.push_str(&trf(" (bucket {bucket}", &[("bucket", bucket.as_str())]));
             if origin.website {
-                line.push_str(", website endpoint");
+                line.push_str(&tr(", website endpoint"));
             }
             if origin.access_control {
-                line.push_str(", origin access control");
+                line.push_str(&tr(", origin access control"));
             }
-            line.push(')');
+            line.push_str(&tr(")"));
         }
         lines.push(line);
     }
@@ -149,9 +177,9 @@ async fn create(
             .find(|bucket| bucket.name == args.bucket)
             .and_then(|bucket| bucket.region)
             .ok_or_else(|| {
-                Error::Usage(format!(
-                    "the region of bucket {} is unknown: pass --region",
-                    args.bucket
+                Error::Usage(trf(
+                    "the region of bucket {bucket} is unknown: pass --region",
+                    &[("bucket", &args.bucket)],
                 ))
             })?,
     };
@@ -170,13 +198,15 @@ async fn create(
         bucket_policy: &created.bucket_policy,
     };
     out.change(&record, || {
-        format!(
-            "created distribution {} ({}) for bucket {}\nThe bucket is not changed. Add this statement to the bucket policy of {} so that the distribution can read it:\n{}",
-            created.distribution.id,
-            created.distribution.domain_name,
-            args.bucket,
-            args.bucket,
-            created.bucket_policy
+        trf(
+            "created distribution {id} ({domain}) for bucket {bucket}\nThe bucket is not changed. Add this statement to the bucket policy of {policy_bucket} so that the distribution can read it:\n{policy}",
+            &[
+                ("id", created.distribution.id.as_str()),
+                ("domain", created.distribution.domain_name.as_str()),
+                ("bucket", &args.bucket),
+                ("policy_bucket", &args.bucket),
+                ("policy", &created.bucket_policy),
+            ],
         )
     })
 }
@@ -193,8 +223,14 @@ async fn set_enabled(
         .set_enabled(&args.id, enabled, None)
         .await?;
     out.change(&distribution, || {
-        let verb = if enabled { "enabled" } else { "disabled" };
-        format!("{verb} distribution {}", distribution.id)
+        trf(
+            if enabled {
+                "enabled distribution {id}"
+            } else {
+                "disabled distribution {id}"
+            },
+            &[("id", distribution.id.as_str())],
+        )
     })
 }
 
@@ -209,9 +245,9 @@ async fn detach(
         .detach_bucket(&args.id, &args.bucket, None)
         .await?;
     out.change(&distribution, || {
-        format!(
-            "distribution {} no longer serves bucket {}",
-            distribution.id, args.bucket
+        trf(
+            "distribution {id} no longer serves bucket {bucket}",
+            &[("id", distribution.id.as_str()), ("bucket", &args.bucket)],
         )
     })
 }
@@ -227,11 +263,13 @@ async fn invalidate(
         .create_invalidation(&args.id, &args.paths)
         .await?;
     out.change(&invalidation, || {
-        format!(
-            "created invalidation {} ({}): {}",
-            invalidation.id,
-            invalidation.status,
-            invalidation.paths.join(" ")
+        trf(
+            "created invalidation {id} ({status}): {paths}",
+            &[
+                ("id", invalidation.id.as_str()),
+                ("status", invalidation.status.as_str()),
+                ("paths", invalidation.paths.join(" ").as_str()),
+            ],
         )
     })
 }

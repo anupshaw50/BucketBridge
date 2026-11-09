@@ -4,6 +4,7 @@ use bucketbridge_core::Error;
 
 use crate::cli::RestoreVersionArgs;
 use crate::context::Context;
+use crate::i18n::trf;
 use crate::output::{Failure, Output};
 use crate::records::RestoreRecord;
 
@@ -16,8 +17,9 @@ pub async fn run(
 ) -> Result<(), Failure> {
     let uri = &args.uri;
     if uri.is_prefix() {
-        return Err(Error::Usage(format!(
-            "restore-version needs an object key; {uri} is a prefix"
+        return Err(Error::Usage(trf(
+            "restore-version needs an object key; {uri} is a prefix",
+            &[("uri", &uri.to_string())],
         ))
         .into());
     }
@@ -38,21 +40,26 @@ pub async fn run(
 }
 
 fn line(record: &RestoreRecord) -> String {
-    match &record.version_id {
-        Some(new) => format!(
-            "restored version {} of s3://{}/{} (new version {new})",
-            record.restored_version_id, record.bucket, record.key
-        ),
-        None => format!(
-            "restored version {} of s3://{}/{}",
-            record.restored_version_id, record.bucket, record.key
-        ),
-    }
+    let template = if record.version_id.is_some() {
+        "restored version {version} of s3://{bucket}/{key} (new version {new_version})"
+    } else {
+        "restored version {version} of s3://{bucket}/{key}"
+    };
+    trf(
+        template,
+        &[
+            ("version", record.restored_version_id.as_str()),
+            ("bucket", record.bucket.as_str()),
+            ("key", record.key.as_str()),
+            ("new_version", record.version_id.as_deref().unwrap_or("")),
+        ],
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::trf;
 
     #[test]
     fn lines_name_the_old_and_the_new_version() {
@@ -66,9 +73,23 @@ mod tests {
         };
         assert_eq!(
             line(&record),
-            "restored version v1 of s3://b/k (new version v9)"
+            trf(
+                "restored version {version} of s3://{bucket}/{key} (new version {new_version})",
+                &[
+                    ("version", "v1"),
+                    ("bucket", "b"),
+                    ("key", "k"),
+                    ("new_version", "v9")
+                ]
+            )
         );
         record.version_id = None;
-        assert_eq!(line(&record), "restored version v1 of s3://b/k");
+        assert_eq!(
+            line(&record),
+            trf(
+                "restored version {version} of s3://{bucket}/{key}",
+                &[("version", "v1"), ("bucket", "b"), ("key", "k")]
+            )
+        );
     }
 }

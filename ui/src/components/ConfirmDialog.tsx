@@ -1,6 +1,7 @@
 import { Text, TextInput } from "@mantine/core";
 import { useState } from "react";
 import type { ConfirmOptions } from "../state/dialogs";
+import { tr } from "../i18n";
 import { OkCancelDialog } from "./OkCancelDialog";
 
 export interface ConfirmDialogProps {
@@ -33,7 +34,7 @@ export function ConfirmDialog({ options, onAnswer }: ConfirmDialogProps) {
         <TextInput
           label={
             <>
-              Type <strong style={{ overflowWrap: "anywhere" }}>{required}</strong> to confirm
+              {tr("Type")} <strong style={{ overflowWrap: "anywhere" }}>{required}</strong> {tr("to confirm")}
             </>
           }
           value={typed}

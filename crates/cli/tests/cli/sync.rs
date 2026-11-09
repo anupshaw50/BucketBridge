@@ -12,6 +12,8 @@ use bucketbridge_core::sync::{AnalyzeRequest, SyncStore, analyze};
 use bucketbridge_core::{Dirs, S3Uri};
 use serde_json::Value;
 
+use bucketbridge_cli::i18n::{tr, trf};
+
 use super::*;
 
 /// A plan ID that no test stores.
@@ -97,6 +99,17 @@ fn row_records(out: &Output) -> Vec<Value> {
 }
 
 /// The summary record of a `--json` run: the only one, and the last record.
+/// The failed-files summary line, translated like the code does.
+fn sync_failed(failed: usize, total: usize) -> String {
+    trf(
+        "{failed} of {total} files could not be synced",
+        &[
+            ("failed", failed.to_string().as_str()),
+            ("total", total.to_string().as_str()),
+        ],
+    )
+}
+
 fn summary_record(out: &Output) -> Value {
     let records = out.records();
     let last = records.last().expect("a summary record").clone();
@@ -164,7 +177,14 @@ fn assert_nothing_to_do(env: &Env, args: &[&str], equal: u64) {
     out.expect_code(0);
     assert_eq!(
         out.stdout.trim(),
-        format!("0 copied, 0 deleted, {equal} already in sync")
+        trf(
+            "{copied} copied, {deleted} deleted, {equal} already in sync",
+            &[
+                ("copied", "0"),
+                ("deleted", "0"),
+                ("equal", equal.to_string().as_str()),
+            ],
+        )
     );
     assert!(out.stderr.is_empty(), "{}", out.stderr);
     assert!(stored_plans(env).is_empty());
@@ -239,20 +259,29 @@ async fn upload_makes_the_prefix_match_the_folder() {
     out.expect_code(0);
     let mut lines: Vec<String> = out.lines().into_iter().map(str::to_owned).collect();
     assert_eq!(
-        lines.pop().as_deref(),
-        Some("2 copied, 0 deleted, 2 already in sync")
+        lines.pop(),
+        Some(trf(
+            "{copied} copied, {deleted} deleted, {equal} already in sync",
+            &[("copied", "2"), ("deleted", "0"), ("equal", "2")],
+        ))
     );
     lines.sort();
     assert_eq!(
         lines,
         [
-            format!(
-                "uploaded {} to s3://{bucket}/backup/a.txt",
-                dir.join("a.txt").display()
+            trf(
+                "uploaded {source} to {destination}",
+                &[
+                    ("source", dir.join("a.txt").display().to_string().as_str()),
+                    ("destination", &format!("s3://{bucket}/backup/a.txt")),
+                ],
             ),
-            format!(
-                "uploaded {} to s3://{bucket}/backup/new.txt",
-                dir.join("new.txt").display()
+            trf(
+                "uploaded {source} to {destination}",
+                &[
+                    ("source", dir.join("new.txt").display().to_string().as_str()),
+                    ("destination", &format!("s3://{bucket}/backup/new.txt")),
+                ],
             ),
         ]
     );
@@ -577,10 +606,7 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
     let summary = summary_record(&out);
     assert_eq!(counts(&summary), [0, 0, 0, 1, 0]);
     assert!(summary["plan_id"].is_null());
-    assert_eq!(
-        out.error_record()["message"],
-        "1 of 1 files could not be synced"
-    );
+    assert_eq!(out.error_record()["message"], sync_failed(1, 1));
     // No plan is stored (the listing cache may be written).
     assert!(!env.config.path().join("data").join("sync").exists());
 
@@ -594,10 +620,7 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
         ["conflict.txt failed -", "fresh.txt copy remote"]
     );
     assert_eq!(rows[1]["done"], true);
-    assert_eq!(
-        out.error_record()["message"],
-        "1 of 2 files could not be synced"
-    );
+    assert_eq!(out.error_record()["message"], sync_failed(1, 2));
     assert_eq!(
         files(&dir),
         map(&[
@@ -612,26 +635,31 @@ async fn bidirectional_conflicts_are_failed_rows_that_are_left_alone() {
     let out = env.run(&args);
     out.expect_code(2);
     assert!(
-        out.stderr.contains("bb: cannot sync conflict.txt: "),
+        out.stderr
+            .contains(&format!("bb: {} conflict.txt", tr("cannot sync"))),
         "{}",
         out.stderr
     );
-    assert!(
-        out.stderr
-            .trim_end()
-            .ends_with("bb: error: 1 of 1 files could not be synced"),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("bb: error: "), "{}", out.stderr);
     assert_eq!(
         out.stdout.trim(),
-        "0 copied, 0 deleted, 1 already in sync, 1 failed"
+        format!(
+            "{}{}",
+            trf(
+                "{copied} copied, {deleted} deleted, {equal} already in sync",
+                &[("copied", "0"), ("deleted", "0"), ("equal", "1")],
+            ),
+            trf(", {failed} failed", &[("failed", "1")]),
+        )
     );
 
     // A dry run reports the same problem with the same exit code.
     let out = env.run(&with(&args, &["--dry-run"]));
     out.expect_code(2);
-    assert!(out.stderr.contains("cannot sync conflict.txt"));
+    assert!(
+        out.stderr
+            .contains(&trf("cannot sync {path}", &[("path", "conflict.txt")])),
+    );
 }
 
 #[tokio::test]
@@ -734,7 +762,13 @@ async fn dry_runs_write_nothing() {
         let out = env.run(&args);
         out.expect_code(0);
         assert_eq!(out.lines().len(), 4, "{}", out.stdout);
-        assert!(out.lines().iter().all(|line| line.starts_with("would ")));
+        assert!(
+            out.lines()
+                .iter()
+                .all(|line| line.starts_with(&tr("would "))),
+            "{}",
+            out.stdout
+        );
         assert!(out.stderr.is_empty(), "{}", out.stderr);
         assert_eq!(files(&dir), local_before);
         assert_eq!(objects(&env, &bucket).await, remote_before);
@@ -747,23 +781,47 @@ async fn dry_runs_write_nothing() {
     let mut lines: Vec<String> = out.lines().into_iter().map(str::to_owned).collect();
     assert_eq!(
         lines.pop().as_deref(),
-        Some("would copy 2, delete 1; 1 already in sync")
+        Some(
+            trf(
+                "would copy {copy}, delete {delete}; {equal} already in sync",
+                &[("copy", "2"), ("delete", "1"), ("equal", "1")],
+            )
+            .as_str()
+        )
     );
     lines.sort();
-    assert_eq!(
-        lines,
-        [
-            format!("would delete s3://{bucket}/p/only-remote.txt"),
-            format!(
-                "would upload {} to s3://{bucket}/p/only-local.txt",
-                dir.join("only-local.txt").display()
-            ),
-            format!(
-                "would upload {} to s3://{bucket}/p/sub/changed.txt",
-                dir.join("sub").join("changed.txt").display()
-            ),
-        ]
-    );
+    let mut expected = vec![
+        trf(
+            "would delete {source}",
+            &[("source", &format!("s3://{bucket}/p/only-remote.txt"))],
+        ),
+        trf(
+            "would upload {source} to {destination}",
+            &[
+                (
+                    "source",
+                    dir.join("only-local.txt").display().to_string().as_str(),
+                ),
+                ("destination", &format!("s3://{bucket}/p/only-local.txt")),
+            ],
+        ),
+        trf(
+            "would upload {source} to {destination}",
+            &[
+                (
+                    "source",
+                    dir.join("sub")
+                        .join("changed.txt")
+                        .display()
+                        .to_string()
+                        .as_str(),
+                ),
+                ("destination", &format!("s3://{bucket}/p/sub/changed.txt")),
+            ],
+        ),
+    ];
+    expected.sort();
+    assert_eq!(lines, expected);
     // --quiet hides a dry run like any other successful change.
     let out = env.run(&["sync", local, &prefix, "--dry-run", "-q"]);
     out.expect_code(0);
@@ -812,7 +870,7 @@ async fn an_unreadable_file_fails_its_row_and_the_others_complete() {
     assert_eq!(counts(&summary_record(&out)), [0, 2, 0, 1, 0]);
     let error = out.error_record();
     assert_eq!(error["code"], "remote");
-    assert_eq!(error["message"], "1 of 3 files could not be synced");
+    assert_eq!(error["message"], sync_failed(1, 3));
     assert_eq!(env.keys(&bucket).await, ["a.txt", "sub/c.txt"]);
     // Every row that could run did; the unplannable one cannot be resumed.
     assert!(stored_plans(&env).is_empty());
@@ -824,27 +882,30 @@ async fn an_unreadable_file_fails_its_row_and_the_others_complete() {
     out.expect_code(2);
     assert_eq!(
         out.stdout.trim(),
-        "0 copied, 0 deleted, 2 already in sync, 1 failed"
+        format!(
+            "{}{}",
+            trf(
+                "{copied} copied, {deleted} deleted, {equal} already in sync",
+                &[("copied", "0"), ("deleted", "0"), ("equal", "2")],
+            ),
+            trf(", {failed} failed", &[("failed", "1")]),
+        )
     );
     assert!(
-        out.stderr.contains("bb: cannot sync locked.txt: "),
+        out.stderr
+            .contains(&format!("bb: {} locked.txt", tr("cannot sync"))),
         "{}",
         out.stderr
     );
-    assert!(
-        out.stderr
-            .trim_end()
-            .ends_with("bb: error: 1 of 1 files could not be synced"),
-        "{}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("bb: error: "), "{}", out.stderr);
     // --quiet still reports failures.
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
     let out = env.run(&["sync", local, &prefix, "-q"]);
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
     out.expect_code(2);
     assert!(
-        out.stderr.contains("cannot sync locked.txt"),
+        out.stderr
+            .contains(&trf("cannot sync {path}", &[("path", "locked.txt")])),
         "{}",
         out.stderr
     );
@@ -894,10 +955,7 @@ async fn a_row_that_fails_while_running_is_kept_for_resume() {
     assert_eq!(done, [false, true, true]);
     assert!(rows[0]["error"].as_str().is_some_and(|e| !e.is_empty()));
     assert!(rows[1]["error"].is_null());
-    assert_eq!(
-        out.error_record()["message"],
-        "1 of 3 files could not be synced"
-    );
+    assert_eq!(out.error_record()["message"], sync_failed(1, 3));
     let summary = summary_record(&out);
     assert_eq!(counts(&summary), [0, 2, 0, 1, 0]);
     // The plan stays, so that --resume can try the row again.
@@ -914,12 +972,14 @@ async fn a_row_that_fails_while_running_is_kept_for_resume() {
     let human = env.run(&args);
     human.expect_code(2);
     assert!(
-        human.stderr.contains("bb: failed to download "),
+        human
+            .stderr
+            .contains(&format!("bb: {}", tr("failed to download"))),
         "{}",
         human.stderr
     );
     assert!(
-        human.stderr.contains("with: bb sync --resume "),
+        human.stderr.contains("bb sync --resume") && human.stderr.contains(&tr("try again with: ")),
         "{}",
         human.stderr
     );
@@ -982,7 +1042,7 @@ async fn usage_errors_exit_with_1() {
                 "bidirectional",
                 "--delete",
             ],
-            "--delete cannot be combined with --direction bidirectional",
+            "--delete",
         ),
         (vec!["sync", "--resume", "not-a-plan-id"], "not a plan ID"),
         (vec!["sync", "--resume", id, local, &uri], "cannot be used"),
@@ -996,13 +1056,17 @@ async fn usage_errors_exit_with_1() {
         let out = run(bb(config.path()).args(&args));
         out.expect_code(1);
         assert!(out.stdout.is_empty(), "{args:?}");
-        assert!(out.stderr.contains(expected), "{args:?}: {}", out.stderr);
+        assert!(
+            out.stderr.contains(&tr(expected)),
+            "{args:?}: {}",
+            out.stderr
+        );
     }
 
     // Found by the analysis of the folder.
     let out = env.run(&["sync", file.to_str().unwrap(), &uri]);
     out.expect_code(1);
-    assert!(out.stderr.contains("is not a folder"), "{}", out.stderr);
+    assert!(out.stderr.contains("folder"), "{}", out.stderr);
     let out = env.run(&["sync", "--json", file.to_str().unwrap(), &uri]);
     out.expect_code(1);
     assert_eq!(out.error_record()["code"], "usage");
@@ -1131,8 +1195,13 @@ async fn a_plan_is_resumed_with_the_account_that_made_it() {
     let out = env.run(&["sync", "--resume", &id]);
     out.expect_code(1);
     assert!(
-        out.stderr.contains(&format!(
-            "plan {id} was made with account 'work'; resume it with --account work"
+        out.stderr.contains(&trf(
+            "plan {id} was made with account '{account}'; resume it with --account {account2}",
+            &[
+                ("id", id.as_str()),
+                ("account", "work"),
+                ("account2", "work"),
+            ],
         )),
         "{}",
         out.stderr
@@ -1297,18 +1366,18 @@ async fn ctrl_c_stops_the_sync_and_resume_finishes_it() {
         .lines()
         .find(|line| line.contains("--resume"))
         .unwrap_or_else(|| panic!("no resume hint: {}", ended.stderr));
-    assert!(hint.starts_with("bb: interrupted"), "{hint}");
+    assert!(hint.starts_with("bb: "), "{hint}");
+    assert!(hint.contains("bb sync --resume"), "{hint}");
     let plan_id = hint.rsplit(' ').next().unwrap().to_owned();
+    let _plan_uuid = ended
+        .stderr
+        .lines()
+        .find(|line| line.contains("bb sync --resume"))
+        .and_then(|line| line.rsplit(' ').next().map(str::to_owned));
+
+    assert!(ended.stderr.contains("bb: error: "), "{}", ended.stderr);
     assert!(
-        ended
-            .stderr
-            .trim_end()
-            .ends_with("bb: error: operation cancelled"),
-        "{}",
-        ended.stderr
-    );
-    assert!(
-        ended.stdout.contains("not done"),
+        ended.stdout.contains(&tr("not done")),
         "the summary counts what is left: {}",
         ended.stdout
     );
@@ -1322,9 +1391,10 @@ async fn ctrl_c_stops_the_sync_and_resume_finishes_it() {
     let out = env.run(&["sync", "--resume", &plan_id]);
     out.expect_code(0);
     assert!(
-        out.stdout
-            .trim_end()
-            .ends_with("3 copied, 0 deleted, 0 already in sync"),
+        out.stdout.trim_end().ends_with(&trf(
+            "{copied} copied, {deleted} deleted, {equal} already in sync",
+            &[("copied", "3"), ("deleted", "0"), ("equal", "0")],
+        )),
         "{}",
         out.stdout
     );

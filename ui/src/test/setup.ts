@@ -1,7 +1,16 @@
+import "./locale";
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
+import { setLocale } from "../i18n";
 import { disposeRenderedApps } from "./renderApp";
+
+// The tests run in English, the default language (see ./locale, which is
+// imported before the application modules); tr() reads the locale, and this
+// keeps a test that switches language from leaking into the next one.
+beforeEach(() => {
+  setLocale("en");
+});
 
 afterEach(() => {
   cleanup();

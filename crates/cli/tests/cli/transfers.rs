@@ -2,6 +2,8 @@
 //! times (`--no-preserve-mtime`) and copies between accounts
 //! (`--from-account`, `--to-account`).
 
+use bucketbridge_cli::i18n::tr;
+
 use super::*;
 use std::time::{Duration, SystemTime};
 
@@ -41,7 +43,7 @@ async fn upload_policies_decide_what_happens_to_an_existing_object() {
     // skip: reported on stderr, exit code 0, the object is untouched
     let out = env.run(&["cp", "--if-exists", "skip", &local, &target]);
     out.expect_code(0);
-    assert!(out.stderr.contains("skipped"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("skipped")), "{}", out.stderr);
     assert_eq!(env.s3.get(&bucket, "a.txt").await, b"old");
     // ... and with --json as a record
     let out = env.run(&["cp", "--json", "--if-exists", "skip", &local, &target]);
@@ -93,7 +95,7 @@ async fn ask_needs_a_terminal() {
         &format!("s3://{bucket}/a.txt"),
     ]);
     out.expect_code(1);
-    assert!(out.stderr.contains("terminal"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("terminal")), "{}", out.stderr);
     assert_eq!(env.s3.get(&bucket, "a.txt").await, b"old");
 }
 
@@ -118,7 +120,7 @@ async fn folder_download_and_move_report_skipped_items_and_keep_their_sources() 
     result.expect_code(0);
     assert_eq!(std::fs::read(out.join("t/b.txt")).unwrap(), b"mine");
     assert_eq!(std::fs::read(out.join("t/a.txt")).unwrap(), b"t/a.txt");
-    assert!(result.stderr.contains("skipped"), "{}", result.stderr);
+    assert!(result.stderr.contains(&tr("skipped")), "{}", result.stderr);
 
     // mv of local files: a skipped file stays on this machine
     let up = file(dir.path(), "up/x.txt", "X");
@@ -301,7 +303,7 @@ async fn cp_and_mv_move_objects_between_accounts() {
         ])
         .await;
     out.expect_code(0);
-    assert!(out.stderr.contains("skipped"), "{}", out.stderr);
+    assert!(out.stderr.contains(&tr("skipped")), "{}", out.stderr);
 
     // flags that do not fit the direction are usage errors
     bb.run(&[

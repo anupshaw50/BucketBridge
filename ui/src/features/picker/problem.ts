@@ -1,4 +1,5 @@
 import { baseName, collidingNames, destinationKey, isFolderKey, pasteProblem, sameNameMessage } from "../../lib/s3keys";
+import { tr } from "../../i18n";
 
 /** What the picker is doing with the sources. */
 export type TransferMode = "copy" | "move";
@@ -18,19 +19,21 @@ export function destinationProblem(
   sameAccount = true,
 ): string | null {
   if (destinationBucket === null) {
-    return "Choose a bucket first.";
+    return tr("Choose a bucket first.");
   }
   if (!sameAccount) {
     if (keys.length === 0) {
-      return "Nothing is selected.";
+      return tr("Nothing is selected.");
     }
     const [first] = collidingNames(keys.map((key) => destinationKey(key, destinationPrefix)));
-    return first === undefined ? null : sameNameMessage(baseName(first), mode === "move" ? "be moved" : "be copied");
+    return first === undefined ? null : sameNameMessage(baseName(first), mode === "move" ? tr("be moved") : tr("be copied"));
   }
   if (sourceBucket === destinationBucket) {
     for (const key of keys) {
       if (isFolderKey(key) && destinationPrefix.startsWith(key)) {
-        return `A folder cannot be ${mode === "move" ? "moved" : "copied"} into itself or one of its subfolders.`;
+        return mode === "move"
+          ? tr("A folder cannot be moved into itself or one of its subfolders.")
+          : tr("A folder cannot be copied into itself or one of its subfolders.");
       }
     }
   }

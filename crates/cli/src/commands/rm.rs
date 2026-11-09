@@ -12,6 +12,7 @@ use futures::TryStreamExt;
 use super::versions::all_versions;
 use crate::cli::RmArgs;
 use crate::context::Context;
+use crate::i18n::trf;
 use crate::output::{Batch, Failure, Output, delete_failure_error};
 use crate::records::DeleteRecord;
 
@@ -23,22 +24,25 @@ pub async fn run(ctx: &Context, args: &RmArgs, out: &mut Output) -> Result<(), F
     let uri = &args.uri;
     if let Some(version_id) = &args.version_id {
         if uri.is_prefix() {
-            return Err(Error::Usage(format!(
-                "--version-id needs an object key; {uri} is a prefix"
+            return Err(Error::Usage(trf(
+                "--version-id needs an object key; {uri} is a prefix",
+                &[("uri", &uri.to_string())],
             ))
             .into());
         }
         return delete_version(ctx, uri, version_id, args.dry_run, out).await;
     }
     if uri.is_prefix() && !args.recursive {
-        return Err(Error::Usage(format!(
-            "{uri} is a prefix; add --recursive to delete everything under it"
+        return Err(Error::Usage(trf(
+            "{uri} is a prefix; add --recursive to delete everything under it",
+            &[("uri", &uri.to_string())],
         ))
         .into());
     }
     if !uri.is_prefix() && args.recursive {
-        return Err(Error::Usage(format!(
-            "--recursive needs a prefix ending in '/', for example {uri}/"
+        return Err(Error::Usage(trf(
+            "--recursive needs a prefix ending in '/', for example {uri}/",
+            &[("uri", uri.to_string().as_str())],
         ))
         .into());
     }
@@ -52,10 +56,23 @@ pub async fn run(ctx: &Context, args: &RmArgs, out: &mut Output) -> Result<(), F
 }
 
 fn line(bucket: &str, key: &str, version_id: Option<&str>, dry_run: bool) -> String {
-    let verb = if dry_run { "would delete" } else { "deleted" };
     match version_id {
-        Some(version_id) => format!("{verb} s3://{bucket}/{key} (version {version_id})"),
-        None => format!("{verb} s3://{bucket}/{key}"),
+        Some(version_id) => trf(
+            if dry_run {
+                "would delete s3://{bucket}/{key} (version {version})"
+            } else {
+                "deleted s3://{bucket}/{key} (version {version})"
+            },
+            &[("bucket", bucket), ("key", key), ("version", version_id)],
+        ),
+        None => trf(
+            if dry_run {
+                "would delete s3://{bucket}/{key}"
+            } else {
+                "deleted s3://{bucket}/{key}"
+            },
+            &[("bucket", bucket), ("key", key)],
+        ),
     }
 }
 
@@ -162,7 +179,14 @@ async fn delete_keys(
             Some(failure) => {
                 let error = delete_failure_error(failure);
                 batch.failed(error.code, error.message.clone());
-                let message = format!("failed to delete s3://{bucket}/{key}: {}", error.message);
+                let message = trf(
+                    "failed to delete s3://{bucket}/{key}: {message}",
+                    &[
+                        ("bucket", bucket),
+                        ("key", key),
+                        ("message", &error.message),
+                    ],
+                );
                 record.error = Some(error);
                 out.item_failed(&record, || message)?;
             }
@@ -225,9 +249,14 @@ async fn delete_versions(
             }
             Err(err) => {
                 batch.failed(err.kind(), err.to_string());
-                let message = format!(
-                    "failed to delete s3://{bucket}/{} (version {}): {err}",
-                    version.key, version.version_id
+                let message = trf(
+                    "failed to delete s3://{bucket}/{key} (version {version}): {error}",
+                    &[
+                        ("bucket", bucket),
+                        ("key", version.key.as_str()),
+                        ("version", &version.version_id),
+                        ("error", &err.to_string()),
+                    ],
                 );
                 record.error = Some(err.to_payload());
                 out.item_failed(&record, || message)?;
@@ -235,7 +264,9 @@ async fn delete_versions(
         }
     }
     if !found && !recursive {
-        return Err(Error::NotFound(format!("{uri} has no versions")).into());
+        return Err(
+            Error::NotFound(trf("{uri} has no versions", &[("uri", &uri.to_string())])).into(),
+        );
     }
     batch.finish("versions", "could not be deleted")
 }
@@ -243,13 +274,23 @@ async fn delete_versions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::trf;
 
     #[test]
     fn lines() {
-        assert_eq!(line("b", "k", None, false), "deleted s3://b/k");
+        assert_eq!(
+            line("b", "k", None, false),
+            trf(
+                "deleted s3://{bucket}/{key}",
+                &[("bucket", "b"), ("key", "k")]
+            )
+        );
         assert_eq!(
             line("b", "k", Some("v1"), true),
-            "would delete s3://b/k (version v1)"
+            trf(
+                "would delete s3://{bucket}/{key} (version {version})",
+                &[("bucket", "b"), ("key", "k"), ("version", "v1")]
+            )
         );
     }
 }
