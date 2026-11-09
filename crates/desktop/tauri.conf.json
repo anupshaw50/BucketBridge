@@ -78,7 +78,10 @@
     "linux": {
       "deb": {
         "section": "net",
-        "recommends": ["xdg-utils"]
+        "recommends": ["xdg-utils"],
+        "files": {
+          "usr/bin/bb": "../../target/release/bb"
+        }
       }
     }
   }
