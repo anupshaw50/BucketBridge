@@ -1,7 +1,17 @@
 import { expect, type Page, test } from "@playwright/test";
-import { tr } from "../src/i18n";
+import { setLocale, tr } from "../src/i18n";
 
 const errors: string[] = [];
+
+// The specs run in Chinese whatever the machine language is: the Node side of
+// tr() is switched here, and the browser is told before the app starts.
+setLocale("zh-CN");
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("bucketbridge.language", "zh-CN");
+  });
+});
 
 async function open(page: Page, query = "?latency=0"): Promise<void> {
   errors.length = 0;
