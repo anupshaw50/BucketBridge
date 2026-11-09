@@ -28,7 +28,7 @@ describe("uploads and the transfer queue", () => {
     const { user, advance } = await renderApp({ platform, mock: { bytesPerSecond: 1024 * 1024 } });
     await openBucket(user, "demo-backups");
     await user.click(screen.getByRole("button", { name: tr("Upload") }));
-    await user.click(await screen.findByRole("menuitem", { name: tr("Upload files…") }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Upload files...") }));
     expect(await statusBar().findByText(tr("{what}: 1 task added to the transfer queue.", { what: tr("Upload") }))).toBeInTheDocument();
 
     const panel = screen.getByRole("region", { name: tr("Transfer queue") });
@@ -89,7 +89,7 @@ describe("uploads and the transfer queue", () => {
     const { user } = await renderApp({ platform, mock: { manyFiles: 3000 } });
     await openBucket(user, "demo-backups");
     await user.click(screen.getByRole("button", { name: tr("Upload") }));
-    await user.click(await screen.findByRole("menuitem", { name: tr("Upload folder…") }));
+    await user.click(await screen.findByRole("menuitem", { name: tr("Upload folder...") }));
     const panel = screen.getByRole("region", { name: tr("Transfer queue") });
     expect(await within(panel).findByRole("radio", { name: `${tr("All")} 3,003` })).toBeInTheDocument();
     const rendered = within(screen.getByRole("list", { name: tr("Transfers") })).getAllByRole("listitem");

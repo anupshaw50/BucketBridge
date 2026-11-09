@@ -31,6 +31,7 @@ describe("the language of the system", () => {
 
 describe("tr", () => {
   it("answers in Chinese in the language of the interface", () => {
+    setLocale("zh-CN");
     expect(tr("Open")).toBe(zhMenu["action.open"]);
     expect(tr("BucketBridge could not start: {message}", { message: "boom" })).toBe(
       "BucketBridge 启动失败：boom",

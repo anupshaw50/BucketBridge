@@ -319,7 +319,7 @@ describe("properties editor of several objects", () => {
     await user.click(await findObjectRow("readme.md"));
     await user.keyboard("{/Control}");
     await user.click(screen.getByRole("button", { name: tr("Properties") }));
-    dialog = await screen.findByRole("dialog", { name: tr("Properties of {n} objects", { n: 1 }) });
+    dialog = await screen.findByRole("dialog", { name: tr("Properties of 1 object") });
     expect(within(dialog).getByText(tr("1 folder in the selection is left out: folders have no metadata of their own."))).toBeInTheDocument();
     expect(within(dialog).getByRole("tab", { name: tr("Tags") })).toBeInTheDocument();
   });

@@ -180,7 +180,7 @@ describe("account manager", () => {
     const generated = within(dialog).getByRole("textbox", { name: tr("Generated password") });
     const value = (generated as HTMLInputElement).value;
     expect(value).toHaveLength(20);
-    await user.click(within(dialog).getByRole("button", { name: tr("Copy {label}", { label: tr("Generated password") }) }));
+    await user.click(within(dialog).getByRole("button", { name: tr("Copy {label}", { label: tr("Generated password").toLowerCase() }) }));
     expect(platform.copied).toContain(value);
     expect(platform.copiedSensitive.at(-1)).toBe(true);
     await user.click(within(dialog).getByRole("button", { name: tr("Use this password") }));

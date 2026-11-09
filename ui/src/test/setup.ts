@@ -5,12 +5,11 @@ import { afterEach, beforeEach } from "vitest";
 import { setLocale } from "../i18n";
 import { disposeRenderedApps } from "./renderApp";
 
-// The build follows the system language, so its tests run in Chinese (see
-// ./locale, which is imported before the application modules); tr() reads the
-// locale, and this keeps a test that switches language from leaking into the
-// next one.
+// The tests run in English, the default language (see ./locale, which is
+// imported before the application modules); tr() reads the locale, and this
+// keeps a test that switches language from leaking into the next one.
 beforeEach(() => {
-  setLocale("zh-CN");
+  setLocale("en");
 });
 
 afterEach(() => {
