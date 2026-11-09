@@ -3,81 +3,375 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BucketBridge</title>
-<meta name="description" content="BucketBridge is an open-source S3 client for Windows, macOS and Linux, with a desktop app and a scriptable CLI.">
+<title>BucketBridge: Free Open-Source S3 Client for Windows, macOS and Linux</title>
+<meta name="description" content="BucketBridge is a free, open-source S3 client and file manager for Amazon S3 and S3-compatible storage on Windows, macOS and Linux: a desktop app and a scriptable CLI. No account, no telemetry.">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="author" content="Anup Shaw">
+<link rel="canonical" href="https://anupshaw50.github.io/BucketBridge/">
+<link rel="sitemap" type="application/xml" href="sitemap.xml">
 <meta name="color-scheme" content="light dark">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BucketBridge">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="BucketBridge: Free Open-Source S3 Client">
+<meta property="og:description" content="Free, open-source S3 client for Windows, macOS and Linux, with a desktop app and the bb CLI.">
+<meta property="og:image" content="https://anupshaw50.github.io/BucketBridge/assets/brand/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="BucketBridge, open-source S3 client for Windows, macOS and Linux">
+<meta property="og:url" content="https://anupshaw50.github.io/BucketBridge/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="BucketBridge: Free Open-Source S3 Client">
+<meta name="twitter:description" content="Desktop app and CLI for Amazon S3 and S3-compatible storage on Windows, macOS and Linux.">
+<meta name="twitter:image" content="https://anupshaw50.github.io/BucketBridge/assets/brand/social-preview.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://anupshaw50.github.io/BucketBridge/#app",
+      "name": "BucketBridge",
+      "description": "Free, open-source S3 client and file manager for Amazon S3 and S3-compatible storage, with a desktop app and the bb command-line tool.",
+      "url": "https://anupshaw50.github.io/BucketBridge/",
+      "downloadUrl": "https://github.com/anupshaw50/BucketBridge/releases/latest",
+      "softwareVersion": "0.3.0",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Cloud storage client",
+      "operatingSystem": "Windows, macOS, Linux",
+      "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "screenshot": "https://anupshaw50.github.io/BucketBridge/assets/screenshots/main-light.png",
+      "image": "https://anupshaw50.github.io/BucketBridge/assets/brand/social-preview.png",
+      "codeRepository": "https://github.com/anupshaw50/BucketBridge",
+      "programmingLanguage": ["Rust", "TypeScript"],
+      "inLanguage": ["en", "zh-CN"],
+      "featureList": ["Upload, download, copy and move files and folders", "Resumable multipart transfers", "Folder sync with dry run", "AWS SSO, profiles and assumed roles", "S3-compatible endpoints", "Drag and drop", "Command-line tool bb", "No telemetry"],
+      "author": { "@id": "https://anupshaw50.github.io/BucketBridge/#author" }
+    },
+    {
+      "@type": "Person",
+      "@id": "https://anupshaw50.github.io/BucketBridge/#author",
+      "name": "Anup Shaw",
+      "url": "https://github.com/anupshaw50",
+      "sameAs": ["https://github.com/anupshaw50", "https://www.linkedin.com/in/anup-kumar-shaw/"]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        { "@type": "Question", "name": "Is BucketBridge free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. BucketBridge is free and open source under GPL-3.0, with no account, activation, licence key or paid tier." } },
+        { "@type": "Question", "name": "Does BucketBridge work with S3-compatible storage?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Besides Amazon S3 it supports custom endpoints and path-style addressing, and it is tested against MinIO." } },
+        { "@type": "Question", "name": "Which operating systems are supported?", "acceptedAnswer": { "@type": "Answer", "text": "Windows (MSI or portable ZIP), macOS (universal DMG for Apple silicon and Intel) and Linux (AppImage, deb and tar.gz)." } },
+        { "@type": "Question", "name": "Is there a command-line tool?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The bb CLI uses the same core and accounts as the desktop app, prints NDJSON with --json and supports --dry-run." } },
+        { "@type": "Question", "name": "Does BucketBridge collect data?", "acceptedAnswer": { "@type": "Answer", "text": "No. There is no telemetry. The app only talks to the storage endpoints you configure, and secrets stay in the operating system keychain." } }
+      ]
+    }
+  ]
+}
+</script>
 <link rel="icon" href="assets/brand/mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="hero">
-<div class="wrap">
-<picture><source srcset="assets/brand/logo-dark.svg" media="(prefers-color-scheme: dark)"><img class="logo" src="assets/brand/logo.svg" alt="BucketBridge"></picture>
-<h1>An open-source S3 client for Windows, macOS and Linux</h1>
-<p>Browse buckets, transfer files with pause and resume, sync folders and script it all from the <code>bb</code> command line. One Rust core powers both the desktop app and the CLI.</p>
-<a class="btn" href="#download">Download</a>
-<a class="btn alt" href="https://github.com/anupshaw50/BucketBridge">Source on GitHub</a>
-<div class="shot"><picture><source srcset="assets/screenshots/main-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/screenshots/main-light.png" alt="BucketBridge browsing a bucket"></picture></div>
-</div>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-transfer" viewBox="0 0 24 24"><path d="M7 4v13m0 0-3-3m3 3 3-3M17 20V7m0 0-3 3m3-3 3 3"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 8a8 8 0 0 0-14.5-2.5M4 4v4h4M4 16a8 8 0 0 0 14.5 2.5M20 20v-4h-4"/></symbol>
+    <symbol id="i-drag" viewBox="0 0 24 24"><rect x="3" y="3" width="11" height="11" rx="2"/><path d="M14 10h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-5"/><path d="m15 15 3 3m0-3v3h-3"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9m-3 3 3 3m-6 0 2 2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .6-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 18Z"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9S14.5 18.3 12 21c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/></symbol>
+    <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M5 13 7.5 5h9L19 13M7 16.5h.01"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9L12 3Z"/></symbol>
+    <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9ZM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-9-9.3C2 7.4 4.2 4.5 7.3 4.5c2 0 3.5 1.1 4.7 2.8 1.2-1.7 2.7-2.8 4.7-2.8 3.1 0 5.3 2.9 4.3 6.2-1.5 4.7-9 9.3-9 9.3Z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+  </defs>
+</svg>
+
+<nav class="top" aria-label="Main">
+  <div class="wrap bar">
+    <a class="brand" href="#top" aria-label="BucketBridge home"><picture><source srcset="assets/brand/logo-dark.svg" media="(prefers-color-scheme: dark)"><img src="assets/brand/logo.svg" alt="BucketBridge" width="168" height="28"></picture></a>
+    <div class="links">
+      <a href="#all-features">Features</a>
+      <a href="#new">What's new</a>
+      <a href="#cli">CLI</a>
+      <a href="#download">Download</a>
+      <a class="gh" href="https://github.com/anupshaw50/BucketBridge"><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg><span>GitHub</span></a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<header class="hero" id="top">
+  <div class="wrap">
+    <a class="pill" href="#new"><span>New in 0.3</span> Drag and drop, <code>bb://</code> links, 简体中文</a>
+    <h1>The open-source S3 client for <span class="hl">Windows, macOS and Linux</span></h1>
+    <p class="sub">A free S3 file manager for Amazon S3 and S3-compatible storage. Browse buckets, move files through a resumable queue, keep folders in sync and script it all with the <code>bb</code> CLI. One Rust core, no account, no telemetry.</p>
+    <div class="cta">
+      <a class="btn" id="hero-download" href="#download"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download</span></a>
+      <a class="btn ghost" href="https://github.com/anupshaw50/BucketBridge"><svg class="ic" aria-hidden="true"><use href="#i-star"/></svg><span>Star on GitHub</span></a>
+    </div>
+    <ul class="facts" aria-label="Key facts">
+      <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Free and GPL-3.0</li>
+      <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>AWS and S3-compatible</li>
+      <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>No telemetry</li>
+      <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>English and 简体中文</li>
+    </ul>
+    <div class="shot hero-shot"><picture><source srcset="assets/screenshots/main-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/screenshots/main-light.png" alt="BucketBridge main window: bucket tree on the left, objects of a folder on the right, the transfer queue below" width="2160" height="1350"></picture></div>
+  </div>
 </header>
 
 <section id="features"><div class="wrap">
-<h2>Features</h2>
-<p class="lead">Everything you need to work with S3 and S3-compatible storage.</p>
-<div class="grid">
-<div class="card"><h3>Reliable transfers</h3><p>Multipart uploads with checksums, pause, resume and retry, a shared bandwidth cap, and resume after a restart. A cancelled transfer never leaves a partial object behind.</p></div>
-<div class="card"><h3>Folder sync</h3><p>Analyse first, then execute. Upload, download or two-way sync with optional deletes and saved filters.</p></div>
-<div class="card"><h3>Safe by default</h3><p>Keys live in the OS keychain with an optional master password. Typed confirmation guards destructive actions, and objects can be encrypted before upload.</p></div>
-<div class="card"><h3>Works beyond AWS</h3><p>Custom endpoints, path-style addressing, requester pays and per-bucket region routing. Menus hide what a server does not support.</p></div>
-<div class="card"><h3>Rich object tools</h3><p>Properties, HTTP headers, user metadata, tags, storage class, versions, previews, share links and listing export.</p></div>
-<div class="card"><h3>Scriptable</h3><p>The <code>bb</code> CLI prints NDJSON with <code>--json</code>, supports <code>--dry-run</code> and uses stable exit codes.</p></div>
-</div>
+  <p class="eyebrow">Features</p>
+  <h2>Everything you do with buckets, in one app</h2>
+  <p class="lead">For Amazon S3 and S3-compatible storage such as MinIO: custom endpoints, path-style addressing and per-bucket regions.</p>
+  <div class="grid">
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-transfer"/></svg><h3>Reliable transfers</h3><p>Multipart uploads with checksums, pause, resume and retry, one bandwidth cap, and resume after a restart. An overwrite policy decides what happens when a file already exists.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-drag"/></svg><h3>Drag and drop</h3><p>Drag objects between folders, buckets, accounts and windows to copy them, hold a key to move, or drop files from Finder or Explorer to upload.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-sync"/></svg><h3>Folder sync</h3><p>See every change in a dry run first, then sync up, down, both ways or bucket to bucket. Saved jobs, exclusion files and a summary report.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-key"/></svg><h3>Every way to sign in</h3><p>Access keys, AWS profiles, IAM Identity Center (SSO), assumed roles with MFA and instance roles. Several accounts at once, grouped in folders.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-shield"/></svg><h3>Safe by default</h3><p>Secrets stay in the OS keychain, optionally behind a master password. Confirmations guard deletes, and files can be encrypted before they leave your machine.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-eye"/></svg><h3>Preview and edit</h3><p>Zoom into images, page through CSV and Parquet as tables, read formatted JSON and XML, and edit an object in place: each save is uploaded.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-sliders"/></svg><h3>Bucket and object settings</h3><p>Policies, public access block, versioning, CORS, lifecycle, replication, object lock, tags, headers, encryption, IAM users and CloudFront.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-link"/></svg><h3>Share and link</h3><p>Presigned links with a sharing wizard, "Copy as" any URL form, and <code>bb://</code> links that open the app at a bucket and folder.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-drive"/></svg><h3>Tools</h3><p>Bucket usage, a security scan, connection diagnostics, unfinished upload cleanup, listing export, and mounting a bucket as a drive.</p></article>
+  </div>
+  <p class="more"><a href="#all-features">See the full feature list</a></p>
 </div></section>
 
-<section id="download" class="alt"><div class="wrap">
-<h2>Download</h2>
-<p class="lead">Grab the latest build for your system from the releases page.</p>
-<div class="grid">
-<div class="card"><h3>Windows</h3><ul><li><code>.msi</code> installer</li><li>Portable <code>.zip</code></li><li><code>bb</code> CLI archive</li></ul><p><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest">Get it</a></p><p class="soon">Coming soon</p><p><code>winget install AnupShaw.BucketBridge</code></p><p><code>scoop install bucketbridge</code></p></div>
-<div class="card"><h3>macOS</h3><ul><li>Universal <code>.dmg</code></li><li><code>bb</code> CLI archive</li></ul><p><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest">Get it</a></p><p class="soon">Coming soon</p><p><code>brew install --cask anupshaw50/tap/bucketbridge</code></p></div>
-<div class="card"><h3>Linux</h3><ul><li><code>.AppImage</code></li><li><code>.deb</code></li><li><code>.tar.gz</code></li><li><code>bb</code> CLI archive</li></ul><p><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest">Get it</a></p></div>
-</div>
+<section id="all-features" class="alt"><div class="wrap">
+  <p class="eyebrow">Full feature list</p>
+  <h2>Everything BucketBridge can do</h2>
+  <p class="lead">Every feature below ships in the free download, on Windows, macOS and Linux.</p>
+  <div class="fl">
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg>Accounts and security</h3>
+      <ul>
+        <li>Several accounts at the same time, each with its own region, endpoint and settings</li>
+        <li>Credentials from access keys, AWS profiles (<code>~/.aws/config</code>), IAM Identity Center (SSO), assumed roles or EC2/ECS instance roles</li>
+        <li>Account folders and reordering; export and import of accounts without secrets</li>
+        <li>Secrets in the OS keychain (macOS Keychain, Windows Credential Manager, Secret Service), never in plain text</li>
+        <li>Optional master password (Argon2id and AES-256-GCM)</li>
+        <li>MFA with temporary STS session credentials kept in memory</li>
+        <li>HTTP and SOCKS5 proxies with authentication and a bypass list</li>
+        <li>Custom endpoints, path-style addressing and requester pays for S3-compatible storage</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg>Browsing and objects</h3>
+      <ul>
+        <li>Bucket tree with a filter by name, region and creation date</li>
+        <li>Folders, flat browsing, search, paging, bookmarks and several windows</li>
+        <li>Editable address bar for pasted <code>s3://</code> paths, and <code>bb://</code> links</li>
+        <li>Natural sorting; sort order and column widths are remembered</li>
+        <li>Upload, download, copy, move, rename, delete and create folders</li>
+        <li>Drag and drop between folders, buckets, accounts and windows, and from the file manager</li>
+        <li>Copy and move across accounts, with a server-side copy where possible</li>
+        <li>Edit in place: every save is uploaded, with a check for changes by others</li>
+        <li>Copy as name, key, <code>s3://</code> URI, virtual-hosted or path-style URL</li>
+        <li>Preview images (zoom and pan, animated GIF), text, JSON, XML, and CSV, TSV and Parquet as tables</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-transfer"/></svg>Transfers</h3>
+      <ul>
+        <li>Transfer queue with concurrency, pause, resume, cancel and retry</li>
+        <li>The queue survives an app restart, and transfers resume where they stopped</li>
+        <li>Multipart uploads with automatic part sizes, and server-side copy of objects over 5 GiB</li>
+        <li>One bandwidth cap shared by all transfers</li>
+        <li>Overwrite policy: overwrite, skip, overwrite if newer, rename or ask</li>
+        <li>File modification times are kept</li>
+        <li>Checksums (CRC32 by default, CRC32C, CRC64NVME, SHA-1, SHA-256) and validated downloads</li>
+        <li>Client-side encryption (AES-256-GCM) with optional gzip or zstd compression</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-sync"/></svg>Folder sync</h3>
+      <ul>
+        <li>Upload, download, both ways or bucket to bucket</li>
+        <li>Dry run that lists every change before anything happens</li>
+        <li>Journaled, resumable execution with failures reported per file</li>
+        <li>Saved sync jobs and gitignore-style exclusion files</li>
+        <li>Optional deletes, skip empty folders, skip duplicate content</li>
+        <li>Listing cache, parallel listing and a summary report</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg>Object settings</h3>
+      <ul>
+        <li>HTTP headers, user metadata and tags</li>
+        <li>Storage class and server-side encryption (SSE-S3, SSE-KMS, SSE-C)</li>
+        <li>Canned ACLs and website redirects</li>
+        <li>Batch editing with a result per object</li>
+        <li>Versions: grouped or flat list, restore, permanent delete, download of old versions</li>
+        <li>Object lock: retention, legal hold, bucket default, governance bypass</li>
+        <li>Glacier restore with tier and days</li>
+        <li>Presigned GET and PUT links with a sharing wizard and optional URL shortening</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg>Buckets and AWS services</h3>
+      <ul>
+        <li>Create and delete buckets</li>
+        <li>Bucket policy editor with validation, and public access block</li>
+        <li>Versioning, MFA delete, object ownership and access logging</li>
+        <li>Static website hosting with routing rules, and transfer acceleration</li>
+        <li>CORS, lifecycle, Intelligent-Tiering and replication rules, validated before sending</li>
+        <li>IAM users, console passwords, access keys and policies</li>
+        <li>CloudFront distributions per bucket and invalidations with history</li>
+        <li>Pinned external buckets you can access but do not own</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-drive"/></svg>Tools</h3>
+      <ul>
+        <li>Bucket usage: size and count, non-current versions, delete markers, unfinished uploads</li>
+        <li>Security scan for public access, missing encryption and more, with export</li>
+        <li>Connection diagnostics: DNS, TCP, proxy, TLS certificate, signed request and region</li>
+        <li>List and abort unfinished multipart uploads</li>
+        <li>Saved filters and listing export to CSV, Excel or Parquet</li>
+        <li>Mount a bucket as a read-only drive (FUSE or Dokan, optional build)</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>App</h3>
+      <ul>
+        <li>Native installers for Windows, macOS (Apple silicon and Intel) and Linux</li>
+        <li>System tray with transfer progress, plus taskbar and Dock progress</li>
+        <li>Keeps the computer awake during transfers</li>
+        <li>Asks before quitting with tasks running; remembers window size and position</li>
+        <li>Context menus, keyboard shortcuts, light and dark theme</li>
+        <li>English and Simplified Chinese, following the system language</li>
+        <li>Event log with filter, export and automatic cleanup, and local crash reports</li>
+        <li>No telemetry, no account, no licence key</li>
+      </ul>
+    </div>
+    <div class="group">
+      <h3><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg><code>bb</code> command line</h3>
+      <ul>
+        <li><code>ls</code>, <code>cp</code>, <code>mv</code>, <code>rm</code>, <code>mb</code>, <code>rb</code> and <code>du</code></li>
+        <li><code>sync</code> with dry run, resume and saved jobs</li>
+        <li><code>presign</code>, <code>edit</code>, <code>encrypt</code> and <code>decrypt</code></li>
+        <li><code>tag</code>, <code>storage-class</code>, <code>sse</code>, <code>acl</code>, <code>lock</code> and <code>restore</code></li>
+        <li><code>iam</code>, <code>cloudfront</code>, <code>scan</code>, <code>mpu</code> and <code>export</code></li>
+        <li><code>account</code>: add, SSO sign-in, AWS profile import, folders, export and import</li>
+        <li>NDJSON output with <code>--json</code>, <code>--dry-run</code> and stable exit codes</li>
+      </ul>
+    </div>
+  </div>
+</div></section>
+
+<section id="new"><div class="wrap split">
+  <div>
+    <p class="eyebrow">Version 0.3.0</p>
+    <h2>What's new</h2>
+    <p class="lead">Everyday use got faster. Full list in the <a href="https://github.com/anupshaw50/BucketBridge/blob/main/CHANGELOG.md">changelog</a>.</p>
+    <ul class="news">
+      <li><strong>Drag and drop</strong> between folders, buckets, accounts and windows, and from the file manager.</li>
+      <li><strong>Address bar</strong> that takes a pasted <code>s3://</code> path, and <strong>Copy as</strong> any URL form.</li>
+      <li><strong>Bucket list filter</strong>, natural sorting, remembered columns and window size.</li>
+      <li><strong>Tray icon</strong> with progress, Dock and taskbar progress, keep awake during transfers.</li>
+      <li><strong>Account folders</strong> and export and import without secrets.</li>
+      <li><strong>Bucket usage</strong>, CSV and Parquet tables, image zoom, XML and GIF previews.</li>
+      <li><strong>简体中文</strong>, contributed by <a href="https://github.com/carnothuang">@carnothuang</a>.</li>
+    </ul>
+  </div>
+  <figure class="shot"><img loading="lazy" src="assets/screenshots/transfers.png" alt="The transfer queue with uploads in progress" width="2160" height="1350"><figcaption>Transfer queue</figcaption></figure>
+</div></section>
+
+<section id="cli" class="alt"><div class="wrap split rev">
+  <div>
+    <p class="eyebrow">Command line</p>
+    <h2>The same core, in your terminal</h2>
+    <p class="lead"><code>bb</code> prints NDJSON with <code>--json</code>, supports <code>--dry-run</code>, and has stable exit codes for scripts and CI.</p>
+    <ul class="news compact">
+      <li><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Copy, move, sync, presign, export, scan</li>
+      <li><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg>Uses the accounts of the desktop app</li>
+      <li><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>English, or Chinese with <code>BB_LANG=zh</code></li>
+    </ul>
+  </div>
+  <pre class="term" aria-label="Example bb commands"><span class="c"># sign in once, then work with buckets</span>
+<span class="p">$</span> bb account add --label work --access-key-id AKIA...
+<span class="p">$</span> bb ls s3://my-bucket/photos/ --long
+<span class="p">$</span> bb cp ./site s3://my-bucket/www/ --recursive
+<span class="p">$</span> bb sync ./backup s3://my-bucket/backup --delete --dry-run
+<span class="p">$</span> bb du s3://my-bucket --versions
+<span class="p">$</span> bb presign s3://my-bucket/file.zip --expires 1h</pre>
 </div></section>
 
 <section id="screens"><div class="wrap">
-<h2>A closer look</h2>
-<p class="lead">Transfers, properties, folder sync and context menus.</p>
-<div class="gallery">
-<figure class="shot"><img loading="lazy" src="assets/screenshots/transfers.png" alt="Transfer queue"><figcaption>Transfer queue</figcaption></figure>
-<figure class="shot"><img loading="lazy" src="assets/screenshots/properties.png" alt="Object properties"><figcaption>Object properties</figcaption></figure>
-<figure class="shot"><img loading="lazy" src="assets/screenshots/sync.png" alt="Folder sync analysis"><figcaption>Folder sync analysis</figcaption></figure>
-<figure class="shot"><img loading="lazy" src="assets/screenshots/context-menu.png" alt="Context menu"><figcaption>Context menu</figcaption></figure>
-</div>
+  <p class="eyebrow">Screenshots</p>
+  <h2>A closer look</h2>
+  <div class="gallery">
+    <figure class="shot"><img loading="lazy" src="assets/screenshots/properties.png" alt="Object properties with headers, metadata and tags" width="2160" height="1350"><figcaption>Object properties</figcaption></figure>
+    <figure class="shot"><img loading="lazy" src="assets/screenshots/sync.png" alt="Folder sync analysis listing each change before it runs" width="2160" height="1350"><figcaption>Folder sync analysis</figcaption></figure>
+    <figure class="shot"><img loading="lazy" src="assets/screenshots/context-menu.png" alt="Context menu of an object" width="2160" height="1350"><figcaption>Context menu</figcaption></figure>
+  </div>
 </div></section>
 
-<section id="cli" class="alt"><div class="wrap">
-<h2>Command line</h2>
-<p class="lead">The same core, in your terminal.</p>
-<pre>bb account add --label work --access-key-id AKIA...
-bb ls s3://my-bucket/photos/ --long
-bb cp ./site s3://my-bucket/www/ --recursive --exclude '*.tmp'
-bb sync ./backup s3://my-bucket/backup --delete --dry-run
-bb presign s3://my-bucket/file.zip --expires 1h</pre>
+<section id="download" class="alt"><div class="wrap">
+  <p class="eyebrow">Download</p>
+  <h2>Get BucketBridge</h2>
+  <p class="lead">Free, with no account, activation or licence key. Each release includes checksums and third-party licence notices.</p>
+  <div class="grid dl">
+    <article class="card os" data-os="windows"><h3>Windows</h3><ul><li><code>.msi</code> installer</li><li>Portable <code>.zip</code></li><li><code>bb</code> CLI</li></ul><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download for Windows</span></a></article>
+    <article class="card os" data-os="macos"><h3>macOS</h3><ul><li>Universal <code>.dmg</code> (Apple silicon and Intel)</li><li><code>bb</code> CLI</li></ul><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download for macOS</span></a></article>
+    <article class="card os" data-os="linux"><h3>Linux</h3><ul><li><code>.AppImage</code>, <code>.deb</code> (with <code>bb</code>), <code>.tar.gz</code></li><li><code>bb</code> CLI</li></ul><a class="btn" href="https://github.com/anupshaw50/BucketBridge/releases/latest"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download for Linux</span></a></article>
+  </div>
+  <p class="note">Package managers (winget, Scoop and Homebrew) are coming soon. Or <a href="https://github.com/anupshaw50/BucketBridge#getting-started">build from source</a>.</p>
 </div></section>
 
-<section id="security"><div class="wrap">
-<h2>Private and open</h2>
-<div class="grid">
-<div class="card"><h3>No telemetry</h3><p>BucketBridge talks only to the storage endpoints you configure.</p></div>
-<div class="card"><h3>Keychain storage</h3><p>Secrets stay in the OS keychain, optionally sealed with a master password.</p></div>
-<div class="card"><h3>GPL-3.0</h3><p>Free software. Read, build and improve the code on GitHub.</p></div>
-</div>
+<section id="faq"><div class="wrap narrow">
+  <p class="eyebrow">FAQ</p>
+  <h2>Questions</h2>
+  <details><summary>Is BucketBridge free?</summary><p>Yes. BucketBridge is free and open source under GPL-3.0, with no account, activation, licence key or paid tier.</p></details>
+  <details><summary>Does it work with S3-compatible storage?</summary><p>Yes. Besides Amazon S3 it supports custom endpoints and path-style addressing, and it is tested against MinIO.</p></details>
+  <details><summary>Which operating systems are supported?</summary><p>Windows (MSI or portable ZIP), macOS (universal DMG for Apple silicon and Intel) and Linux (AppImage, deb and tar.gz).</p></details>
+  <details><summary>Is there a command-line tool?</summary><p>Yes. The <code>bb</code> CLI uses the same core and accounts as the desktop app, prints NDJSON with <code>--json</code> and supports <code>--dry-run</code>.</p></details>
+  <details><summary>Does BucketBridge collect data?</summary><p>No. There is no telemetry. The app only talks to the storage endpoints you configure, and secrets stay in the operating system keychain.</p></details>
 </div></section>
+
+<section id="support" class="alt"><div class="wrap">
+  <p class="eyebrow">Open source</p>
+  <h2>Private, open, and built in public</h2>
+  <div class="grid">
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-shield"/></svg><h3>No telemetry</h3><p>The app only talks to the storage endpoints you configure. It never contacts a server on its own.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-github"/></svg><h3>Contribute</h3><p>Issues, ideas and pull requests are welcome. See the <a href="https://github.com/anupshaw50/BucketBridge/blob/main/ROADMAP.md">roadmap</a> and the <a href="https://github.com/anupshaw50/BucketBridge/blob/main/.github/CONTRIBUTING.md">contributing guide</a>.</p></article>
+    <article class="card"><svg class="fi" aria-hidden="true"><use href="#i-heart"/></svg><h3>Support the project</h3><p>A star helps others find BucketBridge, and a coffee keeps the work going.</p><div class="row"><a class="btn sm ghost" href="https://github.com/anupshaw50/BucketBridge"><svg class="ic" aria-hidden="true"><use href="#i-star"/></svg><span>Star</span></a><a class="btn sm coffee" href="https://buymeacoffee.com/anupshaw50b"><svg class="ic" aria-hidden="true"><use href="#i-coffee"/></svg><span>Buy me a coffee</span></a></div></article>
+  </div>
+</div></section>
+</main>
 
 <footer><div class="wrap">
-<p>Built by <a href="https://github.com/anupshaw50">Anup Shaw (anupshaw50)</a> · <a href="https://www.linkedin.com/in/anup-kumar-shaw/">LinkedIn</a> · <a href="https://buymeacoffee.com/anupshaw50b">Buy me a coffee</a></p>
-<p><a href="https://github.com/anupshaw50/BucketBridge">Source on GitHub</a> &middot; <a href="https://github.com/anupshaw50/BucketBridge/blob/main/LICENSE">GPL-3.0 licence</a></p>
-<p>Copyright (C) 2026 Anup Shaw (anupshaw50)</p>
+  <p>Built by <a href="https://github.com/anupshaw50">Anup Shaw (anupshaw50)</a> · <a href="https://www.linkedin.com/in/anup-kumar-shaw/">LinkedIn</a> · <a href="https://buymeacoffee.com/anupshaw50b">Buy me a coffee</a></p>
+  <p><a href="https://github.com/anupshaw50/BucketBridge">Source on GitHub</a> · <a href="https://github.com/anupshaw50/BucketBridge/blob/main/LICENSE">GPL-3.0 licence</a> · <a href="https://github.com/anupshaw50/BucketBridge/blob/main/CHANGELOG.md">Changelog</a></p>
+  <p>Copyright (C) 2026 Anup Shaw (anupshaw50)</p>
 </div></footer>
+
+<script>
+(function () {
+  var ua = navigator.userAgent, os = null;
+  if (/Windows/.test(ua)) os = "windows";
+  else if (/Mac/.test(ua) && !/iPhone|iPad/.test(ua)) os = "macos";
+  else if (/Linux|X11/.test(ua) && !/Android/.test(ua)) os = "linux";
+  if (!os) return;
+  var card = document.querySelector('.os[data-os="' + os + '"]');
+  if (card) card.classList.add("mine");
+  var names = { windows: "Windows", macos: "macOS", linux: "Linux" };
+  var hero = document.getElementById("hero-download");
+  if (hero) hero.querySelector("span").textContent = "Download for " + names[os];
+})();
+</script>
 </body>
 </html>

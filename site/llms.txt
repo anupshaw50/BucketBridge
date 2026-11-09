@@ -1,0 +1,26 @@
+# BucketBridge
+
+> Free, open-source (GPL-3.0) S3 client for Windows, macOS and Linux: a Tauri desktop app with a React UI and the `bb` command-line tool, both on one Rust core. Works with Amazon S3 and S3-compatible storage (custom endpoints, path-style addressing; tested against MinIO). No account, no telemetry; secrets stay in the OS keychain.
+
+## Links
+
+- [Website](https://anupshaw50.github.io/BucketBridge/)
+- [Source code and README](https://github.com/anupshaw50/BucketBridge)
+- [Latest release downloads](https://github.com/anupshaw50/BucketBridge/releases/latest)
+- [Changelog](https://github.com/anupshaw50/BucketBridge/blob/main/CHANGELOG.md)
+- [Roadmap](https://github.com/anupshaw50/BucketBridge/blob/main/ROADMAP.md)
+- [CLI reference](https://github.com/anupshaw50/BucketBridge/blob/main/docs/cli.md)
+
+## Features
+
+- Upload, download, copy, move, rename and delete files and folders; drag and drop; resumable multipart transfers with checksums, pause, resume and a bandwidth cap
+- Folder sync (up, down, both ways, bucket to bucket) with a dry run, saved jobs and exclusion files
+- Accounts from access keys, AWS profiles, IAM Identity Center (SSO), assumed roles with MFA, and instance roles
+- Bucket settings: policy, public access block, versioning, CORS, lifecycle, replication, object lock, website hosting; IAM users and CloudFront
+- Previews (images, text, JSON, XML, CSV and Parquet tables), edit in place, presigned links, bucket usage, security scan, listing export
+- `bb` CLI with NDJSON output (`--json`), `--dry-run` and stable exit codes
+- English and Simplified Chinese
+
+## Author
+
+Anup Shaw ([GitHub](https://github.com/anupshaw50), [LinkedIn](https://www.linkedin.com/in/anup-kumar-shaw/))
