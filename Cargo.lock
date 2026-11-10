@@ -1369,7 +1369,7 @@ dependencies = [
 
 [[package]]
 name = "bucketbridge-cli"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "assert_cmd",
  "aws-sdk-iam",
@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "bucketbridge-core"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "aes-gcm",
  "apple-native-keyring-store",
@@ -1470,7 +1470,7 @@ dependencies = [
 
 [[package]]
 name = "bucketbridge-desktop"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "aws-sdk-iam",
  "aws-smithy-mocks",
@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "bucketbridge-tests"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bucketbridge-core",

@@ -27,9 +27,9 @@ remembered window size and position, richer previews (image zoom, CSV and
 Parquet tables, XML, GIF), bucket usage (`bb du`), a better versions dialog
 and automatic log cleanup. See the [changelog](CHANGELOG.md#030---2026-11-09).
 
-## Done on main (next release)
+## Done in 0.4.0
 
-Priority 3 (buckets and storage) is built and will ship in the next release:
+Priority 3 (buckets and storage) shipped in version 0.4.0:
 bucket default encryption and tags, a full ACL grant editor, advanced options
 when creating a bucket, turning on Object Lock for an existing bucket, a cost
 estimate before a Glacier restore, restore of Intelligent-Tiering archives, a
@@ -39,7 +39,7 @@ access points and Multi-Region Access Points by ARN, Transfer Acceleration and
 dual-stack endpoints, settings for S3-compatible providers, a per-account proxy,
 accounts that cannot list buckets, public links on a CloudFront or custom host
 with HTML and Markdown snippets, and up-to-date regions and partitions. See the
-[changelog](CHANGELOG.md#unreleased).
+[changelog](CHANGELOG.md#040---2026-11-10).
 
 Still open from Priority 3:
 

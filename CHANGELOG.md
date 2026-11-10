@@ -7,6 +7,8 @@ version are on the [Releases page](https://github.com/anupshaw50/BucketBridge/re
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-10
+
 ### Added
 
 - **Bucket default encryption** (SSE-S3, SSE-KMS with the bucket key) and
@@ -191,7 +193,8 @@ First public release.
   platform, `SHA256SUMS` and third-party licence notices.
 - Licensed under GPL-3.0-only.
 
-[Unreleased]: https://github.com/anupshaw50/BucketBridge/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/anupshaw50/BucketBridge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/anupshaw50/BucketBridge/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/anupshaw50/BucketBridge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/anupshaw50/BucketBridge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/anupshaw50/BucketBridge/compare/v0.1.0...v0.2.0

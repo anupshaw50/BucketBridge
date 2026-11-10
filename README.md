@@ -13,7 +13,7 @@
 <p align="center">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2563EB">
   <img alt="Platforms" src="https://img.shields.io/badge/platforms-windows%20%7C%20macos%20%7C%20linux-4F46E5">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.1-0B2545">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-0B2545">
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-1E3A8A">
   <img alt="S3 compatible" src="https://img.shields.io/badge/S3-AWS%20%2B%20compatible-38BDF8">
 </p>
@@ -30,8 +30,8 @@
 </p>
 
 <p align="center">
-  <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-1800%2B-16A34A">
-  <img alt="UI tests" src="https://img.shields.io/badge/ui%20tests-580%2B-16A34A">
+  <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-1900%2B-16A34A">
+  <img alt="UI tests" src="https://img.shields.io/badge/ui%20tests-660%2B-16A34A">
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-16A34A">
   <img alt="unsafe forbidden" src="https://img.shields.io/badge/unsafe-forbidden-16A34A">
   <img alt="cargo-deny" src="https://img.shields.io/badge/cargo--deny-passing-16A34A">
@@ -153,6 +153,7 @@ Check a download against `SHA256SUMS` from the release:
 | MFA | Temporary credentials (STS session tokens) from an MFA device code, kept in memory only. |
 | Proxies | HTTP and SOCKS5, with authentication and a bypass list (host names, `*.suffix`, IPs, CIDR ranges). |
 | Account folders | Group and reorder accounts, and **export or import accounts without secrets** (`bb account export`, `bb account import`). |
+| Endpoints | Up-to-date regions and partitions (China, GovCloud, European Sovereign Cloud), **Transfer Acceleration** and **dual-stack** endpoints, **access points and Multi-Region Access Points** by ARN, a per-account proxy, settings for S3-compatible providers, and accounts that cannot list buckets. |
 
 </details>
 
@@ -165,11 +166,11 @@ Check a download against `SHA256SUMS` from the release:
 | Drag and drop | Drag objects to copy them between folders, buckets, accounts and windows (hold Command on macOS or Shift elsewhere to move), and drop files from the file manager to upload. |
 | Copy as | Name, key, `s3://` URI, virtual-hosted URL or path-style URL, one line per selected item. |
 | Object operations | Upload and download files and folders. Copy, move, rename, delete, create folders, open, and open with another app. Copy or move files and whole folders to a chosen folder, also **across accounts**, and paste into a bucket. **Edit in place**: each save is uploaded, with a check that nobody else changed the object. |
-| Metadata | HTTP headers, user metadata, tags, storage class, server-side encryption (SSE-S3, SSE-KMS, SSE-C), canned ACLs and website redirect. Batch editing, with a result per object. |
+| Metadata | HTTP headers, user metadata, tags, storage class, server-side encryption (SSE-S3, SSE-KMS, SSE-C), canned ACLs and an **ACL grant editor**, and website redirect. Batch editing, with a result per object. **Upload rules** set headers, storage class and encryption by file pattern. |
 | Versions | Version list with filters and delete markers, grouped or flat, with sortable columns and quick selection of non-current versions or the newest delete markers. Restore or permanently delete a version, or download an old one. |
 | Preview | Images with zoom and pan, animated GIF, text, JSON, formatted XML, and CSV, TSV and Parquet as paged tables. |
-| Sharing | Presigned GET and PUT links, and a sharing wizard. Optional URL shortening through Bitly or TinyURL (off by default). |
-| Object lock and archive | Retention, legal hold, bucket default, governance bypass, object ownership, MFA delete, and Glacier restore with tier and days. |
+| Sharing | Presigned GET and PUT links, and a sharing wizard. **Public links on a CloudFront or custom host**, HTML and Markdown snippets, and optional URL shortening through Bitly or TinyURL (off by default). |
+| Object lock and archive | Retention, legal hold, bucket default, governance bypass, object ownership, MFA delete, turning Object Lock on for an existing bucket, Glacier restore with tier and days and a **cost estimate per tier**, and restore of Intelligent-Tiering archives. |
 | Client-side encryption | Optional gzip or zstd compression plus AES-256-GCM before upload, and decryption on download. |
 
 </details>
@@ -192,13 +193,13 @@ Check a download against `SHA256SUMS` from the release:
 
 | Feature | Details |
 |---|---|
-| Bucket configuration | Create and delete buckets, edit the policy with validation, public access block, versioning, access logging, static website and routing rules, transfer acceleration, and pinned external buckets. |
-| Bucket rules | CORS, lifecycle, Intelligent-Tiering and replication rules, edited as JSON and validated before sending. |
+| Bucket configuration | Create buckets with region, Object Lock, ownership and public access block, and delete them. **Default encryption**, **tags** and **ACL grants**, the policy with validation, public access block, versioning, access logging, static website and routing rules, transfer acceleration, pinned external buckets, and **cloning a bucket** with its settings and objects. |
+| Bucket rules | CORS, lifecycle, Intelligent-Tiering and replication rules, edited as JSON and validated before sending. Lifecycle rules also have a **form editor**, copy and paste between buckets, and JSON import and export. |
 | IAM | Users, console passwords, access keys (the secret is shown once), and managed and inline policies. |
 | CloudFront | Distributions per bucket: create, edit, enable or disable, and detach. Invalidations with wildcards, and their history. |
 | Security scan | Per bucket, flags public ACLs and policies, a missing public access block, missing encryption, versioning off and ACLs enabled. Results can be exported. |
 | Diagnostics | A step-by-step connection probe, timing each step: DNS, TCP, proxy tunnel, TLS with the certificate, a signed request, and the bucket region. |
-| Maintenance | List and abort unfinished multipart uploads, saved filters, and export of listings to CSV, Excel or Parquet. **Bucket usage**: total size and count, non-current versions, delete markers and unfinished uploads (`bb du`). |
+| Maintenance | List, abort and **resume** unfinished multipart uploads, saved filters, and export of listings to CSV, Excel or Parquet. **Bucket usage**: total size and count, non-current versions, delete markers and unfinished uploads (`bb du`). |
 | Mount as drive | Optional build: a read-only view of a bucket through FUSE (Linux, macOS) or Dokan (Windows). |
 | App shell | Settings, context menus, keyboard shortcuts, event log with filter, export and automatic cleanup, local crash reports, single instance, light and dark theme, English and Simplified Chinese. A **system tray** with transfer progress, taskbar and Dock progress, keeping the computer awake during transfers, a prompt when quitting with tasks running, and remembered window size and position. |
 
