@@ -79,6 +79,11 @@ impl Output {
         self.json
     }
 
+    /// Whether `--quiet` hides the success output.
+    pub fn quiet(&self) -> bool {
+        self.quiet
+    }
+
     /// Standard error.
     pub fn stderr(&self) -> &Stderr {
         &self.stderr

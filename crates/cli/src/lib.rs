@@ -24,6 +24,7 @@ mod ask;
 mod cli;
 mod cli_bucket;
 mod commands;
+mod confirm;
 mod context;
 mod duration;
 pub mod i18n;
@@ -31,8 +32,10 @@ mod io;
 mod location;
 mod output;
 mod paging;
+mod pattern;
 mod records;
 mod transfer;
+mod versionfilter;
 
 pub use app::{Exit, run};
 pub use context::{Secrets, SessionOptionsHook};

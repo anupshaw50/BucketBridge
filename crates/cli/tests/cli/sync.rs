@@ -442,7 +442,7 @@ async fn delete_removes_what_only_the_target_side_has() {
     assert_eq!(counts(&summary_record(&out)), [2, 0, 0, 0, 0]);
     assert_eq!(objects(&env, &bucket).await, before);
 
-    let out = env.run(&["sync", local, &prefix, "--delete", "--json"]);
+    let out = env.run(&["sync", local, &prefix, "--delete", "--yes", "--json"]);
     out.expect_code(0);
     let rows = row_records(&out);
     assert_eq!(
@@ -490,7 +490,7 @@ async fn delete_removes_what_only_the_target_side_has() {
     env.run(&download).expect_code(0);
     assert_eq!(files(&mirror), with_extras, "no --delete, no deletes");
 
-    let out = env.run(&with(&download, &["--delete", "--json"]));
+    let out = env.run(&with(&download, &["--delete", "--yes", "--json"]));
     out.expect_code(0);
     assert_eq!(
         describe(&row_records(&out)),
@@ -728,6 +728,7 @@ async fn dry_runs_write_nothing() {
         ];
         if delete {
             args.push("--delete");
+            args.push("--yes");
         }
 
         let out = env.run(&with(&args, &["--json"]));

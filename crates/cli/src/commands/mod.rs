@@ -24,6 +24,7 @@ pub mod rm;
 pub mod scan;
 pub mod sync;
 pub mod syncjobs;
+pub mod version;
 mod versions;
 
 use bucketbridge_core::aws_sdk_s3::primitives::DateTime as SdkDateTime;

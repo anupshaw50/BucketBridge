@@ -18,6 +18,7 @@ use clap::{ArgGroup, ArgMatches, Args, Parser, Subcommand, ValueEnum};
 pub use crate::cli_bucket::*;
 use crate::duration::parse_expiry;
 use crate::location::{Location, parse_bucket, parse_location, parse_s3_uri};
+use crate::versionfilter::{Cutoff, parse_cutoff};
 
 const AFTER_HELP: &str = "\
 Accounts: --account picks a stored account by label or ID; without it the
@@ -142,6 +143,16 @@ pub enum Command {
     Decrypt(DecryptArgs),
     /// Edit an object in place: open a local copy and upload every save until Ctrl-C.
     Edit(EditArgs),
+    /// Print the version of bb; with --check, ask GitHub whether a newer release exists.
+    Version(VersionArgs),
+}
+
+/// `bb version`
+#[derive(Debug, Args)]
+pub struct VersionArgs {
+    /// Look up the latest release on GitHub and say whether an update is available. This is the only request bb makes that is not aimed at a storage endpoint, and it is made only with this flag.
+    #[arg(long)]
+    pub check: bool,
 }
 
 impl Command {
@@ -471,6 +482,25 @@ pub struct LsArgs {
     /// Show modification time, size and storage class (creation date and region for buckets).
     #[arg(short, long)]
     pub long: bool,
+    #[command(flatten)]
+    pub filter: VersionFilterArgs,
+}
+
+/// The filters of `bb ls --versions` and `bb rm --versions`.
+#[derive(Debug, Args)]
+pub struct VersionFilterArgs {
+    /// Only versions last modified more than AGE ago (30d, 12h, 1h30m) or before a date (2026-01-31, or an RFC 3339 time).
+    #[arg(long, value_name = "AGE_OR_DATE", requires = "versions", value_parser = parse_cutoff)]
+    pub older_than: Option<Cutoff>,
+    /// Only versions that are not the current version of their key.
+    #[arg(long, requires = "versions")]
+    pub noncurrent_only: bool,
+    /// Only delete markers.
+    #[arg(long, requires = "versions")]
+    pub delete_markers_only: bool,
+    /// Only keys matching GLOB, relative to the listed folder (repeat to require several globs).
+    #[arg(long, value_name = "GLOB", requires = "versions")]
+    pub key_glob: Vec<String>,
 }
 
 /// `bb du`
@@ -553,6 +583,8 @@ pub struct RmArgs {
     /// Delete every version and delete marker, not just the current version.
     #[arg(long)]
     pub versions: bool,
+    #[command(flatten)]
+    pub filter: VersionFilterArgs,
     /// Delete this one version or delete marker of the object for good.
     #[arg(
         long,
@@ -563,6 +595,9 @@ pub struct RmArgs {
     /// Print what would be deleted without deleting anything.
     #[arg(long)]
     pub dry_run: bool,
+    /// Do not ask before deleting versions for good (--versions); without a terminal, deleting versions needs this.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// `bb restore-version`
@@ -832,6 +867,9 @@ pub struct SyncArgs {
     /// Print a report at the end: counts and bytes per action, the duration and the failures (with --json, a final `report` record).
     #[arg(long)]
     pub summary: bool,
+    /// Do not ask before deleting (--delete); without a terminal, a sync that deletes files needs this.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// HTTP method of a presigned URL.
@@ -1029,6 +1067,11 @@ pub enum AccountCommand {
     /// account). Like `add`, it is read from standard input (--secret-stdin),
     /// from BB_SECRET_ACCESS_KEY, or asked on the terminal.
     SetSecret(AccountSetSecretArgs),
+    /// Replace the access key ID and secret access key of an account (key
+    /// rotation). The secret is never a command-line argument: it is read
+    /// from standard input (--secret-stdin), from BB_SECRET_ACCESS_KEY, or
+    /// asked on the terminal. The old secret is replaced in one step.
+    UpdateCredentials(AccountUpdateCredentialsArgs),
     /// Put an account in a folder, take it out of its folder, or move it in the list.
     Move(AccountMoveArgs),
     /// List, add, rename and remove account folders.
@@ -1060,6 +1103,25 @@ pub struct AccountSetSecretArgs {
     /// second line, if present, is a session token).
     #[arg(long)]
     pub secret_stdin: bool,
+}
+
+/// `bb account update-credentials`
+#[derive(Debug, Args)]
+pub struct AccountUpdateCredentialsArgs {
+    /// Label or ID of the account.
+    #[arg(value_name = "LABEL|ID")]
+    pub label_or_id: String,
+    /// The new access key ID (default: BB_ACCESS_KEY_ID, else asked on the terminal).
+    #[arg(long, value_name = "ID")]
+    pub access_key_id: Option<String>,
+    /// Read the new secret access key from the first line of standard input (a
+    /// second line, if present, is a session token).
+    #[arg(long)]
+    pub secret_stdin: bool,
+    /// Make one signed request with the new keys before saving them; keys the server
+    /// rejects are not saved.
+    #[arg(long)]
+    pub verify: bool,
 }
 
 /// `bb account move`

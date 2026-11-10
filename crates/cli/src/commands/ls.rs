@@ -11,9 +11,12 @@ use super::versions::all_versions;
 use super::{size_of, timestamp, unquote, utc};
 use crate::cli::LsArgs;
 use crate::context::Context;
+use crate::i18n::trf;
 use crate::output::{Failure, Output};
 use crate::paging::SeenTokens;
+use crate::pattern::{S3Pattern, list_matches, s3_pattern};
 use crate::records::VersionRecord;
+use crate::versionfilter::VersionFilter;
 
 /// Runs `bb ls`, following pages with the configured page size.
 ///
@@ -27,7 +30,11 @@ pub async fn run(ctx: &Context, args: &LsArgs, out: &mut Output) -> Result<(), F
         }
         return Ok(());
     };
+    if let Some(pattern) = s3_pattern(uri)? {
+        return list_pattern(ctx, args, &pattern, out).await;
+    }
     let key = uri.key();
+    let filter = VersionFilter::from_args(&args.filter, uri)?;
     if !key.is_empty() && !key.ends_with('/') {
         if args.versions {
             let mut versions = pin!(
@@ -35,6 +42,9 @@ pub async fn run(ctx: &Context, args: &LsArgs, out: &mut Output) -> Result<(), F
                     .try_take_while(|version| ready(Ok(version.key == key)))
             );
             while let Some(version) = versions.try_next().await? {
+                if !filter.matches(&version) {
+                    continue;
+                }
                 let record = VersionRecord::from(&version);
                 out.row(&record, || version_line(&record))?;
             }
@@ -58,11 +68,18 @@ pub async fn run(ctx: &Context, args: &LsArgs, out: &mut Output) -> Result<(), F
                     page_size,
                 )
                 .await?;
-            for prefix in &page.prefixes {
-                let record = VersionRecord::prefix(prefix);
-                out.row(&record, || version_line(&record))?;
+            // A folder is not a version: with filters only versions show.
+            if !filter.is_active() {
+                for prefix in &page.prefixes {
+                    let record = VersionRecord::prefix(prefix);
+                    out.row(&record, || version_line(&record))?;
+                }
             }
-            for version in &page.entries {
+            for version in page
+                .entries
+                .iter()
+                .filter(|version| filter.matches(version))
+            {
                 let record = VersionRecord::from(version);
                 out.row(&record, || version_line(&record))?;
             }
@@ -88,6 +105,57 @@ pub async fn run(ctx: &Context, args: &LsArgs, out: &mut Output) -> Result<(), F
             None => return Ok(()),
         }
     }
+}
+
+/// `bb ls 's3://bucket/logs/*.gz'`: the objects and folders directly in the
+/// folder in front of the wildcard whose names match (with `--versions`, the
+/// versions of the matching keys). A pattern that matches nothing is
+/// `not_found`.
+async fn list_pattern(
+    ctx: &Context,
+    args: &LsArgs,
+    pattern: &S3Pattern,
+    out: &mut Output,
+) -> Result<(), Failure> {
+    if args.recursive {
+        return Err(Error::Usage(trf(
+            "--recursive does not combine with the wildcard in {uri}; a wildcard matches only the names directly in its folder",
+            &[("uri", &pattern.display())],
+        ))
+        .into());
+    }
+    if !args.versions {
+        for entry in list_matches(&ctx.s3, pattern, true).await? {
+            out.row(&entry, || object_line(&entry, args.long))?;
+        }
+        return Ok(());
+    }
+    let dir = pattern.dir_uri()?;
+    let filter = VersionFilter::from_args(&args.filter, &dir)?;
+    let mut versions = pin!(all_versions(
+        ctx.s3.clone(),
+        dir.bucket().to_owned(),
+        dir.key().to_owned()
+    ));
+    let mut hit = false;
+    while let Some(version) = versions.try_next().await? {
+        if !pattern.matches_key(&version.key) {
+            continue;
+        }
+        hit = true;
+        if filter.matches(&version) {
+            let record = VersionRecord::from(&version);
+            out.row(&record, || version_line(&record))?;
+        }
+    }
+    if !hit {
+        return Err(Error::NotFound(trf(
+            "no objects match {pattern}",
+            &[("pattern", &pattern.display())],
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 /// The object whose key is exactly `key`, if there is one. Asked with a

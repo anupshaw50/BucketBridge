@@ -28,12 +28,17 @@ mod objectlock;
 mod objectmeta;
 mod paging;
 mod presign;
+mod releasecheck;
 mod rm;
+mod rotate;
 mod scan;
 mod sync;
+mod syncdelete;
 mod syncjobs;
 mod transfers;
+mod versionclean;
 mod versions;
+mod wildcards;
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -273,6 +278,9 @@ impl Write for Captured {
 pub struct Terminal {
     answers: Arc<Mutex<VecDeque<String>>>,
     prompts: Arc<Mutex<Vec<String>>>,
+    /// Answers to yes/no questions; `None` means nobody can be asked.
+    confirms: Option<Arc<Mutex<VecDeque<bool>>>>,
+    questions: Arc<Mutex<Vec<String>>>,
 }
 
 impl Terminal {
@@ -282,7 +290,22 @@ impl Terminal {
                 answers.iter().map(|a| (*a).to_owned()).collect(),
             )),
             prompts: Arc::default(),
+            confirms: None,
+            questions: Arc::default(),
         }
+    }
+
+    /// A terminal that answers yes/no questions (`true` is yes) from a list.
+    pub fn confirming(answers: &[bool]) -> Terminal {
+        Terminal {
+            confirms: Some(Arc::new(Mutex::new(answers.iter().copied().collect()))),
+            ..Terminal::default()
+        }
+    }
+
+    /// The yes/no questions asked so far.
+    pub fn questions(&self) -> Vec<String> {
+        self.questions.lock().unwrap().clone()
     }
 
     pub fn prompts(&self) -> Vec<String> {
@@ -298,6 +321,18 @@ impl Console for Terminal {
 
     fn stderr_is_terminal(&self) -> bool {
         false
+    }
+
+    fn can_ask(&self) -> bool {
+        self.confirms.is_some()
+    }
+
+    fn confirm(&self, question: &str) -> io::Result<Option<bool>> {
+        self.questions.lock().unwrap().push(question.to_owned());
+        Ok(self
+            .confirms
+            .as_ref()
+            .and_then(|answers| answers.lock().unwrap().pop_front()))
     }
 }
 
@@ -441,6 +476,27 @@ pub mod xml {
         };
         format!(
             "<ListVersionsResult {NS}><Name>bucket</Name>{truncation}{body}</ListVersionsResult>"
+        )
+    }
+
+    /// A `ListObjectVersions` reply whose entries carry their own
+    /// modification time: `(key, version id, is latest, is delete marker,
+    /// last modified)`.
+    pub fn dated_versions(entries: &[(&str, &str, bool, bool, &str)]) -> String {
+        let mut body = String::new();
+        for (key, version_id, is_latest, is_marker, modified) in entries {
+            if *is_marker {
+                body.push_str(&format!(
+                    "<DeleteMarker><Key>{key}</Key><VersionId>{version_id}</VersionId><IsLatest>{is_latest}</IsLatest><LastModified>{modified}</LastModified></DeleteMarker>"
+                ));
+            } else {
+                body.push_str(&format!(
+                    "<Version><Key>{key}</Key><VersionId>{version_id}</VersionId><IsLatest>{is_latest}</IsLatest><LastModified>{modified}</LastModified><ETag>\"etag\"</ETag><Size>5</Size><StorageClass>STANDARD</StorageClass></Version>"
+                ));
+            }
+        }
+        format!(
+            "<ListVersionsResult {NS}><Name>bucket</Name><IsTruncated>false</IsTruncated>{body}</ListVersionsResult>"
         )
     }
 

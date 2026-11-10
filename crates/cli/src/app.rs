@@ -86,7 +86,7 @@ where
     let inputs = Inputs {
         env,
         stdin: Mutex::new(stdin),
-        console,
+        console: console.into(),
         secrets,
     };
     let mut out = Output::new(json, cli.global.quiet, stdout, stderr.clone());
@@ -155,6 +155,14 @@ where
                 commands::account::run(&cli.global, command, inputs, out).await,
                 false,
             );
+        }
+        // The version, and the opt-in release check, need no account.
+        Command::Version(args) => {
+            let run = commands::version::run(&cli.global, args, inputs, out);
+            return tokio::select! {
+                result = run => (result, false),
+                () = interrupt() => (Err(Error::Cancelled.into()), false),
+            };
         }
         // IAM needs no S3 transport, and some of its commands no account.
         Command::Iam(command) => {
@@ -306,6 +314,9 @@ async fn dispatch(
         Command::Cloudfront(command) => commands::cloudfront::run(ctx, command, out).await,
         Command::Iam(_) => {
             Err(Error::Internal("iam commands run without an S3 context".into()).into())
+        }
+        Command::Version(_) => {
+            Err(Error::Internal("version runs without an account context".into()).into())
         }
         Command::Account(_) => {
             Err(Error::Internal("account commands run without an account context".into()).into())

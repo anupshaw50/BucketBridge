@@ -47,13 +47,12 @@ Still open from Priority 3:
 |---|---|---|
 | 39 | A custom per-account proxy with a password (kept in the secret store), and an explicit per-account option to skip TLS certificate checks for self-hosted servers. | S |
 
-## Priority 4: command line
+## Done on main (next release)
 
-| # | Item | Size |
-|---|---|---|
-| 43 | `bb ls --versions` with filters, and `bb rm --versions` for bulk cleanup of old versions. | S |
-| 44 | Wildcards and file masks in `cp`, `rm` and `ls`. | S |
-| 45 | `bb sync` asks before deleting (`--yes` to skip), with per-file progress and a summary. | S |
-| 46 | `bb account update-credentials` to rotate keys. | S |
-| 47 | `bb version --check` to look up the latest release when asked (never automatically). | S |
+Priority 4 (command line) is built and will ship in the next release: version
+filters for `bb ls --versions` and bulk cleanup with `bb rm --versions`,
+wildcards in `cp`, `mv`, `rm` and `ls`, a confirmation before `bb sync`
+deletes files, key rotation with `bb account update-credentials`, and an
+opt-in update check with `bb version --check`. See the
+[changelog](CHANGELOG.md#unreleased).
 

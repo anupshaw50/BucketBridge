@@ -21,13 +21,14 @@ use bucketbridge_core::{Error, Result, Session};
 use super::accountfile;
 use crate::cli::{
     AccountAddArgs, AccountCommand, AccountSelector, AccountSetSecretArgs, AccountSsoLoginArgs,
-    GlobalArgs,
+    AccountUpdateCredentialsArgs, GlobalArgs,
 };
 use crate::context::{Inputs, dirs, env, find_account, open_session, unlock};
 use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 use crate::records::{
-    AccountChangeRecord, AccountRecord, ImportSkippedRecord, SsoPromptRecord, SsoSignedInRecord,
+    AccountChangeRecord, AccountCredentialsRecord, AccountRecord, ImportSkippedRecord,
+    SsoPromptRecord, SsoSignedInRecord,
 };
 
 /// Runs an `account` subcommand.
@@ -57,6 +58,9 @@ pub async fn run(
         AccountCommand::Remove(selector) => remove(&session, selector, out).await,
         AccountCommand::Default(selector) => set_default(&session, selector, out).await,
         AccountCommand::SetSecret(args) => set_secret(&session, args, inputs, out).await,
+        AccountCommand::UpdateCredentials(args) => {
+            update_credentials(&session, args, inputs, out).await
+        }
         AccountCommand::Move(args) => accountfile::move_account(&session, args, out).await,
         AccountCommand::Folder(command) => accountfile::folder(&session, command, out).await,
         AccountCommand::Export(args) => accountfile::export(&session, args, out).await,
@@ -529,6 +533,117 @@ async fn set_secret(
             &[("label", &record.label), ("id", &record.id)],
         )
     })
+}
+
+/// `bb account update-credentials`: rotates the keys of an account. The
+/// access key ID comes from `--access-key-id`, `BB_ACCESS_KEY_ID` or the
+/// terminal; the secret from standard input, `BB_SECRET_ACCESS_KEY` or the
+/// terminal, never from an argument. With `--verify` the server must accept
+/// the new keys before anything is stored; the stored secret is replaced in
+/// one step (the old one is deleted only after the configuration refers to
+/// the new one), also in the master password vault.
+async fn update_credentials(
+    session: &Session,
+    args: &AccountUpdateCredentialsArgs,
+    inputs: &Inputs,
+    out: &mut Output,
+) -> std::result::Result<(), Failure> {
+    let list = session.list_accounts().await?;
+    let account = find_account(&list.accounts, &args.label_or_id)
+        .ok_or_else(|| {
+            Error::NotFound(trf(
+                "account '{selector}' not found; `bb account list` shows the stored accounts",
+                &[("selector", args.label_or_id.as_str())],
+            ))
+        })?
+        .clone();
+    if !account.has_static_keys() {
+        return Err(Error::Usage(trf(
+            "account {label} gets its credentials from another source and has no keys to replace",
+            &[("label", account.label.as_str())],
+        ))
+        .into());
+    }
+    unlock(session, inputs).await?;
+    let access_key_id = read_access_key_id(args.access_key_id.as_deref(), inputs)?;
+    let (secret, session_token) = read_secrets(args.secret_stdin, inputs)?;
+    let verified = if args.verify {
+        let credentials = bucketbridge_core::client::Credentials::new(
+            access_key_id.clone(),
+            secret.expose().to_owned(),
+            session_token
+                .as_ref()
+                .map(|token| token.expose().to_owned()),
+        );
+        session
+            .verify_keys(&account.id, &credentials)
+            .await
+            .map_err(|err| {
+                err.with_context(tr(
+                    "the new keys were not saved: the server did not accept them",
+                ))
+            })?;
+        true
+    } else {
+        false
+    };
+    let mut update = AccountUpdate::default();
+    update.access_key_id = Some(access_key_id.clone());
+    update.secret_access_key = Some(secret.expose().to_owned());
+    // A token of the old keys must not outlive them.
+    match &session_token {
+        Some(token) => update.session_token = Some(token.expose().to_owned()),
+        None => update.clear_session_token = true,
+    }
+    drop(secret);
+    drop(session_token);
+    session.update_account(&account.id, update).await?;
+    let record = AccountCredentialsRecord {
+        id: account.id.clone(),
+        label: account.label.clone(),
+        access_key_id,
+        verified,
+    };
+    out.change(&record, || {
+        trf(
+            if verified {
+                "replaced the credentials of account {label} ({id}) with access key {key} (verified)"
+            } else {
+                "replaced the credentials of account {label} ({id}) with access key {key}"
+            },
+            &[
+                ("label", &record.label),
+                ("id", &record.id),
+                ("key", &record.access_key_id),
+            ],
+        )
+    })
+}
+
+/// The new access key ID: the option, `BB_ACCESS_KEY_ID`, or the terminal
+/// (asked without echo, like the secret).
+fn read_access_key_id(option: Option<&str>, inputs: &Inputs) -> Result<String> {
+    let given = match option {
+        Some(id) => Some(id.to_owned()),
+        None => inputs.env.get(env::ACCESS_KEY_ID)?,
+    };
+    let id = match given {
+        Some(id) => id,
+        None => match inputs.console.read_secret(&tr("Access key ID: ")) {
+            Ok(Some(id)) => id,
+            _ => {
+                return Err(Error::Usage(trf(
+                    "no access key ID: use --access-key-id, set {env}, or run bb in a terminal",
+                    &[("env", env::ACCESS_KEY_ID)],
+                )));
+            }
+        },
+    };
+    let id = id.trim().to_owned();
+    if id.is_empty() {
+        return Err(Error::Usage(tr("the access key ID is empty")));
+    }
+    Ok(id)
 }
 
 async fn remove(

@@ -544,6 +544,15 @@ impl Session {
         crate::shorten::shorten_at(&client, endpoints, chosen, token.as_ref(), long_url).await
     }
 
+    /// Asks `url` (normally [`crate::release::LATEST_RELEASE_URL`]) for the
+    /// latest release of the project, through the proxy-aware client of the
+    /// settings. Only the explicit check of `bb version --check` calls this;
+    /// see [`crate::release`].
+    pub async fn latest_release(&self, url: &str) -> Result<crate::release::LatestRelease> {
+        let client = self.http_client().await?;
+        crate::release::latest_release(&client, url).await
+    }
+
     /// The proxy-aware HTTP client for the current settings.
     pub async fn http_client(&self) -> Result<SharedHttpClient> {
         let epoch = self.clients().epoch;
@@ -776,6 +785,61 @@ impl Session {
             );
         }
         Ok(s3)
+    }
+
+    /// Checks that the server accepts `credentials` as the keys of the
+    /// stored account `account_id`, before they are saved: one signed
+    /// request, sent the way the account's requests are (its endpoint,
+    /// region and proxy). It lists the buckets, or one object of the first
+    /// known bucket for an account that cannot list buckets (and succeeds
+    /// without a request when it has none). Nothing is stored or cached.
+    ///
+    /// An unknown access key or a wrong secret fails with `auth`, as does an
+    /// unreachable server with `remote`. An `AccessDenied` answer counts as
+    /// accepted: the server recognised the keys, they are only not allowed
+    /// to list.
+    pub async fn verify_keys(
+        &self,
+        account_id: &str,
+        credentials: &crate::client::Credentials,
+    ) -> Result<()> {
+        let epoch = self.clients().epoch;
+        let manager = Arc::clone(&self.manager);
+        let config = self.managed(move || manager.load()).await?;
+        let account = account_in(&config, account_id)?;
+        if !account.has_static_keys() {
+            return Err(Error::Usage(
+                "an account that gets its credentials from another source has no keys to check"
+                    .into(),
+            ));
+        }
+        let (http_client, _) = self
+            .account_http_client(&account, &config.settings.proxy, epoch)
+            .await?;
+        let mut options = ClientOptions::from_settings(&config.settings);
+        options.http_client = Some(http_client);
+        let s3 = S3::new(&account, credentials, &options)?;
+        let result = if account.options.cannot_list_buckets {
+            match account.options.known_buckets.first() {
+                Some(entry) => {
+                    let (bucket, prefix) = crate::model::split_known_bucket(entry);
+                    s3.list_objects(bucket, &prefix, true, None, 1)
+                        .await
+                        .map(|_| ())
+                }
+                None => Ok(()),
+            }
+        } else {
+            s3.list_buckets().await.map(|_| ())
+        };
+        match result {
+            Err(err)
+                if err.service().and_then(|service| service.code()) == Some("AccessDenied") =>
+            {
+                Ok(())
+            }
+            other => other,
+        }
     }
 
     /// The IAM handle of an account, built for the call (IAM calls are

@@ -128,7 +128,7 @@ pub async fn shorten_at(
             HttpRequest::get(uri).map_err(|_| bad_endpoint(name))?
         }
     };
-    let (status, body) = send(client, request, name).await?;
+    let (status, body) = send(client, request, name, MAX_RESPONSE_BYTES).await?;
     match status {
         200 | 201 => {}
         401 | 403 => {
@@ -204,10 +204,14 @@ fn post_json(endpoint: &str, token: &SecretString, body: &Value) -> Result<HttpR
     Ok(request)
 }
 
-async fn send(
+/// Sends one request through the client and reads the answer (at most
+/// `max_bytes` of it), within a timeout. `name` is the service, for the
+/// messages. Also used by the release check ([`crate::release`]).
+pub(crate) async fn send(
     client: &SharedHttpClient,
     request: HttpRequest,
     name: &str,
+    max_bytes: usize,
 ) -> Result<(u16, String)> {
     let settings = HttpConnectorSettings::builder()
         .connect_timeout(TIMEOUT)
@@ -238,7 +242,7 @@ async fn send(
         .map_err(|_| failed("timed out"))?
         .map_err(|_| failed("the answer was cut off"))?
         .into_bytes();
-    if bytes.len() > MAX_RESPONSE_BYTES {
+    if bytes.len() > max_bytes {
         return Err(Error::Remote(format!(
             "{name} sent an answer that is too long"
         )));

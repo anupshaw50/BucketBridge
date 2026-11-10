@@ -109,6 +109,29 @@ Supporting measures:
 - The SOCKS5 authentication message is built in an exactly sized, zeroizing
   buffer.
 
+## The only request that is not aimed at a storage endpoint
+
+BucketBridge never contacts a server on its own: no telemetry, no
+automatic update check, no crash upload. Besides the requests to the storage
+endpoints and services of your accounts (S3, STS, IAM, CloudFront, IAM Identity
+Center), two things send a request elsewhere, both only when you ask for it:
+
+- `bb presign --shorten` (and the share link's Shorten button) sends a link to
+  the URL shortener you chose in the settings;
+- `bb version --check` sends **one** `GET` to the GitHub API
+  (`https://api.github.com/repos/anupshaw50/BucketBridge/releases/latest`) to
+  read the tag and page of the latest release. It is **opt-in**: plain
+  `bb version` and every other command never make it, and nothing schedules it.
+  The request carries no account, key, version number, machine identifier or
+  other personal data, only a fixed `User-Agent` (`bucketbridge-update-check`)
+  and an `Accept` header. It goes through the same proxy-aware HTTP client as the
+  storage requests, so the proxy settings and the proxy environment variables
+  apply; a failure (no network, a status other than 200, an answer that is not a
+  release) is a `remote` error, exit code 2, and changes nothing. Nothing is
+  downloaded or installed: the command only prints whether a newer version exists
+  and its release page. `BB_UPDATE_CHECK_URL` replaces the address (a mirror of
+  your own, or a local server in tests).
+
 ## Secret store
 
 `SecretStore` is a key/value store of UTF-8 strings addressed by reference

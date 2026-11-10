@@ -7,6 +7,29 @@ version are on the [Releases page](https://github.com/anupshaw50/BucketBridge/re
 
 ## [Unreleased]
 
+### Added
+
+- **Version cleanup:** `bb ls --versions` and `bb rm --versions` take
+  `--older-than`, `--noncurrent-only`, `--delete-markers-only` and
+  `--key-glob`; `bb rm --versions` shows what it will delete and asks first.
+- **Wildcards** in the last segment of paths for `ls`, `rm`, `cp` and `mv`
+  (`bb cp './photos/*.jpg' s3://b/p/`); a pattern that matches nothing is an
+  error.
+- **`bb account update-credentials`** rotates the keys of an account, with
+  `--verify` to check the new keys before saving.
+- **`bb version`**, and `bb version --check` to look up the latest release on
+  GitHub. It is the only request to a non-storage server and is sent only when
+  asked.
+- `bb sync` reports the bytes copied and the time taken.
+
+### Changed
+
+- `bb sync` asks before deleting files on the target, and `bb rm --versions`
+  asks before deleting versions. Without a terminal both need `--yes`, so add
+  `--yes` to scheduled jobs that delete.
+- A backslash or one of `* ? [ {` in the last segment of a path now makes it
+  a pattern; put `\` before such a character to use it literally.
+
 ## [0.4.0] - 2026-11-10
 
 ### Added

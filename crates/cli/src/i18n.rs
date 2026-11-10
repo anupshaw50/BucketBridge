@@ -1576,6 +1576,51 @@ pub(crate) static HELP: &[(&str, &str)] = &[
         "要失效的路径，例如 `/index.html` 或 `/images/*`。",
     ),
     ("Invalidation ID.", "失效 ID。"),
+    (
+        "Only versions last modified more than AGE ago (30d, 12h, 1h30m) or before a date (2026-01-31, or an RFC 3339 time).",
+        "只包含最后修改时间早于 AGE 之前（30d、12h、1h30m）或早于某个日期（2026-01-31 或 RFC 3339 时间）的版本。",
+    ),
+    (
+        "Only versions that are not the current version of their key.",
+        "只包含不是其键当前版本的版本。",
+    ),
+    ("Only delete markers.", "只包含删除标记。"),
+    (
+        "Only keys matching GLOB, relative to the listed folder (repeat to require several globs).",
+        "只包含匹配 GLOB 的键，相对于所列出的文件夹（可重复，须同时匹配）。",
+    ),
+    (
+        "Do not ask before deleting versions for good (--versions); without a terminal, deleting versions needs this.",
+        "永久删除版本（--versions）前不再询问；没有终端时，删除版本必须加此选项。",
+    ),
+    (
+        "Do not ask before deleting (--delete); without a terminal, a sync that deletes files needs this.",
+        "删除（--delete）前不再询问；没有终端时，会删除文件的同步必须加此选项。",
+    ),
+    (
+        "Replace the access key ID and secret access key of an account (key rotation). The secret is never a command-line argument: it is read from standard input (--secret-stdin), from BB_SECRET_ACCESS_KEY, or asked on the terminal. The old secret is replaced in one step.",
+        "替换账户的访问密钥 ID 和秘密访问密钥（密钥轮换）。秘密访问密钥绝不会作为命令行参数：它从标准输入（--secret-stdin）、BB_SECRET_ACCESS_KEY 读取，或在终端中询问。旧的秘密访问密钥会一步完成替换。",
+    ),
+    (
+        "The new access key ID (default: BB_ACCESS_KEY_ID, else asked on the terminal).",
+        "新的访问密钥 ID（默认取 BB_ACCESS_KEY_ID，否则在终端中询问）。",
+    ),
+    (
+        "Make one signed request with the new keys before saving them; keys the server rejects are not saved.",
+        "保存前先用新密钥发出一次签名请求；服务器拒绝的密钥不会被保存。",
+    ),
+    (
+        "Read the new secret access key from the first line of standard input (a second line, if present, is a session token).",
+        "从标准输入第一行读取新的秘密访问密钥（如有第二行，则是会话令牌）。",
+    ),
+    (
+        "Print the version of bb; with --check, ask GitHub whether a newer release exists.",
+        "显示 bb 的版本；加 --check 时，向 GitHub 查询是否有更新的版本。",
+    ),
+    (
+        "Look up the latest release on GitHub and say whether an update is available. This is the only request bb makes that is not aimed at a storage endpoint, and it is made only with this flag.",
+        "在 GitHub 上查询最新版本，并说明是否有可用更新。这是 bb 唯一一个不是发往存储端点的请求，并且只有加此选项时才会发出。",
+    ),
 ];
 
 // ---- (3) user-visible output of the commands ----
@@ -2786,6 +2831,132 @@ pub(crate) static OUTPUT: &[(&str, &str)] = &[
     ("skip duplicate content: {flag}", "跳过重复内容：{flag}"),
     ("use cache: {flag}", "使用缓存：{flag}"),
     ("parallelism: {count}", "并行数：{count}"),
+    (
+        "invalid age or date '{text}': use a duration such as 30d or 12h, a date such as 2026-01-31, or an RFC 3339 time",
+        "无效的时长或日期“{text}”：请使用 30d 或 12h 这样的时长、2026-01-31 这样的日期，或 RFC 3339 时间",
+    ),
+    (
+        "invalid pattern '{pattern}': {error}",
+        "无效的通配模式“{pattern}”：{error}",
+    ),
+    (
+        "{what} needs confirmation, and there is no terminal to ask; pass --yes",
+        "{what}需要确认，但没有终端可供询问；请加 --yes",
+    ),
+    (
+        "there is no terminal to ask for confirmation; pass --yes",
+        "没有终端可供确认；请加 --yes",
+    ),
+    ("[y/N]", "[y/N]"),
+    ("deleting versions", "删除版本"),
+    (
+        "{versions} versions ({markers} delete markers, {current} current), {bytes} bytes",
+        "{versions} 个版本（{markers} 个删除标记，{current} 个当前版本），{bytes} 字节",
+    ),
+    (
+        "{what} under {uri} would be deleted for good:",
+        "{uri} 下的 {what}将被永久删除：",
+    ),
+    ("  and {more} more", "  以及另外 {more} 个"),
+    (
+        "Delete {count} versions for good?",
+        "永久删除 {count} 个版本？",
+    ),
+    (
+        "would delete {what} under {uri}",
+        "将删除 {uri} 下的 {what}",
+    ),
+    ("deleted {what} under {uri}", "已删除 {uri} 下的 {what}"),
+    (
+        "{what}: wildcards work only in the last part of a path, after the last /",
+        "{what}：通配符只能用在路径的最后一部分（最后一个 / 之后）",
+    ),
+    ("no objects match {pattern}", "没有任何对象匹配 {pattern}"),
+    (
+        "no objects or folders match {pattern}",
+        "没有任何对象或文件夹匹配 {pattern}",
+    ),
+    ("no files match {pattern}", "没有任何文件匹配 {pattern}"),
+    (
+        "--version-id needs an object key; {uri} is a pattern",
+        "--version-id 需要对象键；{uri} 是通配模式",
+    ),
+    (
+        "--recursive does not combine with the wildcard in {uri}; a wildcard matches only the objects directly in its folder",
+        "--recursive 不能与 {uri} 中的通配符一起使用；通配符只匹配其所在文件夹中直接包含的对象",
+    ),
+    (
+        "--recursive does not combine with the wildcard in {uri}; a wildcard matches only the names directly in its folder",
+        "--recursive 不能与 {uri} 中的通配符一起使用；通配符只匹配其所在文件夹中直接包含的名称",
+    ),
+    (
+        "--recursive does not combine with the wildcard in {source}; a wildcard matches only the objects directly in its folder, use --include and --exclude with a folder to filter a whole tree",
+        "--recursive 不能与 {source} 中的通配符一起使用；通配符只匹配其所在文件夹中直接包含的对象，要过滤整个目录树，请对文件夹使用 --include 和 --exclude",
+    ),
+    (
+        "--recursive does not combine with the wildcard in '{path}'; name a folder, and use --include and --exclude to filter",
+        "--recursive 不能与“{path}”中的通配符一起使用；请指定文件夹，并用 --include 和 --exclude 过滤",
+    ),
+    (
+        "{count} files match; the destination {destination} must be a prefix ending in '/' (or a bucket)",
+        "有 {count} 个文件匹配；目标 {destination} 必须是以“/”结尾的前缀（或存储桶）",
+    ),
+    (
+        "{count} objects match {pattern}; the destination {destination} must be an existing folder (or end with a separator)",
+        "有 {count} 个对象匹配 {pattern}；目标 {destination} 必须是已存在的文件夹（或以分隔符结尾）",
+    ),
+    (
+        "{count} objects match {pattern}; the destination {destination} must be a prefix ending in '/' (or a bucket)",
+        "有 {count} 个对象匹配 {pattern}；目标 {destination} 必须是以“/”结尾的前缀（或存储桶）",
+    ),
+    (
+        "this sync would delete {count} files (for example {examples}); there is no terminal to ask, so nothing was changed; pass --yes to delete without asking",
+        "此次同步将删除 {count} 个文件（例如 {examples}）；没有终端可供询问，因此未做任何更改；要不经询问直接删除，请加 --yes",
+    ),
+    (
+        "this sync deletes {count} files:",
+        "此次同步将删除 {count} 个文件：",
+    ),
+    ("Delete {count} files?", "删除 {count} 个文件？"),
+    ("{bytes} copied in {time}", "已复制 {bytes}，用时 {time}"),
+    (
+        "account {label} gets its credentials from another source and has no keys to replace",
+        "账户 {label} 的凭据来自其他来源，没有可替换的密钥",
+    ),
+    (
+        "the new keys were not saved: the server did not accept them",
+        "新密钥未保存：服务器不接受它们",
+    ),
+    (
+        "replaced the credentials of account {label} ({id}) with access key {key} (verified)",
+        "已替换账户 {label}（{id}）的凭据，访问密钥为 {key}（已验证）",
+    ),
+    (
+        "replaced the credentials of account {label} ({id}) with access key {key}",
+        "已替换账户 {label}（{id}）的凭据，访问密钥为 {key}",
+    ),
+    ("Access key ID: ", "访问密钥 ID："),
+    (
+        "no access key ID: use --access-key-id, set {env}, or run bb in a terminal",
+        "没有访问密钥 ID：请使用 --access-key-id、设置 {env}，或在终端中运行 bb",
+    ),
+    ("the access key ID is empty", "访问密钥 ID 为空"),
+    (
+        "the latest release has a version tag that is not understood: {tag}",
+        "最新版本的版本标签无法识别：{tag}",
+    ),
+    (
+        "update available: {latest} (you have {current}); release page: {url}",
+        "有可用更新：{latest}（当前为 {current}）；发布页面：{url}",
+    ),
+    (
+        "bb {current} is up to date (the latest release is {latest})",
+        "bb {current} 已是最新（最新发布版本为 {latest}）",
+    ),
+    (
+        "bb {current} is newer than the latest release ({latest})",
+        "bb {current} 比最新发布版本（{latest}）更新",
+    ),
 ];
 
 #[cfg(test)]

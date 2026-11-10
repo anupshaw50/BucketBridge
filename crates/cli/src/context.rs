@@ -39,6 +39,9 @@ pub mod env {
     /// Replaces the endpoint of the chosen URL shortener (a compatible
     /// service of your own, or a local server in tests).
     pub const SHORTENER_ENDPOINT: &str = "BB_SHORTENER_ENDPOINT";
+    /// Replaces the address `bb version --check` asks for the latest release
+    /// (a mirror of your own, or a local server in tests).
+    pub const UPDATE_CHECK_URL: &str = "BB_UPDATE_CHECK_URL";
 }
 
 /// Label and ID of the account built from the environment.
@@ -111,7 +114,7 @@ pub struct Inputs {
     /// Standard input.
     pub stdin: Mutex<Box<dyn BufRead + Send>>,
     /// Terminal prompts.
-    pub console: Box<dyn Console>,
+    pub console: Arc<dyn Console>,
     /// Where stored secrets live.
     pub secrets: Secrets,
 }
@@ -146,6 +149,8 @@ pub struct Context {
     pub show_progress: bool,
     /// Whether questions can be asked on the terminal.
     pub can_ask: bool,
+    /// The terminal, for confirmations.
+    pub console: Arc<dyn Console>,
     cloudfront: CloudFrontSource,
     /// Environment and secret store for the URL shortener.
     pub shortener: ShortenerAccess,
@@ -403,6 +408,7 @@ impl Context {
             stop: StopSignal::new(),
             show_progress: inputs.console.stderr_is_terminal() && !global.quiet && !global.json,
             can_ask: inputs.console.can_ask(),
+            console: Arc::clone(&inputs.console),
             cloudfront,
             shortener,
         })

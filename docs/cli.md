@@ -46,6 +46,7 @@ and instance metadata are never used. The HTTP client honours `HTTP_PROXY`,
 `HTTPS_PROXY` and `NO_PROXY`.
 
 `BB_SHORTENER_TOKEN` and `BB_SHORTENER_ENDPOINT` only matter for `bb presign --shorten`.
+`BB_UPDATE_CHECK_URL` only matters for `bb version --check`.
 
 `BB_LANG` selects the language of the help and the output: a value beginning
 with `zh` gives Simplified Chinese, anything else gives English, which is also
@@ -110,9 +111,47 @@ usage error.
 | `bb account export FILE [LABEL\|ID]...` | Writes the accounts (all, or the named ones plus the source account of a role) to a JSON file **without any secret**. |
 | `bb account import FILE [--rename-duplicates]` | Adds the accounts of such a file. Never overwrites: a duplicate is reported and left out (`--rename-duplicates` imports a label duplicate as `Label (2)`). Imported accounts with keys need a secret before use. |
 | `bb account set-secret LABEL\|ID [--secret-stdin]` | Stores the secret access key of an account that has none (an imported one), or replaces it. Read like `account add`. |
+| `bb account update-credentials LABEL\|ID [--access-key-id ID] [--secret-stdin] [--verify]` | Rotates the keys of an account with static keys: a new access key ID and secret access key (see below). |
 
 The account is an argument of these commands; `--account` and `--mfa-code`
 are usage errors with them.
+
+`bb account update-credentials` replaces both parts of the keys of a stored
+account, for a key rotation. Nothing secret is a command-line argument:
+
+* the new access key ID comes from `--access-key-id ID` (an identifier, as for
+  `account add`), else from `BB_ACCESS_KEY_ID`, else it is asked on the terminal
+  (without echo);
+* the new secret access key comes from the first line of standard input with
+  `--secret-stdin`, else from `BB_SECRET_ACCESS_KEY`, else it is asked on the
+  terminal; a second stdin line (or `BB_SESSION_TOKEN`) is a session token. When no
+  token is given, the account's old session token is removed with the old keys.
+  Without any source (no terminal either) it is a usage error (exit 1) that says how
+  to give it.
+* `--verify` makes one signed request with the new keys, before saving
+  anything, sent as the account's own requests are (its endpoint, region and
+  proxy): a `ListBuckets`, or for an account that cannot list buckets one object
+  listing of its first known bucket. Keys the server rejects (unknown access
+  key ID, wrong secret: `auth`, exit 3; server unreachable: `remote`, exit 2)
+  are not saved and the old keys stay. A server that answers `AccessDenied` has
+  recognised the keys, so that counts as verified. Without `--verify` no
+  request is made.
+* The old secret is replaced in one step: the new one is written under a new
+  version of the secret reference, the configuration is switched to it, and only
+  then is the old one deleted, so a failure never leaves the account without a
+  secret. Under a master password the vault is updated and stays encrypted: the
+  password comes from `BB_MASTER_PASSWORD` or the terminal, otherwise the command
+  fails with `locked` (exit 3) and changes nothing.
+* Only accounts with static keys qualify; an account that gets its credentials
+  from another source is a usage error. Rotating drops the account's cached MFA
+  session.
+
+The `--json` record has `id`, `label`, `access_key_id` and `verified` (never a
+secret). The human line is `replaced the credentials of account LABEL (ID) with
+access key KEY`, with ` (verified)` added after a successful `--verify`.
+```bash
+printf '%s\n' "$NEW_SECRET" | bb account update-credentials prod --access-key-id AKIA... --secret-stdin --verify
+```
 
 `bb account list` shows the accounts in the order of the account manager: the
 folders first (each with its accounts in order), then the accounts in no folder.
@@ -191,7 +230,7 @@ Access Point is `s3://arn:aws:s3::123456789012:accesspoint/alias.mrap/key`
 (signed with SigV4A). Access points work with AWS accounts only. Anything else that
 does not look like a URL is a local path.
 
-### `bb ls [S3_URI] [-r] [--versions] [-l]`
+### `bb ls [S3_URI] [-r] [--versions [FILTERS]] [-l]`
 
 Without a URI: every bucket, sorted by name. With a URI: the folders and
 objects directly under the prefix (folders first), or with `-r`,
@@ -200,13 +239,38 @@ folder marker is not listed. A URI that does not end in `/` lists every key
 that starts with it, the object with exactly that key (or its versions)
 first, so `bb ls s3://bucket/report.pdf` shows that object. `--versions`
 lists object versions and delete markers (always in the long format). Pages
-are fetched with the `list_page_size` setting (default 1000).
+are fetched with the `list_page_size` setting (default 1000). The last
+segment of the URI may be a wildcard pattern (`'s3://bucket/logs/*.gz'`, quote
+it); see "Wildcards" under `bb cp`.
 
 | Format | Columns |
 |---|---|
 | buckets | `name`; with `-l`: creation date, region, name |
 | objects | `key`; with `-l`: last modified, size (`PRE` for folders), storage class, key |
 | versions | last modified, size (`DEL` for delete markers, `PRE` for folders), `latest` or `-`, version ID, key |
+
+#### Version filters
+
+With `--versions` the listing can be narrowed. The filters combine (a version
+must pass all of them) and only work together with `--versions`; folders are
+not listed while a filter is set, because a folder is not a version.
+
+| Flag | Keeps |
+|---|---|
+| `--older-than AGE_OR_DATE` | versions last modified more than `AGE` ago (`30d`, `12h`, `1h30m`, a plain number is seconds) or before a date (`2026-01-31`, midnight UTC) or an RFC 3339 time. A version without a modification time never matches |
+| `--noncurrent-only` | versions that are not the current version of their key |
+| `--delete-markers-only` | delete markers |
+| `--key-glob GLOB` | keys that match the glob, written relative to the listed folder (the prefix, or the folder of an exact key), with the `--include` syntax: `*` does not cross `/`, `**/*.gz` does. Repeat the flag to require several globs |
+
+The age is the last modification time of the version. S3 lifecycle rules
+count from the moment a version became non-current, which this listing does not
+know, so `--older-than 30d --noncurrent-only` is close to such a rule, not
+identical.
+
+```bash
+bb ls --versions -r --noncurrent-only --older-than 30d s3://bucket/logs/
+bb ls --versions -r --delete-markers-only --key-glob '*.gz' s3://bucket/logs/
+```
 
 ### `bb du S3_URI [--versions] [--multipart]`
 
@@ -266,15 +330,34 @@ name that exists is a `conflict` (exit 2). `--dry-run` creates nothing and
 shows, for each setting, whether the source has it and whether it would be
 copied.
 
-### `bb rm S3_URI [-r] [--versions] [--version-id ID] [--dry-run]`
+### `bb rm S3_URI [-r] [--versions [FILTERS]] [--version-id ID] [--dry-run] [--yes]`
 
 * `bb rm s3://bucket/key` deletes one object; a missing object is
   `not_found` (exit 2).
+* `bb rm 's3://bucket/logs/*.gz'` deletes the objects in `logs/` whose names
+  match; a pattern that matches nothing is `not_found`. Quote the pattern
+  and try `--dry-run` first; see "Wildcards" under `bb cp`.
 * A prefix (or a whole bucket) needs `-r`, `--recursive`; `-r` needs a
   prefix ending in `/`. Keys are listed and deleted 1000 per request.
 * `--versions` deletes every version and delete marker of the key, or of
   every key under the prefix with `-r`. On a versioned bucket a plain delete
   only adds a delete marker; `--versions` removes the data for good.
+  It takes the same filters as `bb ls --versions` (`--older-than`,
+  `--noncurrent-only`, `--delete-markers-only`, `--key-glob`; see above), so
+  `bb rm -r --versions --noncurrent-only --older-than 30d s3://bucket/logs/`
+  cleans up old versions and leaves the current ones. Check a cleanup first
+  with the same flags and `--dry-run` (or `bb ls --versions`).
+  Because this deletes data for good, it asks first: the matches are counted
+  (versions, delete markers, how many are current versions, bytes), a few
+  examples are shown on standard error, and the question `Delete N versions
+  for good? [y/N]` is asked on the terminal; any answer but `y` or `yes`
+  cancels (exit 130, nothing deleted). `--yes` skips the question. Without a
+  terminal (a script, a pipe) and without `--yes` the command refuses with
+  exit 1 before it sends any request; `--dry-run` never asks. A summary line
+  ("deleted 12 versions (3 delete markers, 2 current), 4096 bytes under
+  s3://bucket/logs/") ends the run on standard error; with `--json` standard
+  output carries only the per-version records. Filters that match nothing are
+  not an error (a clean-up job that finds nothing has succeeded).
 * `--version-id ID` deletes exactly one version or delete marker of one object for good
   (`S3_URI` is an object key, not a prefix; it cannot be combined with `-r` or `--versions`).
   A version that does not exist is `not_found` (exit 2). Removing the newest delete marker
@@ -343,6 +426,61 @@ matches zero or more whole folders (`**/*.jpg` matches `a.jpg` and
 match one of the alternatives, `\` escapes the next character, and
 everything else matches itself. Example: `--exclude '**' --include '*.jpg'`
 copies only the JPEG files directly in the source folder.
+
+#### Wildcards: `s3://b/logs/*.gz`, `./photos/*.jpg`
+
+The last segment of an S3 URI or of a local source path may be a pattern:
+`bb ls`, `bb rm`, `bb cp` and `bb mv` act on the objects (or, for `cp` and
+`mv` from a local path, the files) in that one folder whose names match. The
+pattern syntax is the one of `--include` and `--exclude` above: `*` and `?`
+never match `/`, `[abc]`, `[a-z]` and `{jpg,png}` work, matching is case
+sensitive, and a backslash makes the next character literal.
+
+```bash
+bb ls 's3://bucket/logs/*.gz'                 # objects (and folders) with a matching name
+bb rm --dry-run 's3://bucket/logs/2024-*.gz'  # then without --dry-run
+bb cp 's3://bucket/logs/*.gz' ./logs/         # download all matches into a folder
+bb cp './photos/*.jpg' s3://bucket/photos/    # upload all matching files
+bb mv 's3://bucket/in/report-??.csv' s3://bucket/done/
+```
+
+Rules:
+
+* **Quote the pattern.** Without quotes your shell expands it first: a
+  `*` that matches local files is replaced by those file names, and one that
+  matches nothing makes `zsh` stop with `no matches found` (and `bash` pass
+  the text on). In `bash` and `zsh` use single quotes (`'s3://b/*.gz'`); in
+  PowerShell single quotes as well; in `cmd.exe` use double quotes (`cmd`
+  does not expand wildcards itself, so quoting is optional there). A
+  pattern the shell already expanded into several local files is just
+  several `cp` sources; `bb cp` takes one source, so quote it and let `bb`
+  expand it.
+* Only the last segment may hold wildcards; the folder in front of it is
+  literal (`s3://b/*/a.gz` is a usage error, exit 1). `-r` cannot be
+  combined with a wildcard (usage error): a wildcard never descends into
+  subfolders, so use `-r` with a folder and `--include`/`--exclude` to
+  filter a tree.
+* A pattern that matches nothing is an error, never a silent success: `not_found`
+  (exit 2), and nothing is copied or deleted. For `rm --versions` this means
+  no key matches the pattern at all; filters such as `--older-than` that then
+  keep no version are not an error.
+* `cp` and `mv` with several matches need a destination that can hold them: a
+  prefix ending in `/` (or a bucket), or an existing folder (or a path ending
+  in a separator) for downloads. One match behaves like a single object and may
+  go to an exact key or file name. `mv` removes each source after its own
+  transfer, as always. `--dry-run` lists the matches.
+* `ls` also shows matching folders (`s3://b/logs/s*` lists `logs/sub/`); `cp`,
+  `mv` and `rm` use objects only. `bb ls --versions 's3://b/logs/*.gz'` lists
+  the versions of the matching keys, and `bb rm --versions` deletes them (with
+  the version filters and the confirmation described above).
+* A local path with a wildcard is only a pattern when no file of exactly
+  that name exists (`a[1].txt` uploads that file). Matching skips folders and,
+  unless the pattern starts with a dot, hidden files. For an S3 key, a
+  backslash is the escape: a key that really contains `*`, `?`, `[`, `{` or
+  `\` is written with a backslash in front of each (`s3://b/dir/a\*.txt`,
+  quoted).
+* Wildcards are expanded by `bb` on every platform, so the result does not
+  depend on the shell.
 
 How transfers run:
 
@@ -493,7 +631,7 @@ A prefix needs `-r`. With `-r`, objects that are in the wanted state already
 ignored. Records: `bucket`, `key`, `action`, `size_before`, `size_after`,
 `etag`, `skipped`, `error`.
 
-### `bb sync LOCAL S3_URI [--direction DIRECTION] [--delete] [--dry-run]` and `bb sync --resume PLAN_ID`
+### `bb sync LOCAL S3_URI [--direction DIRECTION] [--delete] [--yes] [--dry-run]` and `bb sync --resume PLAN_ID`
 
 Makes a local folder and an S3 prefix match. The local folder always comes
 first and the S3 location second (swapping them is a usage error). A
@@ -523,6 +661,17 @@ but never the synced folder itself). It cannot be combined with
 like a new file on the other (usage error). Nothing outside the prefix or the
 folder is ever touched.
 
+**Deleting asks first.** When the plan has deletions and this is not a dry run,
+`bb sync` shows the count and a few examples on standard error and asks `Delete N
+files? [y/N]` on the terminal; any answer but `y` or `yes` cancels (exit 130,
+nothing uploaded, deleted or stored). `--yes` skips the question. Without a terminal
+(cron, a script, a pipe, a saved job started by a scheduler) and without `--yes`
+the sync is refused with exit 1 and a message that names the count and examples,
+before anything is changed: a scheduled run of a job that has `--delete`
+(`bb sync --job nightly`) needs `--yes`. A sync whose plan has no deletions never asks, `--dry-run`
+never asks, and `--resume` asks again about the deletions that are left in the
+stored plan.
+
 How a run goes:
 
 1. The prefix is listed, the folder is scanned and compared, which gives a
@@ -538,8 +687,12 @@ How a run goes:
    `bandwidth_limit_kibps` cap, as for `cp` ("How transfers run" above). A
    row that fails never stops the others, and a failed row is not tried again
    during the run (beyond the HTTP client's own retries).
-4. Each row is reported as it finishes, which with concurrent transfers is
-   not path order, and the run ends with a summary. Downloads write
+4. Each row is reported as it finishes (one line per file: `uploaded ...`,
+   `downloaded ...`, `deleted ...`; which with concurrent transfers is not path
+   order), and the run ends with a summary: the counts line (copied, deleted,
+   already in sync, and failed when something failed) on stdout, and, when the
+   run did any work, a line `3.0 KiB copied in 1.2 s` on stderr. `--json` has the
+   same numbers in the `summary` record (`bytes`, `elapsed_ms`). Downloads write
    `<file>.bbpart` and rename it, as for `cp`. Progress (rows and bytes of the
    finished rows) is drawn on stderr only on a terminal, without `--quiet`
    and `--json`.
@@ -586,6 +739,44 @@ password locks the stored one). Bitly needs a token, TinyURL works without.
 of your own, or a local server in tests). A short link keeps working after the
 presigned URL expires only as a redirect to a URL that no longer works. With
 `--json` the record has an extra `short_url`.
+
+### `bb version [--check]`
+
+Prints the version of `bb` (`bb 0.4.0`; with `--json` `{"version": "0.4.0"}`). It
+needs no account and makes no request. `bb --version` prints the same
+version.
+
+`--check` also asks whether a newer release exists, and is the **only way `bb`
+ever looks for one**: it never checks on its own, at start-up or in the
+background. It sends one `GET` to the GitHub API,
+`https://api.github.com/repos/anupshaw50/BucketBridge/releases/latest`, and
+compares the tag of the answer with the running version (semantic versioning; a
+pre-release is older than its release). Nothing is downloaded or installed. This
+is the one request of `bb` that is not aimed at a storage endpoint (apart from
+`presign --shorten`, which sends a link to the shortener you chose), and it is
+documented with the other guarantees in `docs/security.md`.
+
+* The request carries no account, key, version number or other identifier, only
+  a fixed `User-Agent` of `bucketbridge-update-check`.
+* It honours the proxy settings of the application (the same settings as the
+  storage requests use, which are independent of any account) and, while those
+  are disabled, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY`. Under a master
+  password a proxy password is asked like any other secret (`BB_MASTER_PASSWORD` or the
+  terminal). `--account`, `--profile` and the `BB_ACCESS_KEY_ID`
+  variables play no part.
+* `BB_UPDATE_CHECK_URL` replaces the address (a mirror of your own, or a local server
+  in tests).
+* An update (or no update) is not a failure: the exit code is 0. The human
+  lines are `update available: 0.5.0 (you have 0.4.0); release page: URL`,
+  `bb 0.4.0 is up to date (the latest release is 0.4.0)` and `bb 0.5.0 is newer
+  than the latest release (0.4.0)`. With `--json` the record is
+  `{"current", "latest", "update_available", "url"}`, `latest` without the leading `v`.
+* A failure is a `remote` error, exit code 2, and prints nothing on stdout: no
+  network or proxy that cannot be reached (`could not reach GitHub: ...`), a
+  timeout (15 seconds to connect and to read), a status other than 200 (404 when
+  no release is published; 403 and 429 when GitHub limits requests), an answer
+  that is not a release, or a tag that is not a version. A proxy that rejects its
+  credentials is `auth`, exit code 3.
 
 ### `bb edit S3_URI [--app APP]`
 
@@ -949,7 +1140,7 @@ account in use) before running it, replacing a job of that name.
   account; `--account` is only accepted when it names that account. The job's locations,
   direction and `--delete` cannot be combined with `--job`. `--dry-run`, `--summary`,
   `--exclude`, `--exclude-from`, `--include`, `--keep-empty-folders`, `--skip-duplicates`,
-  `--no-cache` and `--parallel` are added to the job's options for this run (rules of the
+  `--no-cache`, `--parallel` and `--yes` are added to the job's options for this run (rules of the
   command line come after the job's). `bb sync --job` runs the plan like `bb sync` does,
   including `--resume`.
 * `bb sync jobs list` prints one line per job (`NAME<TAB>DIRECTION<TAB>FROM -> TO`), `show
@@ -1033,6 +1224,8 @@ the whole plan.
 | `copied`, `deleted` | rows copied, rows deleted |
 | `failed` | rows that could not be synced, or failed while running |
 | `pending` | rows not attempted (interrupted); with `--dry-run` the rows a real run would execute |
+| `bytes` | bytes of the files copied; with `--dry-run` the bytes a real run would copy |
+| `elapsed_ms` | how long the command ran, in milliseconds |
 
 When rows could be tried again, stderr (not with `--json`) says `bb: N failed
 while running; try again with: bb sync --resume PLAN_ID`.

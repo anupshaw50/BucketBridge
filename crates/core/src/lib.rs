@@ -83,6 +83,7 @@ pub mod preview;
 pub mod preview_format;
 pub mod proxy;
 pub mod regions;
+pub mod release;
 pub mod s3uri;
 pub mod saved_filters;
 pub mod scan;

@@ -242,6 +242,7 @@ async fn versions_of_one_key_are_deleted_one_by_one() {
     let out = run(bb_mock(&mock, config.path()).args([
         "rm",
         "--versions",
+        "--yes",
         "--json",
         "s3://bucket/doc.txt",
     ]));
@@ -280,8 +281,12 @@ async fn versions_of_one_key_are_deleted_one_by_one() {
         ]
     );
 
-    let out =
-        run(bb_mock(&mock, config.path()).args(["rm", "--versions", "s3://bucket/missing.txt"]));
+    let out = run(bb_mock(&mock, config.path()).args([
+        "rm",
+        "--versions",
+        "--yes",
+        "s3://bucket/missing.txt",
+    ]));
     out.expect_code(2);
     assert!(
         out.stderr.contains(&tr("has no versions")),
@@ -322,6 +327,7 @@ async fn versions_purge_a_versioned_object() {
         "rm",
         "-r",
         "--versions",
+        "--yes",
         "--json",
         &format!("s3://{bucket}/dir/"),
     ]);

@@ -38,6 +38,7 @@ use crate::location::{
 };
 use crate::output::{Batch, Failure, Output, error_of_kind};
 use crate::paging::SeenTokens;
+use crate::pattern::{S3Pattern, is_pattern, list_matches, local_matches, s3_pattern};
 use crate::records::CopyRecord;
 use crate::transfer::{ItemProgress, ProgressLine, Totals, print_above, throttle};
 
@@ -198,6 +199,15 @@ pub fn check(args: &CopyArgs, mode: Mode) -> Result<()> {
         Route::Upload { .. } => return Ok(()),
         Route::Download { src, .. } | Route::Copy { src, .. } => src,
     };
+    if s3_pattern(src)?.is_some() {
+        if args.recursive {
+            return Err(Error::Usage(trf(
+                "--recursive does not combine with the wildcard in {source}; a wildcard matches only the objects directly in its folder, use --include and --exclude with a folder to filter a whole tree",
+                &[("source", &src.to_string())],
+            )));
+        }
+        return Ok(());
+    }
     if args.recursive && !src.is_prefix() {
         return Err(Error::Usage(trf(
             "--recursive needs a source prefix ending in '/', for example {source}/",
@@ -522,22 +532,148 @@ struct Planner<'a> {
 impl Planner<'_> {
     async fn plan(&self, route: Route<'_>) -> Result<Plan> {
         match route {
-            Route::Upload { path, dst } if self.recursive => self.upload_folder(path, dst).await,
-            Route::Upload { path, dst } => self.upload_file(path, dst).await,
+            Route::Upload { path, dst } if self.recursive => {
+                refuse_local_wildcard(path)?;
+                self.upload_folder(path, dst).await
+            }
+            Route::Upload { path, dst } => match local_matches(path)? {
+                Some(files) => self.upload_files(files, dst).await,
+                None => self.upload_file(path, dst).await,
+            },
             Route::Download { src, path } if self.recursive => {
                 self.download_prefix(src, path).await
             }
-            Route::Download { src, path } => self.download_object(src, path).await,
+            Route::Download { src, path } => match s3_pattern(src)? {
+                Some(pattern) => self.download_matches(&pattern, path).await,
+                None => self.download_object(src, path).await,
+            },
             Route::Copy { src, dst } if self.recursive => self.copy_prefix(src, dst).await,
-            Route::Copy { src, dst } => Ok(Plan::single(
+            Route::Copy { src, dst } => match s3_pattern(src)? {
+                Some(pattern) => self.copy_matches(&pattern, dst).await,
+                None => Ok(Plan::single(
+                    Direction::Copy,
+                    Job::Copy {
+                        src: src.clone(),
+                        dst: single_destination(src, dst)?,
+                        size: None,
+                    },
+                )),
+            },
+        }
+    }
+
+    /// One plan for the transfers of the files or objects a wildcard matched:
+    /// the exact one when there is only one, a batch otherwise.
+    fn merge(direction: Direction, mut plans: Vec<Plan>) -> Plan {
+        if plans.len() == 1 {
+            return plans.remove(0);
+        }
+        Plan {
+            direction,
+            single: false,
+            jobs: plans.into_iter().flat_map(|plan| plan.jobs).collect(),
+            skipped: Vec::new(),
+            source_dir: None,
+        }
+    }
+
+    /// Several matches need a destination that can hold several.
+    fn too_many(count: usize, pattern: &str, destination: &str, what: &str) -> Error {
+        Error::Usage(trf(
+            what,
+            &[
+                ("count", &count.to_string()),
+                ("pattern", pattern),
+                ("destination", destination),
+            ],
+        ))
+    }
+
+    /// The files of a local wildcard, each to the destination prefix.
+    async fn upload_files(&self, files: Vec<PathBuf>, dst: &S3Uri) -> Result<Plan> {
+        let files: Vec<PathBuf> = files
+            .into_iter()
+            .filter(|file| {
+                file.file_name()
+                    .and_then(OsStr::to_str)
+                    .is_none_or(|name| self.keep(name))
+            })
+            .collect();
+        if files.len() > 1 && !dst.is_prefix() {
+            return Err(Self::too_many(
+                files.len(),
+                "",
+                &dst.to_string(),
+                "{count} files match; the destination {destination} must be a prefix ending in '/' (or a bucket)",
+            ));
+        }
+        let mut plans = Vec::with_capacity(files.len());
+        for file in &files {
+            plans.push(self.upload_file(file, dst).await?);
+        }
+        Ok(Self::merge(Direction::Upload, plans))
+    }
+
+    /// The objects of an S3 wildcard, each into the destination folder.
+    async fn download_matches(&self, pattern: &S3Pattern, path: &Path) -> Result<Plan> {
+        let matches = self.matched_keys(pattern).await?;
+        if matches.len() > 1 && !(ends_with_separator(path) || is_local_dir(path).await) {
+            return Err(Self::too_many(
+                matches.len(),
+                &pattern.display(),
+                &path.display().to_string(),
+                "{count} objects match {pattern}; the destination {destination} must be an existing folder (or end with a separator)",
+            ));
+        }
+        let mut plans = Vec::with_capacity(matches.len());
+        for uri in &matches {
+            plans.push(self.download_object(uri, path).await?);
+        }
+        Ok(Self::merge(Direction::Download, plans))
+    }
+
+    /// The objects of an S3 wildcard, each copied to the destination.
+    async fn copy_matches(&self, pattern: &S3Pattern, dst: &S3Uri) -> Result<Plan> {
+        let matches = self.matched_keys(pattern).await?;
+        if matches.len() > 1 && !dst.is_prefix() {
+            return Err(Self::too_many(
+                matches.len(),
+                &pattern.display(),
+                &dst.to_string(),
+                "{count} objects match {pattern}; the destination {destination} must be a prefix ending in '/' (or a bucket)",
+            ));
+        }
+        let mut plans = Vec::with_capacity(matches.len());
+        for src in matches {
+            let target = single_destination(&src, dst)?;
+            if target == src {
+                return Err(Error::Usage(onto_itself(
+                    self.mode.infinitive(Direction::Copy),
+                    &src.to_string(),
+                )));
+            }
+            plans.push(Plan::single(
                 Direction::Copy,
                 Job::Copy {
-                    src: src.clone(),
-                    dst: single_destination(src, dst)?,
+                    src,
+                    dst: target,
                     size: None,
                 },
-            )),
+            ));
         }
+        Ok(Self::merge(Direction::Copy, plans))
+    }
+
+    /// The objects an S3 wildcard matches that the include and exclude rules
+    /// keep. No object at all matching the wildcard is `not_found`.
+    async fn matched_keys(&self, pattern: &S3Pattern) -> Result<Vec<S3Uri>> {
+        let entries = list_matches(self.engine.s3(), pattern, false).await?;
+        let dir = pattern.dir_uri()?;
+        entries
+            .into_iter()
+            .filter(|entry| self.keep(relative_to_source(&dir, &entry.key)))
+            .map(|entry| S3Uri::new(dir.bucket(), entry.key))
+            .collect()
     }
 
     /// Whether the filters keep an entry; `relative` is its path below the
@@ -827,6 +963,21 @@ impl Planner<'_> {
             })
             .collect())
     }
+}
+
+/// `--recursive` takes a folder, not a wildcard.
+fn refuse_local_wildcard(path: &Path) -> Result<()> {
+    let wildcard = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(is_pattern);
+    if wildcard && !path.exists() {
+        return Err(Error::Usage(trf(
+            "--recursive does not combine with the wildcard in '{path}'; name a folder, and use --include and --exclude to filter",
+            &[("path", &path.display().to_string())],
+        )));
+    }
+    Ok(())
 }
 
 /// Metadata of a local source; a missing path is an `io` error.

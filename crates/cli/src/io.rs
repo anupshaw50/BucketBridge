@@ -74,6 +74,12 @@ pub trait Console: Send + Sync {
     fn can_ask(&self) -> bool {
         false
     }
+
+    /// Asks a yes or no question on the terminal. `Ok(None)` when there is
+    /// no terminal to ask; `Ok(Some(true))` only for an explicit yes.
+    fn confirm(&self, _question: &str) -> io::Result<Option<bool>> {
+        Ok(None)
+    }
 }
 
 /// The console of this process: prompts go to the controlling terminal
@@ -94,6 +100,24 @@ impl Console for ProcessConsole {
     fn can_ask(&self) -> bool {
         io::stdin().is_terminal() && io::stderr().is_terminal()
     }
+
+    fn confirm(&self, question: &str) -> io::Result<Option<bool>> {
+        if !self.can_ask() {
+            return Ok(None);
+        }
+        let mut stderr = io::stderr();
+        stderr.write_all(question.as_bytes())?;
+        stderr.flush()?;
+        let mut line = String::new();
+        io::stdin().lock().read_line(&mut line)?;
+        Ok(Some(is_yes(&line)))
+    }
+}
+
+/// Whether an answer says yes: `y` or `yes` in any letter case. Anything
+/// else, an empty line included, is no.
+pub fn is_yes(answer: &str) -> bool {
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 /// A console without a terminal, for scripts and tests: prompts are never
@@ -162,7 +186,17 @@ mod tests {
     }
 
     #[test]
+    fn only_yes_is_yes() {
+        assert!(is_yes("y\n"));
+        assert!(is_yes(" YES "));
+        assert!(!is_yes(""));
+        assert!(!is_yes("n"));
+        assert!(!is_yes("yeah"));
+    }
+
+    #[test]
     fn no_console_never_answers() {
+        assert_eq!(NoConsole.confirm("sure?").unwrap(), None);
         assert_eq!(NoConsole.read_secret("x").unwrap(), None);
         assert!(!NoConsole.stderr_is_terminal());
     }

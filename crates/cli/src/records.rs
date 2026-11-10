@@ -309,6 +309,41 @@ pub struct AccountChangeRecord {
     pub label: String,
 }
 
+/// `bb version`: the running version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RunningVersionRecord {
+    /// The version of this `bb`, for example `0.4.0`.
+    pub version: String,
+}
+
+/// `bb version --check`: the running version against the latest release.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UpdateCheckRecord {
+    /// The version of this `bb`.
+    pub current: String,
+    /// The version of the latest release, without a leading `v`.
+    pub latest: String,
+    /// Whether the latest release is newer than this `bb`.
+    pub update_available: bool,
+    /// The page of the latest release.
+    pub url: String,
+}
+
+/// `bb account update-credentials`: the account whose keys were replaced.
+/// Never holds a secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AccountCredentialsRecord {
+    /// Account ID.
+    pub id: String,
+    /// Account label.
+    pub label: String,
+    /// The new access key ID.
+    pub access_key_id: String,
+    /// Whether the server accepted the new keys in a request made before
+    /// saving (`--verify`).
+    pub verified: bool,
+}
+
 /// `bb mpu abort`: one upload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AbortRecord {
@@ -429,6 +464,10 @@ pub struct SyncSummaryRecord {
     /// Rows still to do: not attempted (interrupted), or with `--dry-run`
     /// the rows a real run would execute.
     pub pending: usize,
+    /// Bytes copied (with `--dry-run`: the bytes a real run would copy).
+    pub bytes: u64,
+    /// How long the command ran, in milliseconds.
+    pub elapsed_ms: u64,
 }
 
 #[cfg(test)]

@@ -39,7 +39,7 @@ use crate::context::{Context, env};
 use crate::i18n::{tr, trf};
 use crate::output::{Failure, Output};
 use crate::records::{SyncRecord, SyncRowRecord, SyncSummaryRecord};
-use crate::transfer::{ItemProgress, ProgressLine, Totals, print_above};
+use crate::transfer::{ItemProgress, ProgressLine, Totals, human_bytes, print_above};
 
 /// What an invocation asks for.
 enum Target<'a> {
@@ -242,7 +242,15 @@ pub async fn run(
     let started = Instant::now();
     let spec = match target(args)? {
         Target::Resume(plan_id) => {
-            return resume(ctx, plan_id, args.summary, !args.no_upload_rules, out).await;
+            return resume(
+                ctx,
+                plan_id,
+                args.summary,
+                args.yes,
+                !args.no_upload_rules,
+                out,
+            )
+            .await;
         }
         Target::Plan { .. } => spec_from_args(args)?,
         Target::Job(name) => {
@@ -263,23 +271,77 @@ pub async fn run(
     };
     let plan = analyze(ctx, &spec, !args.dry_run).await?;
     let Some((dirs, engine)) = real else {
-        return report_only(plan, true, args.summary.then_some(started), out);
+        return report_only(plan, true, started, args.summary, out);
     };
     if sync::row_counts(&plan.rows).total == 0 {
         // Nothing to execute: no plan is stored.
-        return report_only(plan, false, args.summary.then_some(started), out);
+        return report_only(plan, false, started, args.summary, out);
     }
+    confirm_deletes(ctx, &plan, args.yes, out)?;
     let store = open_store(dirs).await?;
     let plan = insert_plan(&store, plan).await?;
-    execute(
+    execute(ctx, store, engine, plan, started, args.summary, out).await
+}
+
+/// Files shown as examples before the question.
+const DELETE_EXAMPLES: usize = 5;
+
+/// A sync that deletes asks first: the count and a few examples, then the
+/// terminal. `--yes` skips the question; without a terminal the sync is
+/// refused (exit 1) before anything is changed.
+fn confirm_deletes(ctx: &Context, plan: &SyncPlan, yes: bool, out: &Output) -> Result<(), Error> {
+    if yes {
+        return Ok(());
+    }
+    let layout = Layout::new(plan, None);
+    let doomed: Vec<String> = plan
+        .rows
+        .iter()
+        .filter(|row| row.action == SyncAction::Delete && !row.done)
+        .map(|row| match layout.operation(row) {
+            Operation::DeleteLocal => layout.local(&row.rel_path),
+            _ => layout.remote(&row.rel_path),
+        })
+        .collect();
+    if doomed.is_empty() {
+        return Ok(());
+    }
+    let count = doomed.len().to_string();
+    let examples = doomed
+        .iter()
+        .take(DELETE_EXAMPLES)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !ctx.can_ask {
+        return Err(Error::Usage(trf(
+            "this sync would delete {count} files (for example {examples}); there is no terminal to ask, so nothing was changed; pass --yes to delete without asking",
+            &[("count", &count), ("examples", &examples)],
+        )));
+    }
+    let mut details = vec![trf(
+        "this sync deletes {count} files:",
+        &[("count", &count)],
+    )];
+    details.extend(
+        doomed
+            .iter()
+            .take(DELETE_EXAMPLES)
+            .map(|path| format!("  {path}")),
+    );
+    if doomed.len() > DELETE_EXAMPLES {
+        details.push(trf(
+            "  and {more} more",
+            &[("more", &(doomed.len() - DELETE_EXAMPLES).to_string())],
+        ));
+    }
+    crate::confirm::confirm(
         ctx,
-        store,
-        engine,
-        plan,
-        args.summary.then_some(started),
         out,
+        false,
+        &details,
+        &trf("Delete {count} files?", &[("count", &count)]),
     )
-    .await
 }
 
 /// `--save-job NAME`: stores the setup of this run as a job (a job of that name is
@@ -410,6 +472,7 @@ async fn resume(
     ctx: &Context,
     plan_id: &str,
     summary: bool,
+    yes: bool,
     upload_rules: bool,
     out: &mut Output,
 ) -> Result<(), Failure> {
@@ -433,7 +496,8 @@ async fn resume(
         .into());
     }
     reach(ctx, &plan.s3_prefix).await?;
-    execute(ctx, store, engine, plan, summary.then_some(started), out).await
+    confirm_deletes(ctx, &plan, yes, out)?;
+    execute(ctx, store, engine, plan, started, summary, out).await
 }
 
 /// Asks for one key of the plan's prefix before any row runs. A fresh plan was
@@ -454,11 +518,12 @@ async fn reach(ctx: &Context, prefix: &S3Uri) -> Result<(), Error> {
 fn report_only(
     plan: SyncPlan,
     dry_run: bool,
-    report_since: Option<Instant>,
+    started: Instant,
+    report: bool,
     out: &mut Output,
 ) -> Result<(), Failure> {
-    let mut reporter = Reporter::new(out, plan, None, dry_run);
-    reporter.report_since = report_since;
+    let mut reporter = Reporter::new(out, plan, None, dry_run, started);
+    reporter.report = report;
     reporter.report_rows(|row| row.action != SyncAction::Equal);
     reporter.finish(None, false)
 }
@@ -485,12 +550,13 @@ async fn execute(
     store: Arc<SyncStore>,
     engine: TransferEngine,
     plan: SyncPlan,
-    report_since: Option<Instant>,
+    started: Instant,
+    report: bool,
     out: &mut Output,
 ) -> Result<(), Failure> {
     let plan_id = plan.id.clone();
-    let mut reporter = Reporter::new(out, plan, Some(plan_id.clone()), false);
-    reporter.report_since = report_since;
+    let mut reporter = Reporter::new(out, plan, Some(plan_id.clone()), false, started);
+    reporter.report = report;
     if ctx.show_progress {
         reporter.show_progress();
     }
@@ -856,12 +922,20 @@ struct Reporter<'o> {
     totals: Option<Arc<Totals>>,
     /// Writing to standard output failed: nothing more is printed.
     broken: Option<Failure>,
-    /// `--summary`: when the command started, for the report at the end.
-    report_since: Option<Instant>,
+    /// When the command started, for the time in the summary.
+    started: Instant,
+    /// `--summary`: print the report at the end.
+    report: bool,
 }
 
 impl<'o> Reporter<'o> {
-    fn new(out: &'o mut Output, plan: SyncPlan, plan_id: Option<String>, dry_run: bool) -> Self {
+    fn new(
+        out: &'o mut Output,
+        plan: SyncPlan,
+        plan_id: Option<String>,
+        dry_run: bool,
+        started: Instant,
+    ) -> Self {
         Reporter {
             out,
             line: None,
@@ -870,7 +944,8 @@ impl<'o> Reporter<'o> {
             dry_run,
             totals: None,
             broken: None,
-            report_since: None,
+            started,
+            report: false,
         }
     }
 
@@ -968,6 +1043,25 @@ impl<'o> Reporter<'o> {
         print_above(self.line.as_ref(), || out.notice(&text));
     }
 
+    /// Bytes of the files copied (with `--dry-run`: of the copies planned).
+    fn copied_bytes(&self) -> u64 {
+        self.plan
+            .rows
+            .iter()
+            .filter(|row| {
+                matches!(
+                    self.layout.operation(row),
+                    Operation::Upload | Operation::Download | Operation::Copy
+                ) && if self.dry_run {
+                    sync::row_is_pending(row)
+                } else {
+                    row.done
+                }
+            })
+            .filter_map(row_size)
+            .sum()
+    }
+
     /// Clears the progress line.
     fn close(&mut self) {
         drop(self.line.take());
@@ -981,6 +1075,7 @@ impl<'o> Reporter<'o> {
             return Err(failure);
         }
         let tally = Tally::of(&self.plan.rows);
+        let bytes = self.copied_bytes();
         if let Some(plan_id) = &kept
             && !cancelled
             && tally.retryable > 0
@@ -1009,6 +1104,8 @@ impl<'o> Reporter<'o> {
             deleted: tally.deleted,
             failed: tally.failed(),
             pending: tally.pending(),
+            bytes,
+            elapsed_ms: u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
         let text = summary_line(&tally, self.dry_run);
         // A run that did not go well is never silent, even with --quiet.
@@ -1017,12 +1114,30 @@ impl<'o> Reporter<'o> {
         } else {
             self.out.change(&record, || text)?;
         }
-        if let Some(started) = self.report_since {
+        if !self.dry_run && tally.needing_work() > 0 {
+            // The line after the counts: how much data moved and how long it took.
+            let text = trf(
+                "{bytes} copied in {time}",
+                &[
+                    ("bytes", &human_bytes(bytes)),
+                    (
+                        "time",
+                        &sync::report::format_duration(
+                            u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        ),
+                    ),
+                ],
+            );
+            if !self.out.quiet() && !self.out.json() {
+                self.out.notice(&text);
+            }
+        }
+        if self.report {
             let report = SyncReport::from_rows(
                 &self.plan.id,
                 self.plan.direction,
                 &self.plan.rows,
-                started.elapsed(),
+                self.started.elapsed(),
                 cancelled,
             );
             let text = report_text(&report);
@@ -1320,6 +1435,8 @@ mod tests {
             deleted: 2,
             failed: 1,
             pending: 0,
+            bytes: 99,
+            elapsed_ms: 1500,
         });
         assert_eq!(
             serde_json::to_value(&summary).unwrap(),
@@ -1336,7 +1453,9 @@ mod tests {
                 "copied": 3,
                 "deleted": 2,
                 "failed": 1,
-                "pending": 0
+                "pending": 0,
+                "bytes": 99,
+                "elapsed_ms": 1500
             })
         );
     }

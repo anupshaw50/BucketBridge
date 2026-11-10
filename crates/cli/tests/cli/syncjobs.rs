@@ -250,7 +250,7 @@ async fn s3_to_s3_sync_copies_between_buckets() {
             .contains(&"out/a.txt".to_owned())
     );
 
-    let out = env.run(&["sync", &from, &to, "--delete"]).await;
+    let out = env.run(&["sync", &from, &to, "--delete", "--yes"]).await;
     out.expect_code(0);
     assert!(out.stdout.contains(&tr("copied s3://")), "{}", out.stdout);
     let keys = env.keys(&destination).await;
