@@ -44,6 +44,7 @@ pub mod expand;
 pub mod job;
 pub(crate) mod policy;
 mod remote;
+pub mod resume;
 mod runner;
 pub mod source;
 pub mod upload;
@@ -71,9 +72,10 @@ pub use download::{
     partial_path,
 };
 pub use enqueue::{
-    enqueue_copy, enqueue_copy_with, enqueue_delete, enqueue_download, enqueue_download_decrypted,
-    enqueue_download_with, enqueue_move, enqueue_move_with, enqueue_rename, enqueue_upload,
-    enqueue_upload_encrypted, enqueue_upload_with,
+    enqueue_clone_copy, enqueue_copy, enqueue_copy_with, enqueue_delete, enqueue_download,
+    enqueue_download_decrypted, enqueue_download_with, enqueue_move, enqueue_move_with,
+    enqueue_rename, enqueue_resume_upload, enqueue_upload, enqueue_upload_encrypted,
+    enqueue_upload_with,
 };
 pub use expand::{
     CopyItem, DeleteItem, DownloadItem, ExpandFailure, Expansion, UploadItem, expand_delete,
@@ -83,6 +85,9 @@ pub use job::{ConflictBroker, ConflictEvent, JobOptions, PendingConflict};
 pub use policy::{
     Choice, Conflict, ConflictResolver, ItemInfo, MTIME_META_KEY, SkipReason, format_mtime,
     is_newer, numbered_name, object_time, parse_mtime,
+};
+pub use resume::{
+    PartVerification, ResumePart, ResumeProblem, ResumeProblemCode, UploadResumeCheck,
 };
 pub use runner::{RunnerState, S3Provider, S3Runner};
 pub use source::{FileSource, SourceFingerprint, UploadSource};
@@ -215,6 +220,7 @@ pub struct TransferEngine {
     download_version: Option<String>,
     upload_headers: Option<UploadHeaders>,
     resolver: Option<ResolverSlot>,
+    rules: Option<std::sync::Arc<crate::upload_rules::UploadRules>>,
 }
 
 /// A [`ConflictResolver`] the engines hold (with a `Debug` impl).
@@ -246,6 +252,11 @@ pub struct UploadHeaders {
     pub expires: Option<aws_smithy_types::DateTime>,
     /// Storage class (`STANDARD_IA`, ...); `None` is the bucket default.
     pub storage_class: Option<String>,
+    /// Server-side encryption (`AES256`, `aws:kms`, `aws:kms:dsse`); `None`
+    /// is the bucket default.
+    pub server_side_encryption: Option<String>,
+    /// The KMS key for `aws:kms` encryption; `None` is the default key.
+    pub sse_kms_key_id: Option<String>,
 }
 
 impl TransferEngine {
@@ -259,6 +270,7 @@ impl TransferEngine {
             download_version: None,
             upload_headers: None,
             resolver: None,
+            rules: None,
         })
     }
 
@@ -282,6 +294,27 @@ impl TransferEngine {
             upload_headers: Some(headers),
             ..self.clone()
         }
+    }
+
+    /// A copy of these engines whose [`TransferEngine::upload_file`] applies
+    /// the first matching upload rule (see [`crate::upload_rules`]). Headers
+    /// set with [`TransferEngine::with_upload_headers`] win over a rule.
+    /// Empty rules switch the feature off.
+    #[must_use]
+    pub fn with_upload_rules(&self, rules: crate::upload_rules::UploadRules) -> Self {
+        TransferEngine {
+            rules: (!rules.is_empty()).then(|| std::sync::Arc::new(rules)),
+            ..self.clone()
+        }
+    }
+
+    /// [`TransferEngine::with_upload_rules`] with the rules of the settings
+    /// (a usage error when one is invalid).
+    pub fn with_upload_rule_settings(
+        &self,
+        settings: &crate::upload_rules::UploadRulesSettings,
+    ) -> Result<Self> {
+        Ok(self.with_upload_rules(crate::upload_rules::UploadRules::compile(settings)?))
     }
 
     /// A copy of these engines whose downloads read the version `version_id`
@@ -308,10 +341,12 @@ impl TransferEngine {
 }
 
 /// The SDK client for requests on `bucket`, addressed to the bucket's region
-/// ([`S3::client_for`]). Every bucket-scoped SDK call the engines make
-/// themselves goes through this function.
+/// ([`S3::client_for`]), through the Transfer Acceleration endpoint when the
+/// account uses it and the bucket has it enabled
+/// ([`S3::transfer_client_for`]). Every bucket-scoped SDK call the engines
+/// make themselves goes through this function.
 async fn bucket_client(s3: &S3, bucket: &str) -> Result<Client> {
-    s3.client_for(bucket).await
+    s3.transfer_client_for(bucket).await
 }
 
 /// Runs blocking work on Tokio's blocking thread pool.

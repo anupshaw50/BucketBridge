@@ -1,7 +1,8 @@
-import { Button, Group, Stack, Text } from "@mantine/core";
+import { Button, Group, Select, Stack, Text } from "@mantine/core";
 import { IconWorldUpload } from "@tabler/icons-react";
 import { useState } from "react";
 import { errorText } from "../../api/errors";
+import type { ShortenerProvider } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { tr } from "../../i18n";
 import { CopyField } from "../../components/CopyField";
@@ -13,12 +14,14 @@ import { shortenerName } from "./shortener";
  */
 export function ShortenControl({ url }: { url: string }) {
   const model = useModel();
-  const provider = useSlice(model.settings.store, (state) => state.settings.shortener.provider);
-  const [short, setShort] = useState<{ source: string; link: string } | null>(null);
+  const configured = useSlice(model.settings.store, (state) => state.settings.shortener.provider);
+  const [choice, setChoice] = useState<ShortenerProvider | null>(null);
+  const [short, setShort] = useState<{ source: string; link: string; provider: ShortenerProvider } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (provider === "none") {
+  const provider = choice ?? configured;
+  if (configured === "none") {
     return (
       <Group gap="xs">
         <Text size="xs" c="dimmed">
@@ -35,8 +38,8 @@ export function ShortenControl({ url }: { url: string }) {
     setBusy(true);
     setError(null);
     try {
-      const link = await model.api.shorten_url({ url });
-      setShort({ source: url, link });
+      const link = await model.api.shorten_url({ url, provider });
+      setShort({ source: url, link, provider });
     } catch (failure) {
       setError(errorText(failure));
     } finally {
@@ -45,7 +48,19 @@ export function ShortenControl({ url }: { url: string }) {
   };
   return (
     <Stack gap={6}>
-      <Group gap="xs" align="center">
+      <Group gap="xs" align="flex-end">
+        <Select
+          label={tr("Service")}
+          w={130}
+          size="xs"
+          allowDeselect={false}
+          value={provider}
+          data={[
+            { value: "bitly", label: "Bitly" },
+            { value: "tinyurl", label: "TinyURL" },
+          ]}
+          onChange={(value) => setChoice(value === "bitly" || value === "tinyurl" ? value : null)}
+        />
         <Button
           size="xs"
           variant="default"
@@ -64,7 +79,7 @@ export function ShortenControl({ url }: { url: string }) {
           {error}
         </Text>
       ) : null}
-      {short !== null && short.source === url ? (
+      {short !== null && short.source === url && short.provider === provider ? (
         <>
           <CopyField label={tr("Short link")} value={short.link} sensitive />
           <Text size="xs" c="dimmed">

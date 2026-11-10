@@ -3,22 +3,31 @@
 use std::fmt;
 use std::str::FromStr;
 
+use aws_sdk_s3::operation::get_bucket_acl::GetBucketAclOutput;
 use aws_sdk_s3::operation::get_object_acl::GetObjectAclOutput;
 use aws_sdk_s3::types::{
-    AccessControlPolicy, Grant, Grantee, ObjectCannedAcl, Owner, Permission, Type,
+    AccessControlPolicy, BucketCannedAcl, Grant, Grantee, ObjectCannedAcl, Owner, Permission, Type,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{BatchOptions, ObjectChange, run_batch, validate_object_key};
 use crate::error::{Error, Result};
-use crate::ops::S3;
+use crate::objectlock::ObjectOwnership;
+use crate::ops::{S3, build_error};
 use crate::s3uri::{validate_bucket_name, validate_key};
 
 /// The group of everyone, signed in or not.
-const ALL_USERS_URI: &str = "http://acs.amazonaws.com/groups/global/AllUsers";
+pub const ALL_USERS_URI: &str = "http://acs.amazonaws.com/groups/global/AllUsers";
 
 /// The group of every AWS account.
-const AUTHENTICATED_USERS_URI: &str = "http://acs.amazonaws.com/groups/global/AuthenticatedUsers";
+pub const AUTHENTICATED_USERS_URI: &str =
+    "http://acs.amazonaws.com/groups/global/AuthenticatedUsers";
+
+/// The group that S3 server access logging delivers logs as.
+pub const LOG_DELIVERY_URI: &str = "http://acs.amazonaws.com/groups/s3/LogDelivery";
+
+/// Longest canonical user ID, e-mail address or display name accepted.
+const MAX_GRANTEE_LEN: usize = 256;
 
 /// The canned ACLs of S3 that apply to objects.
 ///
@@ -170,6 +179,120 @@ impl ObjectAcl {
     }
 }
 
+/// The ACL of a bucket and whether ACLs can be changed on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BucketAcl {
+    /// The grants of the bucket.
+    pub acl: ObjectAcl,
+    /// The Object Ownership setting; `None` when none is set or it could not
+    /// be read.
+    pub ownership: Option<ObjectOwnership>,
+    /// Object Ownership is BucketOwnerEnforced: S3 refuses every ACL change
+    /// on the bucket and on its objects.
+    pub acls_disabled: bool,
+}
+
+impl AclPermission {
+    fn to_sdk(self) -> Permission {
+        match self {
+            AclPermission::FullControl => Permission::FullControl,
+            AclPermission::Read => Permission::Read,
+            AclPermission::Write => Permission::Write,
+            AclPermission::ReadAcp => Permission::ReadAcp,
+            AclPermission::WriteAcp => Permission::WriteAcp,
+        }
+    }
+}
+
+/// Checks a list of grants without asking S3: not empty, each grantee valid
+/// for its kind (a group is one of the three predefined groups, an e-mail
+/// address has an `@`, a canonical user ID has no spaces) and no grant twice.
+pub fn validate_grants(grants: &[AclGrant]) -> Result<()> {
+    if grants.is_empty() {
+        return Err(Error::Usage(
+            "an ACL needs at least one grant; the owner usually keeps FULL_CONTROL".into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for grant in grants {
+        let who = grant.grantee.trim();
+        if who.is_empty() || who != grant.grantee || who.chars().count() > MAX_GRANTEE_LEN {
+            return Err(Error::Usage(format!(
+                "the grantee '{}' is empty, has spaces around it or is too long",
+                grant.grantee.escape_debug()
+            )));
+        }
+        match grant.grantee_type {
+            GranteeKind::Group => {
+                if ![ALL_USERS_URI, AUTHENTICATED_USERS_URI, LOG_DELIVERY_URI].contains(&who) {
+                    return Err(Error::Usage(format!(
+                        "'{}' is not a predefined group; use AllUsers, AuthenticatedUsers or LogDelivery",
+                        who.escape_debug()
+                    )));
+                }
+            }
+            GranteeKind::Email => {
+                let valid = who
+                    .split_once('@')
+                    .is_some_and(|(name, host)| !name.is_empty() && host.contains('.'))
+                    && !who.chars().any(|c| c.is_whitespace() || c.is_control());
+                if !valid {
+                    return Err(Error::Usage(format!(
+                        "'{}' is not an e-mail address",
+                        who.escape_debug()
+                    )));
+                }
+            }
+            GranteeKind::CanonicalUser => {
+                if who.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                    return Err(Error::Usage(format!(
+                        "'{}' is not a canonical user ID (no spaces)",
+                        who.escape_debug()
+                    )));
+                }
+            }
+        }
+        if !seen.insert((grant.grantee_type, who.to_owned(), grant.permission)) {
+            return Err(Error::Usage(format!(
+                "the grant {:?} to '{}' is listed twice",
+                grant.permission,
+                who.escape_debug()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn sdk_grant(grant: &AclGrant) -> Result<Grant> {
+    let grantee = match grant.grantee_type {
+        GranteeKind::CanonicalUser => Grantee::builder()
+            .r#type(Type::CanonicalUser)
+            .id(&grant.grantee),
+        GranteeKind::Group => Grantee::builder().r#type(Type::Group).uri(&grant.grantee),
+        GranteeKind::Email => Grantee::builder()
+            .r#type(Type::AmazonCustomerByEmail)
+            .email_address(&grant.grantee),
+    }
+    .build()
+    .map_err(build_error)?;
+    Ok(Grant::builder()
+        .grantee(grantee)
+        .permission(grant.permission.to_sdk())
+        .build())
+}
+
+/// The policy that replaces the ACL: `grants` for the owner the S3 answer named.
+fn policy_of(owner: Option<Owner>, grants: &[AclGrant]) -> Result<AccessControlPolicy> {
+    let owner = owner.ok_or_else(|| {
+        Error::Internal("S3 did not say who owns the ACL, so it cannot be replaced".into())
+    })?;
+    let sdk: Vec<Grant> = grants.iter().map(sdk_grant).collect::<Result<_>>()?;
+    Ok(AccessControlPolicy::builder()
+        .owner(owner)
+        .set_grants(Some(sdk))
+        .build())
+}
+
 fn permission_of(permission: &Permission) -> Option<AclPermission> {
     match permission {
         Permission::FullControl => Some(AclPermission::FullControl),
@@ -244,6 +367,19 @@ fn infer_canned(owner_id: Option<&str>, grants: &[AclGrant]) -> Option<CannedAcl
 
 /// The ACL a `GetObjectAcl` response describes.
 pub(crate) fn acl_from_output(out: &GetObjectAclOutput) -> ObjectAcl {
+    let owner_id = out.owner().and_then(Owner::id);
+    let grants: Vec<AclGrant> = out.grants().iter().filter_map(grant_of).collect();
+    ObjectAcl {
+        owner: owner_id
+            .or(out.owner().and_then(Owner::display_name))
+            .map(str::to_owned),
+        canned: infer_canned(owner_id, &grants),
+        grants,
+    }
+}
+
+/// The ACL a `GetBucketAcl` response describes.
+fn acl_from_bucket_output(out: &GetBucketAclOutput) -> ObjectAcl {
     let owner_id = out.owner().and_then(Owner::id);
     let grants: Vec<AclGrant> = out.grants().iter().filter_map(grant_of).collect();
     ObjectAcl {
@@ -352,6 +488,128 @@ impl S3 {
                         .with_context(format!("setting the ACL of s3://{bucket}/{key}")),
                     bucket,
                     Some(acl),
+                )
+            })?;
+        Ok(())
+    }
+
+    /// Replaces every grant of an object's ACL (`PutObjectAcl`), keeping the
+    /// owner S3 reports. Checked first: [`validate_grants`]. A bucket with ACLs
+    /// disabled is a `conflict` that says so.
+    pub async fn put_object_acl_grants(
+        &self,
+        bucket: &str,
+        key: &str,
+        grants: &[AclGrant],
+    ) -> Result<()> {
+        validate_bucket_name(bucket)?;
+        validate_object_key(key)?;
+        validate_grants(grants)?;
+        let current = self.get_acl_output(bucket, key).await?;
+        let policy = policy_of(current.owner().cloned(), grants)?;
+        self.client_for(bucket)
+            .await?
+            .put_object_acl()
+            .bucket(bucket)
+            .key(key)
+            .access_control_policy(policy)
+            .set_request_payer(self.request_payer())
+            .customize()
+            .config_override(self.metadata_timeout())
+            .send()
+            .await
+            .map_err(|err| {
+                acl_error(
+                    Error::from(err)
+                        .with_context(format!("setting the ACL of s3://{bucket}/{key}")),
+                    bucket,
+                    None,
+                )
+            })?;
+        Ok(())
+    }
+
+    /// The ACL of a bucket (`GetBucketAcl`) with the Object Ownership that
+    /// decides whether ACLs work at all.
+    pub async fn get_bucket_acl(&self, bucket: &str) -> Result<BucketAcl> {
+        let acl = acl_from_bucket_output(&self.get_bucket_acl_output(bucket).await?);
+        // An unreadable ownership setting does not hide the ACL.
+        let ownership = self.get_object_ownership(bucket).await.ok().flatten();
+        Ok(BucketAcl {
+            acl,
+            ownership,
+            acls_disabled: ownership == Some(ObjectOwnership::BucketOwnerEnforced),
+        })
+    }
+
+    async fn get_bucket_acl_output(&self, bucket: &str) -> Result<GetBucketAclOutput> {
+        validate_bucket_name(bucket)?;
+        self.client_for(bucket)
+            .await?
+            .get_bucket_acl()
+            .bucket(bucket)
+            .customize()
+            .config_override(self.metadata_timeout())
+            .send()
+            .await
+            .map_err(|err| {
+                Error::from(err).with_context(format!("reading the ACL of bucket '{bucket}'"))
+            })
+    }
+
+    /// Applies a canned ACL to a bucket (`PutBucketAcl`). Only `private`,
+    /// `public-read`, `public-read-write` and `authenticated-read` apply to
+    /// buckets (`usage` for the others).
+    pub async fn put_bucket_acl(&self, bucket: &str, acl: CannedAcl) -> Result<()> {
+        validate_bucket_name(bucket)?;
+        if matches!(
+            acl,
+            CannedAcl::BucketOwnerRead | CannedAcl::BucketOwnerFullControl
+        ) {
+            return Err(Error::Usage(format!(
+                "the canned ACL '{acl}' applies to objects, not to buckets; use private, public-read, public-read-write or authenticated-read"
+            )));
+        }
+        self.client_for(bucket)
+            .await?
+            .put_bucket_acl()
+            .bucket(bucket)
+            .acl(BucketCannedAcl::from(acl.as_str()))
+            .customize()
+            .config_override(self.metadata_timeout())
+            .send()
+            .await
+            .map_err(|err| {
+                acl_error(
+                    Error::from(err).with_context(format!("setting the ACL of bucket '{bucket}'")),
+                    bucket,
+                    Some(acl),
+                )
+            })?;
+        Ok(())
+    }
+
+    /// Replaces every grant of a bucket's ACL (`PutBucketAcl`), keeping the
+    /// owner S3 reports. Checked first: [`validate_grants`].
+    pub async fn put_bucket_acl_grants(&self, bucket: &str, grants: &[AclGrant]) -> Result<()> {
+        validate_bucket_name(bucket)?;
+        validate_grants(grants)?;
+        let current = self.get_bucket_acl_output(bucket).await?;
+        let policy = policy_of(current.owner().cloned(), grants)?;
+        self.client_for(bucket)
+            .await?
+            .put_bucket_acl()
+            .bucket(bucket)
+            .access_control_policy(policy)
+            .customize()
+            .config_override(self.metadata_timeout())
+            .send()
+            .await
+            .map_err(|err| {
+                acl_error(
+                    Error::from(err).with_context(format!("setting the ACL of bucket '{bucket}'")),
+                    bucket,
+                    None,
                 )
             })?;
         Ok(())

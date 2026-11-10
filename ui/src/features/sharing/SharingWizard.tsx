@@ -10,14 +10,20 @@ import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { formatDateTime } from "../../lib/format";
 import { isFolderKey, s3Uri } from "../../lib/s3keys";
 import { type ExpiryUnit, keyProblem, MAX_PRESIGN_SECONDS, UNIT_SECONDS } from "./expiry";
+import { checkHost, htmlSnippet, markdownSnippet, publicLink } from "../../lib/links";
 import { ShortenControl } from "./ShortenControl";
 
 type Step = 0 | 1 | 2;
 
+type LinkKind = "signed" | "public";
+
 interface Created {
   url: string;
   method: PresignMethod;
-  expiresAt: string;
+  /** When a signed link stops working; `null` for a public link. */
+  expiresAt: string | null;
+  kind: LinkKind;
+  host: string | null;
 }
 
 /**
@@ -34,6 +40,11 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
   const [method, setMethod] = useState<PresignMethod>("get");
   const [amount, setAmount] = useState<number>(1);
   const [unit, setUnit] = useState<ExpiryUnit>("hours");
+  const [kind, setKind] = useState<LinkKind>("signed");
+  const [host, setHost] = useState("");
+  const [hostTouched, setHostTouched] = useState(false);
+  const [hostChoices, setHostChoices] = useState<string[]>([]);
+  const [finding, setFinding] = useState(false);
   const [created, setCreated] = useState<Created | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,20 +72,51 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
       ? tr("Choose an expiry between 1 second and 7 days.")
       : null;
 
+  const hostCheck = checkHost(host);
+  const hostError =
+    hostCheck.ok
+      ? null
+      : hostCheck.problem === "empty"
+        ? tr("Enter the host name of the CloudFront distribution or of your site.")
+        : tr("Enter a host name such as cdn.example.com, without a path.");
+
   const invalidate = () => {
     request.current += 1;
     setCreated(null);
     setBusy(false);
     setError(null);
   };
+  const findDistributions = async () => {
+    setFinding(true);
+    setError(null);
+    try {
+      const found = await model.api.find_cloudfront_distributions({ account_id: accountId, bucket });
+      setHostChoices([...new Set(found.flatMap((distribution) => [...distribution.aliases, distribution.domain_name]))]);
+      if (found.length === 0) {
+        setError(tr("No CloudFront distribution serves this bucket. Type a host name instead."));
+      }
+    } catch (raw) {
+      setError(toBbError(raw).message);
+    } finally {
+      setFinding(false);
+    }
+  };
   const create = async () => {
+    if (kind === "public") {
+      if (hostCheck.ok) {
+        invalidate();
+        setCreated({ url: publicLink(hostCheck.host, key), method: "get", expiresAt: null, kind, host: hostCheck.host });
+        setStep(2);
+      }
+      return;
+    }
     const id = ++request.current;
     setBusy(true);
     setError(null);
     try {
       const url = await model.api.presign({ account_id: accountId, bucket, key, method, expires_secs: seconds });
       if (id === request.current) {
-        setCreated({ url, method, expiresAt: formatDateTime(new Date(Date.now() + seconds * 1000).toISOString()) });
+        setCreated({ url, method, expiresAt: formatDateTime(new Date(Date.now() + seconds * 1000).toISOString()), kind, host: null });
         setStep(2);
       }
     } catch (raw) {
@@ -94,7 +136,8 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
         setStep(1);
       }
     } else if (step === 1) {
-      if (expiryError === null) {
+      setHostTouched(true);
+      if (kind === "public" ? hostError === null : expiryError === null) {
         void create();
       }
     } else {
@@ -156,67 +199,116 @@ export function SharingWizard({ accountId, bucket, onClose }: { accountId: strin
           <Text size="sm" style={{ overflowWrap: "anywhere" }}>
             {tr("Link to")} <strong>{s3Uri(bucket, key)}</strong>
           </Text>
-          <SegmentedControl<PresignMethod>
-            value={method}
+          <SegmentedControl<LinkKind>
+            value={kind}
             onChange={(value) => {
-              setMethod(value);
+              setKind(value);
               invalidate();
             }}
             data={[
-              { value: "get", label: tr("Download (GET)") },
-              { value: "put", label: tr("Upload (PUT)") },
+              { value: "signed", label: tr("Temporary link (signed)") },
+              { value: "public", label: tr("Public link (CloudFront or your host name)") },
             ]}
-            aria-label={tr("Link type")}
+            aria-label={tr("Kind of link")}
           />
-          <Group align="flex-start" gap="sm">
-            <NumberInput
-              label={tr("Valid for")}
-              w={120}
-              min={1}
-              allowDecimal={false}
-              value={Number.isNaN(amount) ? "" : amount}
+          {kind === "public" ? (
+            <Stack gap="xs">
+              <Group align="flex-end" gap="sm" wrap="nowrap">
+                <Autocomplete
+                  label={tr("Host name")}
+                  placeholder="d111111abcdef8.cloudfront.net"
+                  value={host}
+                  data={hostChoices}
+                  style={{ flex: 1 }}
+                  onChange={(value) => {
+                    setHost(value);
+                    invalidate();
+                  }}
+                  error={hostTouched ? hostError : null}
+                />
+                <Button variant="default" loading={finding} onClick={() => void findDistributions()}>
+                  {tr("Find distributions")}
+                </Button>
+              </Group>
+              <Text size="xs" c="dimmed">
+                {tr("The link is https://host/key with no signature and no expiry. It works only if the object can be read through that host: a public object, or a CloudFront distribution that is allowed to read the bucket.")}
+              </Text>
+            </Stack>
+          ) : null}
+          {kind === "signed" ? (
+            <>
+            <SegmentedControl<PresignMethod>
+              value={method}
               onChange={(value) => {
-                setAmount(typeof value === "number" ? value : Number.NaN);
+                setMethod(value);
                 invalidate();
               }}
-              error={expiryError}
-            />
-            <Select
-              label={tr("Unit")}
-              w={130}
-              value={unit}
-              allowDeselect={false}
               data={[
-                { value: "seconds", label: tr("Seconds") },
-                { value: "minutes", label: tr("Minutes") },
-                { value: "hours", label: tr("Hours") },
-                { value: "days", label: tr("Days") },
+                { value: "get", label: tr("Download (GET)") },
+                { value: "put", label: tr("Upload (PUT)") },
               ]}
-              onChange={(value) => {
-                if (value === "seconds" || value === "minutes" || value === "hours" || value === "days") {
-                  setUnit(value);
-                  invalidate();
-                }
-              }}
+              aria-label={tr("Link type")}
             />
-          </Group>
-          <Text size="xs" c="dimmed">
-            {tr("The link works until it expires, or until the access of the account that signed it ends.")}
-          </Text>
+            <Group align="flex-start" gap="sm">
+              <NumberInput
+                label={tr("Valid for")}
+                w={120}
+                min={1}
+                allowDecimal={false}
+                value={Number.isNaN(amount) ? "" : amount}
+                onChange={(value) => {
+                  setAmount(typeof value === "number" ? value : Number.NaN);
+                  invalidate();
+                }}
+                error={expiryError}
+              />
+              <Select
+                label={tr("Unit")}
+                w={130}
+                value={unit}
+                allowDeselect={false}
+                data={[
+                  { value: "seconds", label: tr("Seconds") },
+                  { value: "minutes", label: tr("Minutes") },
+                  { value: "hours", label: tr("Hours") },
+                  { value: "days", label: tr("Days") },
+                ]}
+                onChange={(value) => {
+                  if (value === "seconds" || value === "minutes" || value === "hours" || value === "days") {
+                    setUnit(value);
+                    invalidate();
+                  }
+                }}
+              />
+            </Group>
+            <Text size="xs" c="dimmed">
+              {tr("The link works until it expires, or until the access of the account that signed it ends.")}
+            </Text>
+            </>
+          ) : null}
         </Stack>
       ) : null}
       {step === 2 && created !== null ? (
         <Stack gap={6}>
-          <CopyField label={tr("Link")} value={created.url} multiline sensitive />
+          <CopyField label={tr("Link")} value={created.url} multiline sensitive={created.kind === "signed"} />
           <Group gap={4}>
             <IconLink size={12} aria-hidden />
             <Text size="xs" c="dimmed">
-              {tr("Expires around {time}.", { time: created.expiresAt })}{" "}
-              {created.method === "get"
-                ? tr("Anyone with the link can download the object until then.")
-                : tr("Upload with an HTTP PUT request to this link until then.")}
+              {created.expiresAt === null
+                ? tr("This link has no signature and no expiry. It works only while the object can be read through {host}.", { host: created.host ?? "" })
+                : `${tr("Expires around {time}.", { time: created.expiresAt })} ${
+                    created.method === "get"
+                      ? tr("Anyone with the link can download the object until then.")
+                      : tr("Upload with an HTTP PUT request to this link until then.")
+                  }`}
             </Text>
           </Group>
+          {created.method === "get" ? (
+            <>
+              <CopyField label={tr("HTML")} value={htmlSnippet(created.url, key)} multiline sensitive={created.kind === "signed"} />
+              <CopyField label={tr("Markdown")} value={markdownSnippet(created.url, key)} multiline sensitive={created.kind === "signed"} />
+            </>
+          ) : null}
           <ShortenControl url={created.url} />
         </Stack>
       ) : null}

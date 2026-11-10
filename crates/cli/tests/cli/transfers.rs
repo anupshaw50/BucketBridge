@@ -325,3 +325,72 @@ async fn cp_and_mv_move_objects_between_accounts() {
     .await
     .expect_code(2);
 }
+
+#[tokio::test]
+async fn upload_rules_of_the_settings_apply_to_cp_and_sync_unless_disabled() {
+    let env = Env::start().await;
+    let bucket = env.s3.new_bucket().await;
+    std::fs::write(
+        env.config.path().join("config.toml"),
+        "[settings.upload_rules]\nenabled = true\n\n[[settings.upload_rules.rules]]\npattern = \"*.dat\"\ncontent_type = \"application/x-custom\"\n\n[settings.upload_rules.rules.headers]\nx-amz-meta-team = \"data\"\n",
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let local = file(dir.path(), "A.DAT", "content");
+
+    env.run(&["cp", &local, &format!("s3://{bucket}/with.dat")])
+        .expect_code(0);
+    let with = env
+        .s3
+        .ops()
+        .head_object(&bucket, "with.dat", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        with.meta.content_type.as_deref(),
+        Some("application/x-custom")
+    );
+    assert_eq!(
+        with.meta.user_meta.get("team").map(String::as_str),
+        Some("data")
+    );
+
+    env.run(&[
+        "cp",
+        "--no-upload-rules",
+        &local,
+        &format!("s3://{bucket}/without.dat"),
+    ])
+    .expect_code(0);
+    let without = env
+        .s3
+        .ops()
+        .head_object(&bucket, "without.dat", None)
+        .await
+        .unwrap();
+    assert_ne!(
+        without.meta.content_type.as_deref(),
+        Some("application/x-custom")
+    );
+    assert!(!without.meta.user_meta.contains_key("team"));
+
+    let folder = dir.path().join("tree");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("s.dat"), "x").unwrap();
+    env.run(&[
+        "sync",
+        folder.to_str().unwrap(),
+        &format!("s3://{bucket}/synced"),
+    ])
+    .expect_code(0);
+    let synced = env
+        .s3
+        .ops()
+        .head_object(&bucket, "synced/s.dat", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        synced.meta.content_type.as_deref(),
+        Some("application/x-custom")
+    );
+}

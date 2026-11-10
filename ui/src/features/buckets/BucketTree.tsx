@@ -28,7 +28,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { type KeyboardEvent, useMemo, useRef, useState } from "react";
-import { bucketRegions, EMPTY_BUCKET_FILTER, filterBuckets, hasBucketFilter } from "../../lib/buckets";
+import { bucketRegions, EMPTY_BUCKET_FILTER, filterBuckets, hasBucketFilter, knownStartPrefix } from "../../lib/buckets";
 import { formatCount } from "../../lib/format";
 import type { Bucket, BucketKind } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
@@ -46,6 +46,13 @@ import { isContextClick, isMenuKey, useContextMenu } from "../menus/useContextMe
 
 const KIND_LABELS: Record<BucketKind, string> = { aws: "AWS", external: "External", cloudfront: "CloudFront" };
 const KIND_COLORS: Record<BucketKind, string> = { aws: "gray", external: "grape", cloudfront: "cyan" };
+
+/** Where to open `bucket`: the folder of its known entry when the active account cannot list buckets. */
+function startPrefix(model: ReturnType<typeof useModel>, bucket: string): string {
+  const state = model.session.store.getState();
+  const account = state.accounts.find((item) => item.id === state.activeAccountId);
+  return account === undefined ? "" : knownStartPrefix(account.options, bucket);
+}
 
 export function KindBadge({ kind }: { kind: BucketKind }) {
   return (
@@ -213,7 +220,7 @@ export function BucketTree() {
   const activate = (row: TreeRow) => {
     switch (row.type) {
       case "bucket":
-        void model.browser.openLocation(row.bucket.name, "");
+        void model.browser.openLocation(row.bucket.name, startPrefix(model, row.bucket.name));
         break;
       case "folder":
         void model.browser.openLocation(row.bucket, row.prefix);

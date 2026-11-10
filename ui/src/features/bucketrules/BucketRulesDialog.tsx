@@ -10,6 +10,8 @@ import { tr } from "../../i18n";
 import type { BucketRulesTab } from "../../state/dialogs";
 import { SectionGate } from "../bucketcfg/common";
 import { DocEditor } from "./DocEditor";
+import { LifecycleForm } from "./LifecycleForm";
+import { LifecycleTools } from "./LifecycleTools";
 import { pretty } from "./pretty";
 
 const TABS: { id: BucketRulesTab; label: string }[] = [
@@ -210,6 +212,8 @@ export function BucketRulesDialog({ accountId, bucket, initialTab = "cors", onCl
                 save={(value) => model.api.put_bucket_lifecycle({ ...ref, config: value as never })}
                 remove={() => model.api.delete_bucket_lifecycle(ref)}
                 reload={() => reload("lifecycle")}
+                form={(text, setText) => <LifecycleForm text={text} setText={setText} />}
+                tools={(text, setText) => <LifecycleTools bucket={bucket} text={text} setText={setText} />}
               />
             )}
           </SectionGate>

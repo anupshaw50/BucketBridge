@@ -12,6 +12,7 @@ mod app;
 mod bookmarks;
 mod browse;
 mod bucketcfg;
+mod bucketprops;
 mod bucketrules;
 mod cloudfront;
 mod credentials;

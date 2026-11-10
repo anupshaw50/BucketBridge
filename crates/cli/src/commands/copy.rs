@@ -344,6 +344,11 @@ pub async fn run(
         });
     let build = |s3: &S3| -> Result<TransferEngine> {
         let engine = TransferEngine::new(s3.clone(), options.clone())?;
+        let engine = if args.no_upload_rules {
+            engine
+        } else {
+            engine.with_upload_rule_settings(&ctx.settings.upload_rules)?
+        };
         Ok(match &resolver {
             Some(resolver) => engine.with_conflict_resolver(Arc::clone(resolver)),
             None => engine,

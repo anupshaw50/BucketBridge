@@ -179,6 +179,54 @@ export const zhBucketcfg: Record<string, string> = {
   enabled: "已启用",
   suspended: "已暂停",
 
+  // ---- EncryptionTab.tsx ----
+  Encryption: "加密",
+  "No default encryption is configured. On AWS, S3 then encrypts new objects with SSE-S3.":
+    "未配置默认加密。在 AWS 上，S3 会用 SSE-S3 加密新对象。",
+  "New objects are encrypted with SSE-S3 (keys managed by S3).": "新对象使用 SSE-S3（由 S3 管理密钥）加密。",
+  "New objects are encrypted with SSE-KMS and the AWS managed key (aws/s3).":
+    "新对象使用 SSE-KMS 和 AWS 托管密钥（aws/s3）加密。",
+  "New objects are encrypted with SSE-KMS and the key {key}.": "新对象使用 SSE-KMS 和密钥 {key} 加密。",
+  "New objects use dual-layer SSE-KMS. It cannot be set here; you can replace it with SSE-S3 or SSE-KMS.":
+    "新对象使用双层 SSE-KMS。此处无法设置它，但可以改为 SSE-S3 或 SSE-KMS。",
+  "The default encryption of {bucket} was saved.": "{bucket} 的默认加密已保存。",
+  "Remove default encryption": "移除默认加密",
+  "The default encryption setting of {bucket} is removed. New objects get the encryption S3 applies on its own (SSE-S3 on AWS); existing objects are not changed.":
+    "将移除 {bucket} 的默认加密设置。新对象将采用 S3 自行应用的加密（AWS 上为 SSE-S3）；已有对象不受影响。",
+  "The default encryption of {bucket} was removed.": "{bucket} 的默认加密已移除。",
+  "The setting applies to objects uploaded from now on. Objects that are already in the bucket keep their encryption.":
+    "该设置只对此后上传的对象生效，存储桶中已有的对象保持原有加密。",
+  "Default encryption": "默认加密",
+  "SSE-S3": "SSE-S3",
+  "Amazon S3 managed keys.": "由 Amazon S3 管理的密钥。",
+  "SSE-KMS": "SSE-KMS",
+  "AWS Key Management Service keys.": "AWS 密钥管理服务（KMS）的密钥。",
+  "A key ID, key ARN, alias name (alias/name) or alias ARN. Leave empty for the AWS managed key (aws/s3).":
+    "密钥 ID、密钥 ARN、别名（alias/名称）或别名 ARN。留空则使用 AWS 托管密钥（aws/s3）。",
+  "Use an S3 Bucket Key": "使用 S3 存储桶密钥",
+  "Lowers the cost of SSE-KMS by reducing the requests to AWS KMS.": "减少对 AWS KMS 的请求，从而降低 SSE-KMS 的成本。",
+
+  // ---- TagsTab.tsx ----
+  "The tags of {bucket} were removed.": "{bucket} 的标签已移除。",
+  "The tags of {bucket} were saved.": "{bucket} 的标签已保存。",
+  "Tags label a bucket for cost allocation and organisation. A bucket can have up to {n} tags. Keys and values may contain letters, digits, spaces and + - = . _ : / @. Activate a tag as a cost allocation tag in the AWS Billing console to see it in cost reports.":
+    "标签用于为存储桶标注成本分配和归类信息。一个存储桶最多可有 {n} 个标签。键和值可包含字母、数字、空格以及 + - = . _ : / @。在 AWS 账单控制台中将标签激活为成本分配标签后，即可在成本报告中看到它。",
+  "Remove all tags": "移除所有标签",
+
   // ---- 其他区域也用到的通用词（此处归 bucketcfg）----
   Save: "保存",
+
+  // ---- AclTab.tsx ----
+  ACL: "ACL",
+  "Public read (everyone can list the bucket)": "公共读取（任何人都可以列出存储桶内容）",
+  "Make the bucket public": "将存储桶设为公开",
+  "The ACL public-read-write lets anyone on the internet list, upload, replace and delete objects in {bucket}. The public access block may still stop it.":
+    "ACL public-read-write 会让互联网上的任何人都能列出、上传、替换和删除 {bucket} 中的对象。公共访问屏蔽仍可能阻止这一点。",
+  "The ACL public-read lets anyone on the internet list the objects in {bucket}. The public access block may still stop it.":
+    "ACL public-read 会让互联网上的任何人都能列出 {bucket} 中的对象。公共访问屏蔽仍可能阻止这一点。",
+  "Apply ACL": "应用 ACL",
+  "The ACL of {bucket} is now {acl}.": "{bucket} 的 ACL 现在是 {acl}。",
+  "The ACL grants of {bucket} were saved.": "{bucket} 的 ACL 授权已保存。",
+  "Object Ownership: {ownership}": "对象所有权：{ownership}",
+  "Replaces every grant with a ready-made set.": "用一组预设授权替换所有现有授权。",
 };

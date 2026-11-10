@@ -113,6 +113,12 @@ pub async fn app_info(state: State<'_, AppState>) -> CommandResult<AppInfo> {
     })
 }
 
+/// The table of known regions and their partitions (`RegionEntry[]`).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_regions() -> CommandResult<Vec<bucketbridge_core::regions::RegionEntry>> {
+    Ok(bucketbridge_core::regions::entries())
+}
+
 /// The newest crash report in the crash folder, or `null`.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn last_crash_report(state: State<'_, AppState>) -> CommandResult<Option<CrashReport>> {

@@ -1,6 +1,7 @@
 import { Alert, Button, Text } from "@mantine/core";
 import { IconAlertCircle, IconInfoCircle } from "@tabler/icons-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { toBbError } from "../../api/errors";
 import type { BbErrorCode, Section } from "../../api/types";
 import { tr } from "../../i18n";
 
@@ -87,5 +88,52 @@ export function ActionError({ message }: { message: string | null }) {
         {message}
       </Text>
     </Alert>
+  );
+}
+
+/**
+ * A tab that reads its own setting when it opens (the setting is not part of `get_bucket_config`).
+ * A failure is shown like any unreadable section; `children` gets the value and a `reload` that reads
+ * it again and starts the editor over with what the bucket has now.
+ */
+export function LazyTab<T>({
+  read,
+  children,
+}: {
+  read: () => Promise<T>;
+  children: (value: T, reload: () => Promise<void>) => ReactNode;
+}) {
+  const [section, setSection] = useState<Section<T> | null>(null);
+  const [revision, setRevision] = useState(0);
+  const reader = useRef(read);
+  useEffect(() => {
+    reader.current = read;
+  });
+  const load = useCallback(async () => {
+    try {
+      setSection({ type: "loaded", value: await reader.current() });
+    } catch (raw) {
+      const error = toBbError(raw);
+      setSection({ type: "failed", error: { code: error.code, message: error.message } });
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  if (section === null) {
+    return (
+      <Text size="sm" c="dimmed" role="status">
+        {tr("Reading...")}
+      </Text>
+    );
+  }
+  const reload = async () => {
+    await load();
+    setRevision((count) => count + 1);
+  };
+  return (
+    <SectionGate section={section} reload={reload}>
+      {(value) => <div key={revision}>{children(value, reload)}</div>}
+    </SectionGate>
   );
 }

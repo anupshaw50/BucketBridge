@@ -182,6 +182,11 @@ function ListError() {
         <Text size="sm" style={{ overflowWrap: "anywhere" }}>
           {listing.error}
         </Text>
+        {listing.errorCode === "auth" ? (
+          <Text size="xs" c="dimmed" mt="xs">
+            {tr("Listing may not be allowed here. Type the folder you want in the address bar; uploading into a folder does not need listing.")}
+          </Text>
+        ) : null}
         <Group gap="xs" mt="sm">
           {listing.errorCode === "locked" ? (
             <Button size="xs" leftSection={<IconLock size={14} />} onClick={() => void unlockAndRetry()}>

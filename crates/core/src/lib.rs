@@ -14,6 +14,8 @@
 //! | [`client`] | Building an `aws_sdk_s3::Client` for an account ([`Credentials`], [`ClientOptions`]) |
 //! | [`ops`] | The S3 transport ([`S3`]): buckets, listings, metadata, deletes, copies, presigned URLs, multipart uploads |
 //! | [`bucketcfg`] | Bucket configuration on [`S3`]: policy, public access block, versioning, logging, website, acceleration; external buckets |
+//! | [`bucketcreate`] | Options of `create_bucket_with`: Object Lock, Object Ownership, public access block |
+//! | [`bucketprops`] | Default encryption and tags of a bucket |
 //! | [`bucketrules`] | Bucket rules (T04/T07): lifecycle, Intelligent-Tiering, CORS and replication, with validation before send |
 //! | [`objectmeta`] | Object metadata (T06): tags, storage class, server-side encryption, HTTP headers, user metadata, canned ACLs, with batch editing |
 //! | [`filter`] | Object filters ([`Filter`]) and the CLI's ordered include/exclude rules ([`IncludeExclude`]) |
@@ -51,6 +53,9 @@ pub mod accountfile;
 pub mod accounts;
 pub mod bookmarks;
 pub mod bucketcfg;
+pub mod bucketclone;
+pub mod bucketcreate;
+pub mod bucketprops;
 pub mod bucketrules;
 pub mod client;
 pub mod cloudfront;
@@ -77,6 +82,7 @@ pub mod path;
 pub mod preview;
 pub mod preview_format;
 pub mod proxy;
+pub mod regions;
 pub mod s3uri;
 pub mod saved_filters;
 pub mod scan;
@@ -87,6 +93,7 @@ pub mod shorten;
 pub mod sync;
 pub mod syncjobs;
 pub mod transfer;
+pub mod upload_rules;
 pub mod usage;
 pub mod versions;
 

@@ -177,6 +177,7 @@ where
         Command::Cp(args) => commands::copy::check(args, Mode::Copy),
         Command::Mv(args) => commands::copy::check(args, Mode::Move),
         Command::Sync(args) => commands::sync::check(args),
+        Command::CloneBucket(args) => commands::clonebucket::check(args),
         Command::Sse(args) => commands::objectmeta::check_sse(args),
         Command::Lock(LockCommand::Set(args)) => commands::objectlock::check_set(args),
         _ => Ok(()),
@@ -258,6 +259,8 @@ async fn dispatch(
         Command::Du(args) => commands::du::run(ctx, args, out).await,
         Command::Mb(args) => commands::bucket::make(ctx, args, out).await,
         Command::Rb(args) => commands::bucket::remove(ctx, args, out).await,
+        Command::CloneBucket(args) => commands::clonebucket::run(ctx, args, out).await,
+        Command::Bucket(command) => commands::bucketcfg::run(ctx, command, out).await,
         Command::Rm(args) => commands::rm::run(ctx, args, out).await,
         Command::RestoreVersion(args) => commands::restore::run(ctx, args, out).await,
         Command::Cp(args) => {
@@ -277,6 +280,7 @@ async fn dispatch(
         Command::Export(args) => commands::export::run(ctx, args, out).await,
         Command::Mpu(MpuCommand::List(args)) => commands::mpu::list(ctx, args, out).await,
         Command::Mpu(MpuCommand::Abort(args)) => commands::mpu::abort(ctx, args, out).await,
+        Command::Mpu(MpuCommand::Resume(args)) => commands::mpu::resume(ctx, args, out).await,
         Command::Tag(TagCommand::Get(args)) => commands::objectmeta::tag_get(ctx, args, out).await,
         Command::Tag(TagCommand::Set(args)) => commands::objectmeta::tag_set(ctx, args, out).await,
         Command::Tag(TagCommand::Delete(args)) => {
@@ -286,6 +290,12 @@ async fn dispatch(
         Command::Sse(args) => commands::objectmeta::sse(ctx, args, out).await,
         Command::Acl(AclCommand::Get(args)) => commands::objectmeta::acl_get(ctx, args, out).await,
         Command::Acl(AclCommand::Set(args)) => commands::objectmeta::acl_set(ctx, args, out).await,
+        Command::Acl(AclCommand::Grant(args)) => {
+            commands::bucketcfg::object_acl_change(ctx, args, true, out).await
+        }
+        Command::Acl(AclCommand::Revoke(args)) => {
+            commands::bucketcfg::object_acl_change(ctx, args, false, out).await
+        }
         Command::Lock(LockCommand::Get(args)) => {
             commands::objectlock::lock_get(ctx, args, out).await
         }

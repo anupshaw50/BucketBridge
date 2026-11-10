@@ -26,6 +26,8 @@ export const AVAILABLE: Readonly<Record<PlannedActionId, boolean>> = {
   "bucket.mount": true,
   // The sharing wizard (T10): a presigned link for an object of the bucket, with optional shortening.
   "bucket.sharing-wizard": true,
+  // Clone a bucket: a new bucket with the chosen settings, and its objects copied by the transfer queue.
+  "bucket.clone": true,
   // Opens through the open_bucket_in_browser command, which needs no opener capability.
   "bucket.open-browser": true,
   // Adds a bucket of another provider or account to the bucket list (T03).

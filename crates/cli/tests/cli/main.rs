@@ -9,7 +9,9 @@
 
 mod account;
 mod accountfile;
+mod bucketcfg;
 mod buckets;
+mod clonebucket;
 mod cloudfront;
 mod copy;
 mod credentials;
@@ -368,7 +370,15 @@ impl InProcess {
             options_hook: self.options_hook.clone(),
         };
         let args = std::iter::once("bb").chain(args.iter().copied());
-        let exit = bucketbridge_cli::run(args, io, secrets, std::future::pending::<()>).await;
+        // Boxed: the command's future is large in a debug build, and a test
+        // thread has a smaller stack than the thread `bb` runs it on.
+        let exit = Box::pin(bucketbridge_cli::run(
+            args,
+            io,
+            secrets,
+            std::future::pending::<()>,
+        ))
+        .await;
         Output {
             code: i32::from(exit.code),
             stdout: stdout.text(),

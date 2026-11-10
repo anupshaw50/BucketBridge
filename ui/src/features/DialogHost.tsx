@@ -31,6 +31,7 @@ import { WebsiteRedirectDialog } from "./fileopen/WebsiteRedirectDialog";
 import { MetadataDialog } from "./objectmeta/MetadataDialog";
 import { MountDialog } from "./mount/MountDialog";
 import { SecurityScanDialog } from "./scan/SecurityScanDialog";
+import { CloneBucketDialog } from "./bucketclone/CloneBucketDialog";
 import { SharingWizard } from "./sharing/SharingWizard";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { SyncDialog } from "./sync/SyncDialog";
@@ -161,6 +162,8 @@ function renderDialog(dialog: OpenDialog, close: () => void, answer: (confirmed:
       );
     case "sharing-wizard":
       return <SharingWizard accountId={dialog.accountId} bucket={dialog.bucket} onClose={close} />;
+    case "bucket-clone":
+      return <CloneBucketDialog accountId={dialog.accountId} bucket={dialog.bucket} onClose={close} />;
     case "bucket-lock":
       return <BucketLockDialog accountId={dialog.accountId} bucket={dialog.bucket} onClose={close} />;
     case "bucket-ownership":

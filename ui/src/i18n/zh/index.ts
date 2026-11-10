@@ -4,6 +4,7 @@ import { zhApi } from "./api";
 import { zhApp } from "./app";
 import { zhBookmarks } from "./bookmarks";
 import { zhBucketcfg } from "./bucketcfg";
+import { zhBucketclone } from "./bucketclone";
 import { zhBucketrules } from "./bucketrules";
 import { zhBuckets } from "./buckets";
 import { zhCloudfront } from "./cloudfront";
@@ -30,6 +31,7 @@ import { zhState } from "./state";
 import { zhSync } from "./sync";
 import { zhTools } from "./tools";
 import { zhTransfers } from "./transfers";
+import { zhUploadrules } from "./uploadrules";
 import { zhVersions } from "./versions";
 
 const PARTS: readonly Record<string, string>[] = [
@@ -39,6 +41,7 @@ const PARTS: readonly Record<string, string>[] = [
   zhApp,
   zhBookmarks,
   zhBucketcfg,
+  zhBucketclone,
   zhBucketrules,
   zhBuckets,
   zhCloudfront,
@@ -65,6 +68,7 @@ const PARTS: readonly Record<string, string>[] = [
   zhSync,
   zhTools,
   zhTransfers,
+  zhUploadrules,
   zhVersions,
 ];
 

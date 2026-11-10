@@ -11,6 +11,44 @@ export const zhAccounts: Record<string, string> = {
   "Needed by some S3-compatible services that do not support bucket host names.":
     "部分不支持存储桶主机名的 S3 兼容服务需要开启此项。",
   "Requester pays": "请求方付费",
+  "Use Transfer Acceleration": "使用传输加速",
+  "Transfers use the accelerated endpoint of buckets that have acceleration enabled. AWS only.":
+    "对已启用加速的存储桶，传输将使用加速端点。仅限 AWS。",
+  "S3-compatible provider settings": "S3 兼容服务商设置",
+  "Storage classes": "存储类型",
+  "The classes this provider offers, for example HOT or COLD. Leave empty for the AWS list.":
+    "此服务商提供的存储类别，例如 HOT 或 COLD。留空则使用 AWS 的列表。",
+  Regions: "区域",
+  "The regions this provider has. Leave empty for the AWS list.": "此服务商拥有的区域。留空则使用 AWS 的列表。",
+  "List buckets in every region": "列出每个区域的存储桶",
+  "Ask once per region above and merge the answers, for providers that list one region at a time.":
+    "对上面的每个区域各查询一次并合并结果，适用于每次只列出一个区域的服务商。",
+  "Delete objects one at a time": "逐个删除对象",
+  "For providers without multi-object delete.": "适用于不支持批量删除的服务商。",
+  "Do not copy in parts": "不分段复制",
+  "Copy with a single request, which works up to 5 GiB. Larger objects must be downloaded and uploaded.":
+    "使用单个请求复制，最大支持 5 GiB。更大的对象必须先下载再上传。",
+  Proxy: "代理",
+  "App proxy": "应用代理",
+  "No proxy": "不使用代理",
+  Custom: "自定义",
+  "Uses the proxy of the app settings, if there is one.": "使用应用设置中的代理（如果有）。",
+  "Connects directly, ignoring the app proxy and the proxy environment variables.":
+    "直接连接，忽略应用代理和代理环境变量。",
+  "Uses this proxy for this account only. A proxy that needs a password is set in the app settings.":
+    "仅此账户使用该代理。需要密码的代理请在应用设置中配置。",
+  "Proxy type": "代理类型",
+  "Proxy host": "代理主机",
+  "Proxy port": "代理端口",
+  "Hosts that bypass the proxy": "绕过代理的主机",
+  "Host names, *.suffix or address ranges.": "主机名、*.后缀或地址范围。",
+  "Cannot list buckets": "无法列出存储桶",
+  "For accounts with limited permissions, such as write-only access: the bucket list is not requested and shows the buckets below.":
+    "适用于权限受限的账户（例如只写访问）：不会请求存储桶列表，而是显示下方的存储桶。",
+  "Known buckets and folders": "已知的存储桶和文件夹",
+  "Type a bucket name, or bucket/folder/ to open it in that folder.": "输入存储桶名称，或输入 bucket/folder/ 以直接打开该文件夹。",
+  "Use dual-stack endpoints": "使用双栈端点",
+  "Reach AWS over IPv4 and IPv6. AWS only.": "通过 IPv4 和 IPv6 访问 AWS。仅限 AWS。",
   "Accept charges when reading from requester-pays buckets.": "从请求方付费存储桶读取时，接受相应的费用。",
   "Access key ID": "访问密钥 ID",
   "Secret access key": "秘密访问密钥",
@@ -288,6 +326,10 @@ export const zhAccounts: Record<string, string> = {
   "Export accounts...": "导出账户...",
   "Import accounts...": "导入账户...",
   Create: "创建",
+
+  // ---- AccountFields.tsx (region) ----
+  "Pick a region or type its name; China and GovCloud regions use their own partition.":
+    "选择区域或直接输入区域名称；中国区域和 GovCloud 区域属于各自独立的分区。",
 
   // ---- IAMDialog 等（用户名占位）----
   "user name": "用户名",

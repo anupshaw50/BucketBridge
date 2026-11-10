@@ -25,6 +25,7 @@ const account: Account = {
   endpoint: "https://storage.example.com",
   path_style: true,
   request_payer: false,
+  options: { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } },
   mfa_serial: "arn:aws:iam::000000000000:mfa/dev",
   source: { type: "static_keys" },
 };

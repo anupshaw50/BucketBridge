@@ -140,6 +140,7 @@ const BUILT: ReadonlySet<string> = new Set([
   "file.copy-to",
   "file.move-to",
   "bucket.sharing-wizard",
+  "bucket.clone",
   "bucket.versioning",
   "bucket.logging",
   "bucket.policy",
@@ -279,6 +280,7 @@ describe("resolved menus", () => {
         "Object lock…",
       ]),
       tr("Sharing wizard…"),
+      tr("Clone bucket…"),
       tr("Folder sync…"),
       tr("Sync jobs…"),
       "-",
@@ -589,6 +591,7 @@ describe("capabilities and availability", () => {
     endpoint: null,
     path_style: false,
     request_payer: false,
+    options: { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } },
     mfa_serial: null,
     source: { type: "static_keys" },
   };

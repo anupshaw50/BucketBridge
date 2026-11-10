@@ -243,3 +243,89 @@ async fn list_and_abort_on_minio() {
     .expect_code(0);
     assert_eq!(env.s3.pending_uploads(&bucket, "big.bin").await, 0);
 }
+
+/// A server holding part 1 of a two-part upload of `data` (parts of 5 MiB),
+/// with its CRC32.
+fn resume_mock(data: Vec<u8>) -> MockS3 {
+    use bucketbridge_core::engine::checksum_of;
+    use bucketbridge_core::settings::ChecksumAlgorithm;
+    const NS: &str = "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"";
+    MockS3::start(move |request| {
+        let query = |name: &str| request.query_param(name);
+        match request.method.as_str() {
+            "GET" if query("uploadId").is_some() => {
+                let first = &data[..5 * 1024 * 1024];
+                MockResponse::xml(format!(
+                    "<ListPartsResult {NS}><Bucket>b</Bucket><Key>big.bin</Key><UploadId>u1</UploadId><IsTruncated>false</IsTruncated><ChecksumAlgorithm>CRC32</ChecksumAlgorithm><Part><PartNumber>1</PartNumber><ETag>\"p1\"</ETag><Size>{}</Size><ChecksumCRC32>{}</ChecksumCRC32></Part></ListPartsResult>",
+                    first.len(),
+                    checksum_of(ChecksumAlgorithm::Crc32, first).unwrap()
+                ))
+            }
+            "PUT" if query("partNumber").is_some() => {
+                MockResponse::empty(200).with_header("etag", "\"p2\"")
+            }
+            "POST" if query("uploadId").is_some() => MockResponse::xml(format!(
+                "<CompleteMultipartUploadResult {NS}><Bucket>b</Bucket><Key>big.bin</Key><ETag>\"done-2\"</ETag></CompleteMultipartUploadResult>"
+            )),
+            _ => MockResponse::error(404, "NoSuchUpload", "no such upload"),
+        }
+    })
+}
+
+#[tokio::test]
+async fn resume_finishes_an_upload_and_refuses_another_file() {
+    let size = 5 * 1024 * 1024 + 100;
+    let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+    let mock = resume_mock(data.clone());
+    let config = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let good = dir.path().join("good.bin");
+    std::fs::write(&good, &data).unwrap();
+    let mut changed = data.clone();
+    changed[7] ^= 0xFF;
+    let bad = dir.path().join("bad.bin");
+    std::fs::write(&bad, &changed).unwrap();
+    let target = |file: &Path| {
+        vec![
+            "mpu".to_owned(),
+            "resume".to_owned(),
+            "--bucket".to_owned(),
+            "b".to_owned(),
+            "--key".to_owned(),
+            "big.bin".to_owned(),
+            "--upload-id".to_owned(),
+            "u1".to_owned(),
+            file.to_str().unwrap().to_owned(),
+        ]
+    };
+
+    // A file that does not match is refused (exit 1) and nothing is sent.
+    let out = run(bb_mock(&mock, config.path()).args(target(&bad)));
+    out.expect_code(1);
+    assert!(out.stderr.contains("part 1"), "{}", out.stderr);
+    assert!(mock.requests().iter().all(|r| r.method == "GET"));
+
+    // A dry run checks the file and sends no part.
+    let mut dry = target(&good);
+    dry.push("--dry-run".to_owned());
+    let out = run(bb_mock(&mock, config.path()).args(&dry));
+    out.expect_code(0);
+    assert!(mock.requests().iter().all(|r| r.method == "GET"));
+
+    let mut json = target(&good);
+    json.push("--json".to_owned());
+    let out = run(bb_mock(&mock, config.path()).args(&json));
+    out.expect_code(0);
+    let records = out.records();
+    assert_eq!(records[0]["completed"], true);
+    assert_eq!(records[0]["parts_uploaded"], 1);
+    assert_eq!(records[0]["part_count"], 2);
+    assert_eq!(records[0]["etag"], "done-2");
+    let puts: Vec<_> = mock
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "PUT")
+        .collect();
+    assert_eq!(puts.len(), 1);
+    assert_eq!(puts[0].query_param("partNumber").as_deref(), Some("2"));
+}

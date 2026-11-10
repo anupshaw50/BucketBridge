@@ -131,4 +131,20 @@ export const zhObjectmeta: Record<string, string> = {
     "禁用了 ACL 的存储桶（对象所有权：BucketOwnerEnforced）会拒绝此处的更改；请改用存储桶策略。公共 ACL 也可能被存储桶的公共访问封锁设置阻止。",
   "Canned ACL": "预设 ACL",
   "Choose an ACL": "选择一个 ACL",
+
+  // ---- AclGrantsEditor.tsx, SecurityTabs.tsx ----
+  "ACLs are disabled here (Object Ownership: BucketOwnerEnforced), so the grants below cannot be changed. Change the bucket's Object Ownership to let ACLs work, or control access with the bucket policy.":
+    "此处已禁用 ACL（对象所有权：BucketOwnerEnforced），因此下面的授权无法更改。请修改存储桶的对象所有权以启用 ACL，或改用存储桶策略控制访问。",
+  "Remove the grant {permission} for {who}": "移除 {who} 的 {permission} 授权",
+  "Grantee type": "被授权者类型",
+  Group: "组",
+  "S3 accepts e-mail addresses in some regions only; the canonical account ID always works.":
+    "S3 只在部分区域接受电子邮件地址；规范账户 ID 始终可用。",
+  "The canonical user ID of the account, not the 12-digit account number.": "账户的规范用户 ID，而不是 12 位账户编号。",
+  "Add grant": "添加授权",
+  "This grant is already in the list.": "该授权已在列表中。",
+  "These grants make the content reachable by people outside your account. The public access block may still stop them.":
+    "这些授权会让账户以外的人也能访问内容。公共访问屏蔽仍可能阻止他们。",
+  "Save grants": "保存授权",
+  "The ACL grants of {key} were saved.": "{key} 的 ACL 授权已保存。",
 };

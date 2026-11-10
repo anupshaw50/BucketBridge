@@ -101,7 +101,8 @@ pub async fn sync_execute<R: Runtime>(
         };
         let s3 = core.session.s3_for(&summary.account_id).await?;
         let settings = core.session.settings().await?;
-        let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?;
+        let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?
+            .with_upload_rule_settings(&settings.upload_rules)?;
         let options = ExecuteOptions::new(&settings, core.limiter.clone());
         let emitter = Arc::new(SyncEmitter::new(app));
         let events: Arc<dyn SyncEvents> = emitter.clone();

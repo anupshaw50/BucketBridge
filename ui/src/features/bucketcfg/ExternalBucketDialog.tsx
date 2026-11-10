@@ -4,6 +4,7 @@ import { toBbError } from "../../api/errors";
 import { useModel } from "../../app/context";
 import { OkCancelDialog } from "../../components/OkCancelDialog";
 import { tr } from "../../i18n";
+import { isAccessPointArn } from "../../lib/accessPoint";
 
 /** The bucket names the backend accepts for an existing bucket (the legacy rules of S3). */
 function nameProblem(name: string): string | null {
@@ -13,7 +14,7 @@ function nameProblem(name: string): string | null {
   if (name.length > 255) {
     return tr("A bucket name has at most 255 characters.");
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+  if (!isAccessPointArn(name) && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
     return tr("Use letters, digits, dots, hyphens and underscores, starting with a letter or digit.");
   }
   return null;

@@ -46,6 +46,7 @@ fn updating(change: impl FnOnce(&mut AccountUpdate)) -> AccountUpdate {
 
 fn input(server: &TestS3, label: &str, secret: &str) -> AccountInput {
     AccountInput {
+        options: Default::default(),
         source: bucketbridge_core::model::CredentialSource::StaticKeys,
         label: label.to_owned(),
         access_key_id: server.access_key().to_owned(),

@@ -50,7 +50,8 @@ use crate::config::{AppConfig, new_uuid_v4};
 use crate::error::{Error, IoContext, Result};
 use crate::mfa::validate_mfa_serial;
 use crate::model::{
-    Account, AccountList, CredentialSource, MAX_ROLE_DURATION_SECS, MIN_ROLE_DURATION_SECS,
+    Account, AccountList, AccountOptions, CredentialSource, MAX_ROLE_DURATION_SECS,
+    MIN_ROLE_DURATION_SECS,
 };
 
 /// `format` of an export file.
@@ -155,6 +156,9 @@ pub struct ExportedAccount {
     /// Send the requester-pays header.
     #[serde(default)]
     pub request_payer: bool,
+    /// Network options (Transfer Acceleration, dual-stack).
+    #[serde(default, skip_serializing_if = "AccountOptions::is_default")]
+    pub options: AccountOptions,
     /// MFA device serial number or ARN.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mfa_serial: Option<String>,
@@ -463,6 +467,7 @@ pub fn build_export(config: &AppConfig, ids: Option<&[String]>) -> Result<Accoun
             endpoint: account.endpoint.clone(),
             path_style: account.path_style,
             request_payer: account.request_payer,
+            options: account.options.clone(),
             mfa_serial: account.mfa_serial.clone(),
             source: exported_source(config, account)?,
         });
@@ -771,6 +776,7 @@ pub fn apply_import(
                 .map(str::to_owned)
         });
         let account = Account {
+            options: incoming.options.clone(),
             id: id.clone(),
             label: final_label.clone(),
             access_key_id: if source.is_static() {

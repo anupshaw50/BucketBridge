@@ -73,3 +73,24 @@ export function bucketRegions(buckets: readonly Bucket[]): string[] {
   }
   return [...regions].sort();
 }
+
+/**
+ * The folder to open `bucket` in: the folder of its first known entry
+ * (`bucket/folder/`) when the account cannot list buckets, otherwise the root.
+ */
+export function knownStartPrefix(options: { cannot_list_buckets: boolean; known_buckets: string[] }, bucket: string): string {
+  if (!options.cannot_list_buckets) {
+    return "";
+  }
+  for (const entry of options.known_buckets) {
+    const slash = entry.indexOf("/");
+    if (slash < 0 || entry.slice(0, slash) !== bucket) {
+      continue;
+    }
+    const rest = entry.slice(slash + 1).replace(/^\/+/, "");
+    if (rest.length > 0) {
+      return rest.endsWith("/") ? rest : `${rest}/`;
+    }
+  }
+  return "";
+}

@@ -325,6 +325,8 @@ fn rewrite_headers(head: &ObjectHead, action: Action) -> UploadHeaders {
         content_encoding,
         content_language: None,
         expires: None,
+        server_side_encryption: None,
+        sse_kms_key_id: None,
         storage_class: head
             .storage_class
             .clone()

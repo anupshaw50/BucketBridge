@@ -96,7 +96,7 @@ usage error.
 
 | Command | Effect |
 |---|---|
-| `bb account add --label L --access-key-id ID [--region R] [--endpoint URL] [--path-style] [--request-payer] [--mfa-serial SERIAL] [--secret-stdin]` | Stores an account (secrets as above). Labels are unique, case-insensitively; a taken label is a `conflict`. The first account becomes the default. |
+| `bb account add --label L --access-key-id ID [--region R] [--endpoint URL] [--path-style] [--request-payer] [--accelerate] [--dual-stack] [--storage-class NAME]... [--provider-region R]... [--single-deletes] [--no-multipart-copy] [--list-all-regions] [--proxy global|none|URL] [--cannot-list-buckets] [--known-bucket BUCKET[/FOLDER/]]... [--mfa-serial SERIAL] [--secret-stdin]` | Stores an account (secrets as above). Labels are unique, case-insensitively; a taken label is a `conflict`. The first account becomes the default. |
 | `bb account add --label L --assume-role ARN --source-account LABEL\|ID [--session-name NAME] [--duration DURATION] [--external-id ID] [--mfa-serial SERIAL]` | Stores an account that assumes a role through another stored account (see [Credential sources](#credential-sources)). |
 | `bb account add --label L --sso --sso-start-url URL --sso-region R --sso-account-id ID --sso-role-name NAME [--sso-session NAME]` | Stores an account that uses a role of IAM Identity Center. |
 | `bb account add --label L --instance-role [--no-probe]` | Stores an account that uses the role of this EC2 instance or container. It first checks that the role exists (`auth`, exit 3, when not), unless `--no-probe`. |
@@ -184,7 +184,11 @@ These work before or after the command name.
 ## Commands
 
 S3 locations are written `s3://bucket/key`. A key ending in `/` (or a whole
-bucket, `s3://bucket`) is a prefix, that is a folder. Anything else that
+bucket, `s3://bucket`) is a prefix, that is a folder. An S3 access point is
+written by its ARN, as in the AWS CLI:
+`s3://arn:aws:s3:us-west-2:123456789012:accesspoint/my-ap/key`; a Multi-Region
+Access Point is `s3://arn:aws:s3::123456789012:accesspoint/alias.mrap/key`
+(signed with SigV4A). Access points work with AWS accounts only. Anything else that
 does not look like a URL is a local path.
 
 ### `bb ls [S3_URI] [-r] [--versions] [-l]`
@@ -220,7 +224,7 @@ and `noncurrent_versions`, `noncurrent_bytes`, `delete_markers` (`null`
 without `--versions`) and `multipart_uploads`, `multipart_parts`,
 `multipart_bytes` (`null` without `--multipart`).
 
-### `bb mb BUCKET [--region R]` and `bb rb BUCKET`
+### `bb mb BUCKET [--region R] [--object-lock] [--ownership SETTING] [--public-access-block on|off]` and `bb rb BUCKET`
 
 `BUCKET` is a name or `s3://bucket`. `mb` validates the name against the S3
 rules (invalid names are usage errors, exit 1) and creates the bucket in
@@ -228,6 +232,39 @@ rules (invalid names are usage errors, exit 1) and creates the bucket in
 default region on a custom endpoint; an existing bucket is a `conflict`
 (exit 2). `rb` removes an empty bucket; a bucket that still holds objects,
 versions or delete markers is a `conflict` (exit 2) and nothing is deleted.
+
+The advanced options of `mb` are sent only when given, so a plain `mb` is the same
+request as before. `--object-lock` turns Object Lock on (S3 turns versioning on
+with it; it can never be switched off again). `--ownership` is
+`BucketOwnerEnforced` (ACLs disabled), `BucketOwnerPreferred` or `ObjectWriter`
+(any letter case, `-` or `_`). Object Lock and ownership travel with the create
+request, so the bucket never exists without them. `--public-access-block on`
+turns all four switches of the public access block on, `off` turns them all off;
+it is a second request after the bucket exists. A server that does not
+implement it keeps the bucket and prints a warning (a `warnings` list with
+`--json`); any other failure of that step is an error that says the bucket was
+created. With `--json` the record also carries `object_lock`, `ownership` and
+`public_access_block` for the options that were given.
+
+### `bb clone-bucket SOURCE NEW_BUCKET [--region R] [--prefix P] [--no-objects] [--settings LIST] [--dry-run]`
+
+Makes a new bucket with the settings of `SOURCE` and copies its objects (see
+"Clone a bucket" in `docs/desktop-api.md`). The new bucket is created in
+`--region`, by default in the region of the source. `--settings` is `all` (the
+default), `none` or a comma separated list of `versioning`, `encryption`,
+`public_access_block`, `policy`, `website`, `cors`, `tags` and `lifecycle`; a
+setting the source does not have is skipped, and a setting that cannot be
+copied is reported on its own (`failed: reason`) while the others are still
+applied; the exit code is then 2, the bucket exists. The bucket policy names the
+new bucket in its resources instead of the source. The objects are copied
+server side like `bb cp -r`, with their keys unchanged; `--prefix` (a folder
+ending with `/`) copies only the objects under it and `--no-objects` copies
+none. Older versions are not copied. The settings are applied before the
+objects, so a policy that denies the copying principal blocks the copy: copy
+with `--settings` without `policy` and set the policy afterwards. A new bucket
+name that exists is a `conflict` (exit 2). `--dry-run` creates nothing and
+shows, for each setting, whether the source has it and whether it would be
+copied.
 
 ### `bb rm S3_URI [-r] [--versions] [--version-id ID] [--dry-run]`
 
@@ -371,6 +408,17 @@ download sets the file's modification time to that value, or to the object's
 `Last-Modified` when there is none, so a round trip keeps the original time.
 `--no-preserve-mtime` (and the setting `data_integrity.preserve_mtime`) turns
 both off.
+
+#### Upload rules: `--no-upload-rules`
+
+Uploads of `bb cp` and `bb sync` apply the upload rules of the settings
+(`[[settings.upload_rules.rules]]` in `config.toml`, edited on the Upload rules
+page of the desktop app; see "Upload rules" in `docs/desktop-api.md`). The first
+enabled rule whose glob pattern matches the file name sets the content type,
+`Cache-Control`, `Content-Disposition`, `Content-Encoding`, other headers, the
+storage class and the server-side encryption. `--no-upload-rules` (also accepted
+by `bb sync`, with `--resume` too) turns them off for one command. Copies and
+moves between S3 locations are not changed by rules.
 
 #### Copies between accounts: `--from-account` and `--to-account`
 
@@ -613,6 +661,21 @@ frees the storage of their parts. `--dry-run` prints what would be aborted.
 Some servers, MinIO among them, only list uploads for an exact object key:
 pass the key as `--prefix` there.
 
+### `bb mpu resume --bucket B --key K --upload-id ID FILE [--skip-part-verification] [--dry-run]`
+
+Finishes an uncompleted multipart upload from the local file it was made from.
+The parts already on the server are listed and compared with `FILE` (see
+"Resume an unfinished multipart upload" in `docs/desktop-api.md`): the part size
+must split the file into the same parts, and every part must be the bytes of the
+file at its position, by the checksum stored with the part or else by its ETag.
+A file that does not match is refused with the reason and exit code 1; nothing
+is changed on the server. Otherwise only the missing parts are uploaded and the
+upload is completed. `--dry-run` checks the file and prints how many parts would
+be uploaded. `--skip-part-verification` leaves the content comparison out for
+uploads whose ETags are not an MD5 (encrypted with a KMS key or a customer key,
+without checksums); sizes and positions are still checked. A missing upload
+is `not_found` (exit 2). The record of `--json` is in "Records" below.
+
 ### `bb export S3_URI --format csv|parquet|xlsx --out FILE [-r]`
 
 Writes the listing of `s3://bucket` or `s3://bucket/prefix` to `FILE`. Without
@@ -692,9 +755,42 @@ metadata commands (`-r` for a prefix, one record per object, `--dry-run`).
 |---|---|
 | `bb lock get URI [-r] [--version-id ID]` | Prints `s3://bucket/key<TAB>GOVERNANCE until 2099-01-02T03:04:05Z + legal hold` (or `none`). |
 | `bb lock set URI [--mode GOVERNANCE\|COMPLIANCE --until DATE] [--clear-retention] [--legal-hold on\|off] [--bypass-governance] [-r] [--version-id ID] [--dry-run]` | Sets or clears the retention and the legal hold. `--until` is a date (`YYYY-MM-DD`, UTC) or an RFC 3339 time in the future. `--bypass-governance` sends `x-amz-bypass-governance-retention`. A refusal by the server is printed as the server worded it. |
-| `bb restore URI --days N [--tier Expedited\|Standard\|Bulk] [-r] [--version-id ID] [--dry-run]` | Requests the restore of archived objects (`restore-version` is a different command). |
+| `bb restore URI [--days N] [--tier Expedited\|Standard\|Bulk] [-r] [--version-id ID] [--dry-run]` | Requests the restore of archived objects (`restore-version` is a different command). Each object is read first: objects in an S3 Intelligent-Tiering Archive Access or Deep Archive Access tier are restored with the request S3 wants for them (no days, no tier; `--days` is not used for them), Glacier and Deep Archive objects need `--days` (an object without it fails with `usage`). |
 
-Records: `lock get` has `mode`, `retain_until`, `legal_hold`; `lock set` has `aspect` (`retention` or `legal_hold`), `mode`, `retain_until`, `legal_hold`, `previous`, `dry_run`, `changed`; `restore` has `days`, `tier`, `dry_run`, `requested`. All have `bucket`, `key`, `error`.
+Records: `lock get` has `mode`, `retain_until`, `legal_hold`; `lock set` has `aspect` (`retention` or `legal_hold`), `mode`, `retain_until`, `legal_hold`, `previous`, `dry_run`, `changed`; `restore` has `days` (or `null`), `tier`, `dry_run`, `requested`. All have `bucket`, `key`, `error`.
+
+### `bb bucket encryption|tags|acl|lock`
+
+Settings of one bucket (Priority 3). `BUCKET` is a name or `s3://bucket`. A server
+that does not implement a setting answers with its own error (exit 2).
+
+| Command | Effect |
+|---|---|
+| `bb bucket encryption get BUCKET` | Prints `s3://bucket<TAB>SSE-S3`, `SSE-KMS, key KEY, bucket key` and so on, or `none` when no default encryption is configured. |
+| `bb bucket encryption set BUCKET --sse s3\|kms [--kms-key KEY] [--bucket-key]` | Sets the default encryption. `--kms-key` (a key ID, ARN, alias name or alias ARN; without it the AWS managed key) and `--bucket-key` need `--sse kms`; anything else is a usage error and nothing is sent. |
+| `bb bucket encryption delete BUCKET` | Removes the setting; succeeds when there is none. |
+| `bb bucket tags get BUCKET` | Prints `KEY=VALUE`, one line per tag (nothing without tags). |
+| `bb bucket tags set BUCKET KEY=VALUE... [--replace]` | Adds or overwrites the tags; other tags stay. `--replace` makes them the whole set. S3 limits for buckets: at most 50 tags, keys of 1 to 128 and values of at most 256 letters, digits, spaces and `+ - = . _ : / @`, no `aws:` prefix; bad tags are usage errors. |
+| `bb bucket tags delete BUCKET [KEY...]` | Removes the named tags, or every tag when none is named. |
+| `bb bucket acl get BUCKET` | Prints `s3://bucket<TAB>private` (or `public-read`, `public-read-write`, `authenticated-read`), or `custom` followed by the grants (`PERMISSION:id\|email\|group:WHO,...`); adds a note when ACLs are disabled (Object Ownership BucketOwnerEnforced). |
+| `bb bucket acl set BUCKET CANNED` | `CANNED` is `private`, `public-read`, `public-read-write` or `authenticated-read` (the two bucket-owner ACLs are usage errors). |
+| `bb bucket acl grant\|revoke BUCKET PERMISSION GRANTEE` | Adds or removes one grant and keeps the others. `PERMISSION` is `READ`, `WRITE`, `READ_ACP`, `WRITE_ACP` or `FULL_CONTROL` (any letter case, `-` or `_`). `GRANTEE` is `id=CANONICAL_USER_ID`, `email=ADDRESS` (S3 accepts e-mail addresses in some regions only) or `group=all-users\|authenticated-users\|log-delivery`. A grant that is already there (or missing, for `revoke`) is `changed: false` and nothing is sent. |
+| `bb acl grant\|revoke S3_URI PERMISSION GRANTEE` | The same for one object (`s3://bucket/key`; a prefix is a usage error). |
+| `bb bucket lock get BUCKET` | Prints `s3://bucket<TAB>on` or `off`, and the default retention when there is one. |
+| `bb bucket lock enable BUCKET --yes` | Turns Object Lock on for an existing bucket. It can never be turned off again, so `--yes` is required (usage error without it, nothing is sent). Needs versioning: a bucket whose versioning is not enabled is a `conflict` (exit 2) that says so and nothing is written. A bucket that already has the lock is reported and left alone. |
+
+A bucket with ACLs disabled (Object Ownership BucketOwnerEnforced) refuses every ACL change with a `conflict` (exit 2) that says so; `bb bucket acl get` still works.
+
+Records (`--json`): `encryption get`, `set` and `delete` have `bucket` and
+`encryption` (`{"algorithm": "AES256" | "aws:kms" | "aws:kms:dsse", "kms_key_id",
+"bucket_key_enabled"}`, or `null`); `tags get` has `bucket`, `key`, `value` per tag;
+`tags set` and `tags delete` have `bucket` and `tags` (the tags that remain);
+`acl get` has `bucket`, `acl` (`custom` for other grants), `owner`, `ownership`,
+`acls_disabled` and `grants`; `acl set` has `bucket` and `acl`; `acl grant` and
+`revoke` (also `bb acl grant|revoke`) have `bucket`, `key` (`null` for a bucket),
+`action`, `permission`, `grantee_type`, `grantee` and `changed`; `lock get` has
+`bucket`, `enabled` and `default_retention`; `lock enable` has `bucket`, `enabled`
+and `changed`.
 
 ### `bb cloudfront`
 
@@ -770,6 +866,7 @@ counts, absent values `null`.
 | `ls` (objects) | `ObjectEntry`: `key`, `size`, `etag`, `last_modified`, `storage_class`, `checksums`, `is_prefix` |
 | `ls --versions` | `key`, `version_id` (`null` for folders), `is_latest`, `is_delete_marker`, `size`, `etag`, `last_modified`, `storage_class`, `is_prefix` |
 | `mb`, `rb` | `bucket`, `region` (requested region, `null` = default; always `null` for `rb`) |
+| `clone-bucket` | the new bucket as for `mb`, then one record per setting: `bucket`, `setting`, `state` (`applied`, `skipped`, `failed`; with `--dry-run` `configured`, `not_configured`, `unsupported`, `failed`), `count`, `detail`, `dry_run`, `error`; then the records of `cp` for the objects |
 | `rm` | `bucket`, `key`, `version_id` (with `--versions` or `--version-id`), `dry_run`, `deleted`, `error` |
 | `restore-version` | `bucket`, `key`, `restored_version_id`, `version_id` (the new current version, `null` when the server reports none), `etag`, `size` |
 | `cp`, `mv` | `source`, `destination` (local paths or `s3://` URIs), `size`, `etag`, `dry_run`, `copied` (the upload, download or copy was made), `source_deleted` (`mv` only), `error` |
@@ -777,8 +874,9 @@ counts, absent values `null`.
 | `presign` | `bucket`, `key`, `method` (`get`/`put`), `expires_secs`, `expires_at`, `url`, `short_url` (only with `--shorten`) |
 | `mpu list` | `bucket`, `key`, `upload_id`, `initiated`, `storage_class`, `initiator` |
 | `mpu abort` | `bucket`, `key`, `upload_id`, `dry_run`, `aborted`, `error` |
+| `mpu resume` | `bucket`, `key`, `upload_id`, `file_size`, `part_size`, `part_count`, `parts_uploaded` (already on the server), `bytes_remaining`, `dry_run`, `completed`, `etag` |
 | `export` | `source` (the `s3://` URI), `format` (`csv`, `parquet`, `xlsx`), `file` (absolute path), `recursive`, `rows` (without the header), `bytes` |
-| `account add`, `account list` | `Account` of `docs/desktop-api.md` (`id`, `label`, `access_key_id`, `secret_ref`, `session_token_ref`, `region`, `endpoint`, `path_style`, `request_payer`, `mfa_serial`) plus `is_default`; secrets are never printed, only their references |
+| `account add`, `account list` | `Account` of `docs/desktop-api.md` (`id`, `label`, `access_key_id`, `secret_ref`, `session_token_ref`, `region`, `endpoint`, `path_style`, `request_payer`, `mfa_serial`, `options`) plus `is_default`; secrets are never printed, only their references |
 | `account remove`, `account default` | `id`, `label` |
 | `iam users`, `iam user create\|update` | `IamUser` of `docs/desktop-api.md`: `name`, `arn`, `user_id`, `path`, `created`, `password_last_used` |
 | `iam user show` | `UserDetails`: `user` and the sections `managed_policies`, `inline_policies`, `access_keys`, `login_profile`, `groups` |

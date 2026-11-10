@@ -44,6 +44,7 @@ export const LAYOUTS: Readonly<Record<MenuId, readonly LayoutEntry[]>> = {
       "bucket.object-lock",
     ),
     a("bucket.sharing-wizard"),
+    a("bucket.clone"),
     a("sync.open"),
     a("sync.jobs"),
     sep,

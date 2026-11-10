@@ -55,4 +55,20 @@ export const zhSharing: Record<string, string> = {
   "Remove token": "移除令牌",
   "Shortener token removed.": "短链服务令牌已移除。",
   "Shortener token saved.": "短链服务令牌已保存。",
+
+  // ---- SharingWizard.tsx（公开链接、HTML 和 Markdown 代码）----
+  "Kind of link": "链接类型",
+  "Temporary link (signed)": "临时链接（已签名）",
+  "Public link (CloudFront or your host name)": "公开链接（CloudFront 或你的域名）",
+  "Host name": "主机名",
+  "Find distributions": "查找分发",
+  "The link is https://host/key with no signature and no expiry. It works only if the object can be read through that host: a public object, or a CloudFront distribution that is allowed to read the bucket.":
+    "链接形如 https://主机名/键，没有签名，也不会过期。只有在该主机能读取对象时才有效：对象是公开的，或 CloudFront 分发有权读取该存储桶。",
+  "Enter the host name of the CloudFront distribution or of your site.": "请输入 CloudFront 分发或你的网站的主机名。",
+  "Enter a host name such as cdn.example.com, without a path.": "请输入主机名，例如 cdn.example.com，不要带路径。",
+  "No CloudFront distribution serves this bucket. Type a host name instead.": "没有 CloudFront 分发使用该存储桶。请直接输入主机名。",
+  "This link has no signature and no expiry. It works only while the object can be read through {host}.":
+    "此链接没有签名，也不会过期。只有在能通过 {host} 读取该对象时才有效。",
+  HTML: "HTML",
+  Markdown: "Markdown",
 };

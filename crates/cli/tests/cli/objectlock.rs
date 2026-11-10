@@ -30,6 +30,12 @@ fn lock_server() -> MockS3 {
                 "Object restore is already in progress",
             ),
             ("POST", _, _) => MockResponse::empty(202),
+            ("HEAD", _, _) if request.path.ends_with("/tiered") => MockResponse::empty(200)
+                .with_header("x-amz-storage-class", "INTELLIGENT_TIERING")
+                .with_header("x-amz-archive-status", "ARCHIVE_ACCESS"),
+            ("HEAD", _, _) => {
+                MockResponse::empty(200).with_header("x-amz-storage-class", "GLACIER")
+            }
             _ => MockResponse::error(400, "Unexpected", "unexpected request"),
         }
     })
@@ -158,6 +164,32 @@ async fn lock_set_dry_run_sends_nothing_and_usage_errors_come_first() {
         assert_eq!(out.code, 1, "{args:?}: {}", out.stderr);
     }
     assert_eq!(mock.requests().len(), before);
+}
+
+#[tokio::test]
+async fn an_intelligent_tiering_archive_is_restored_without_days() {
+    let mock = lock_server();
+    let config = tempfile::tempdir().unwrap();
+    let out = run(bb_mock(&mock, config.path()).args(["restore", "s3://b/tiered"]));
+    out.expect_code(0);
+    assert_eq!(
+        out.stdout.trim(),
+        trf(
+            "requested the restore of {uri}",
+            &[("uri", "s3://b/tiered")]
+        )
+    );
+    let post = mock
+        .requests()
+        .into_iter()
+        .find(|r| r.method == "POST")
+        .unwrap();
+    assert!(!post.body_text().contains("Days"));
+
+    // A Glacier object without --days is refused for that object.
+    let out = run(bb_mock(&mock, config.path()).args(["--json", "restore", "s3://b/cold"]));
+    assert_ne!(out.code, 0);
+    assert_eq!(out.records()[0]["error"]["code"], "usage");
 }
 
 #[tokio::test]

@@ -62,7 +62,10 @@ mod sse;
 mod storage;
 mod tags;
 
-pub use acl::{AclGrant, AclPermission, CannedAcl, GranteeKind, ObjectAcl};
+pub use acl::{
+    ALL_USERS_URI, AUTHENTICATED_USERS_URI, AclGrant, AclPermission, BucketAcl, CannedAcl,
+    GranteeKind, LOG_DELIVERY_URI, ObjectAcl, validate_grants,
+};
 pub use headers::{HeaderChange, HeaderChanges, MAX_HEADER_VALUE_BYTES, MAX_USER_META_BYTES};
 pub use read::ObjectDetails;
 pub use sse::{CUSTOMER_KEY_LEN, CustomerKey, EncryptionChange};
@@ -74,7 +77,7 @@ pub use tags::{
 pub(crate) use headers::HeaderSet;
 pub(crate) use inplace::CopyChanges;
 pub(crate) use sse::SSE_C_ALGORITHM;
-pub(crate) use storage::{class_name, parse_restore, unrestored_archive};
+pub(crate) use storage::{archive_kind, class_name, parse_restore, unrestored_archive};
 
 /// Objects edited at the same time by default.
 pub const DEFAULT_BATCH_CONCURRENCY: usize = 8;

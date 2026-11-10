@@ -1,14 +1,15 @@
 //! `bb mpu list` and `bb mpu abort`: uncompleted multipart uploads.
 
-use bucketbridge_core::Error;
+use bucketbridge_core::engine::{Hooks, Outcome, TransferEngine, TransferOptions};
 use bucketbridge_core::model::MultipartUpload;
+use bucketbridge_core::{Error, S3Uri};
 
 use super::timestamp;
-use crate::cli::{MpuAbortArgs, MpuListArgs};
+use crate::cli::{MpuAbortArgs, MpuListArgs, MpuResumeArgs};
 use crate::context::Context;
 use crate::i18n::{tr, trf};
 use crate::output::{Batch, Failure, Output};
-use crate::records::{AbortRecord, UploadRecord};
+use crate::records::{AbortRecord, ResumeRecord, UploadRecord};
 
 /// Lists uploads of one bucket, or of every bucket (each addressed in its
 /// own region; the transport resolves bucket regions itself).
@@ -72,6 +73,81 @@ pub async fn abort(ctx: &Context, args: &MpuAbortArgs, out: &mut Output) -> Resu
         (record, None) => out.change(&record, || abort_line(&record)),
         (_, Some(err)) => Err(err.into()),
     }
+}
+
+/// Finishes one uncompleted upload from the local file it was made from: the
+/// file is compared with the parts on the server (a file that does not match is
+/// refused, a usage error), then only the missing parts are uploaded.
+pub async fn resume(ctx: &Context, args: &MpuResumeArgs, out: &mut Output) -> Result<(), Failure> {
+    let engine = TransferEngine::new(
+        ctx.s3.clone(),
+        TransferOptions::from_settings(&ctx.settings),
+    )?;
+    let (check, state) = engine
+        .check_upload_resume(
+            &args.file,
+            &args.bucket,
+            &args.key,
+            &args.upload_id,
+            args.skip_part_verification,
+        )
+        .await?;
+    let Some(state) = state else {
+        let reason = check
+            .problem
+            .map_or_else(String::new, |problem| problem.message);
+        return Err(Error::Usage(trf(
+            "this file cannot finish the upload: {reason}",
+            &[("reason", reason.as_str())],
+        ))
+        .into());
+    };
+    let mut record = ResumeRecord {
+        bucket: args.bucket.clone(),
+        key: args.key.clone(),
+        upload_id: args.upload_id.clone(),
+        file_size: check.file_size,
+        part_size: check.part_size,
+        part_count: check.part_count,
+        parts_uploaded: u32::try_from(check.parts.len()).unwrap_or(u32::MAX),
+        bytes_remaining: check.bytes_remaining,
+        dry_run: args.dry_run,
+        completed: false,
+        etag: None,
+    };
+    if !args.dry_run {
+        let dst = S3Uri::new(&args.bucket, &args.key)?;
+        let outcome = engine
+            .upload_file(&args.file, &dst, &Hooks::new(), Some(state), &|_| {})
+            .await?;
+        match outcome {
+            Outcome::Completed(done) => {
+                record.completed = true;
+                record.etag = done.etag;
+            }
+            _ => return Err(Error::Cancelled.into()),
+        }
+    }
+    out.change(&record, || resume_line(&record))
+}
+
+fn resume_line(record: &ResumeRecord) -> String {
+    let template = if record.dry_run {
+        "would upload {missing} of {total} parts to finish upload {id} of s3://{bucket}/{key}"
+    } else {
+        "finished upload {id} of s3://{bucket}/{key} ({missing} of {total} parts uploaded)"
+    };
+    let missing = record.part_count.saturating_sub(record.parts_uploaded);
+    trf(
+        template,
+        &[
+            ("missing", &missing.to_string()),
+            ("total", &record.part_count.to_string()),
+            ("id", record.upload_id.as_str()),
+            ("bucket", record.bucket.as_str()),
+            ("key", record.key.as_str()),
+        ],
+    )
 }
 
 /// Aborts one upload; returns the record and the error, if any.

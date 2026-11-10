@@ -5,9 +5,15 @@
 use std::path::Path;
 
 use bucketbridge_core::diagnostics::{self, Report, StepStatus};
+use bucketbridge_core::engine::{
+    TransferEngine, TransferOptions, UploadResumeCheck, enqueue_resume_upload,
+};
 use bucketbridge_core::export::{self, Format, Outcome, Request};
-use bucketbridge_core::model::{AccountInput, FilterSpec, MultipartUpload, SavedFilter};
+use bucketbridge_core::model::{
+    AccountInput, FilterSpec, MultipartUpload, SavedFilter, TransferTask,
+};
 use bucketbridge_core::s3uri::{validate_bucket_name, validate_key};
+use bucketbridge_core::upload_rules::{UploadRuleMatch, UploadRulesSettings, test_rules};
 use bucketbridge_core::{BbError, Error, Result, saved_filters};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -293,4 +299,90 @@ pub async fn export_listing(
         Ok(outcome)
     })
     .await
+}
+
+/// Whether the local file `path` can finish the unfinished multipart upload
+/// `upload_id` of `bucket`/`key`: the part size, the position and the content
+/// of every part already uploaded are compared with the file. A file that
+/// does not match is a `problem` in the answer, not a rejection.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn check_multipart_resume(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    key: String,
+    upload_id: String,
+    path: String,
+    skip_part_verification: bool,
+) -> CommandResult<UploadResumeCheck> {
+    let core = state.core()?;
+    logged("checking a file against an unfinished upload", async {
+        require_absolute("the file", &path)?;
+        let s3 = core.session.s3_for(&account_id).await?;
+        let settings = core.session.settings().await?;
+        let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?;
+        let (check, _) = engine
+            .check_upload_resume(
+                Path::new(&path),
+                &bucket,
+                &key,
+                &upload_id,
+                skip_part_verification,
+            )
+            .await?;
+        Ok(check)
+    })
+    .await
+}
+
+/// Finishes an unfinished multipart upload from the local file `path`: the
+/// file is checked again (see `check_multipart_resume`; a file that does not
+/// match is a `usage` error) and a transfer task uploads the missing parts and
+/// completes the upload.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn resume_multipart_upload(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    key: String,
+    upload_id: String,
+    path: String,
+    skip_part_verification: bool,
+) -> CommandResult<TransferTask> {
+    let core = state.core()?;
+    logged("resuming an unfinished upload", async {
+        require_absolute("the file", &path)?;
+        let s3 = core.session.s3_for(&account_id).await?;
+        let settings = core.session.settings().await?;
+        let engine = TransferEngine::new(s3, TransferOptions::from_settings(&settings))?;
+        let (check, upload) = engine
+            .check_upload_resume(
+                Path::new(&path),
+                &bucket,
+                &key,
+                &upload_id,
+                skip_part_verification,
+            )
+            .await?;
+        let Some(upload) = upload else {
+            let reason = check
+                .problem
+                .map_or_else(|| "the file does not match".to_owned(), |p| p.message);
+            return Err(Error::Usage(format!(
+                "this file cannot finish the upload: {reason}"
+            )));
+        };
+        enqueue_resume_upload(&core.queue, &account_id, Path::new(&path), upload)
+    })
+    .await
+}
+
+/// The upload rule that an upload of `name` would get from `rules`
+/// (docs/desktop-api.md, "Upload rules").
+#[tauri::command(rename_all = "snake_case")]
+pub async fn test_upload_rules(
+    rules: UploadRulesSettings,
+    name: String,
+) -> CommandResult<UploadRuleMatch> {
+    Ok(test_rules(&rules, &name)?)
 }

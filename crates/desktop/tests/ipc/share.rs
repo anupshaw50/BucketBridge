@@ -73,3 +73,63 @@ fn shorten_with_a_stored_token() {
         serde_json::Value::Null
     );
 }
+
+#[test]
+fn a_link_can_use_another_service_than_the_settings_one() {
+    let server = MockS3::start(|request| {
+        if request.path.ends_with("/plain") {
+            MockResponse {
+                status: 200,
+                headers: vec![],
+                body: "https://tiny.example/z".into(),
+            }
+        } else if request.header("authorization") == Some("Bearer tok") {
+            MockResponse {
+                status: 200,
+                headers: vec![],
+                body: r#"{"link":"https://bit.example/q"}"#.into(),
+            }
+        } else {
+            MockResponse::empty(401)
+        }
+    });
+    let endpoint = server.endpoint().to_owned();
+    let h = Harness::with_options(move |options| {
+        options.shortener_endpoints = Some(Endpoints {
+            bitly: format!("{endpoint}/shorten"),
+            tinyurl: format!("{endpoint}/create"),
+            tinyurl_plain: format!("{endpoint}/plain"),
+        });
+    });
+    // Shortening stays off while the settings choose no service.
+    assert_eq!(
+        h.code("shorten_url", json!({ "url": LONG, "provider": "tinyurl" })),
+        "usage"
+    );
+    assert!(server.requests().is_empty());
+
+    h.set_setting("shortener", "provider", json!("bitly"));
+    h.ok("set_shortener_token", json!({ "token": "tok" }));
+    // The service of the settings, with or without the choice spelled out.
+    assert_eq!(
+        h.ok("shorten_url", json!({ "url": LONG, "provider": null })),
+        "https://bit.example/q"
+    );
+    assert_eq!(
+        h.ok("shorten_url", json!({ "url": LONG, "provider": "bitly" })),
+        "https://bit.example/q"
+    );
+    // Another service: the Bitly token is not sent to it.
+    assert_eq!(
+        h.ok("shorten_url", json!({ "url": LONG, "provider": "tinyurl" })),
+        "https://tiny.example/z"
+    );
+    let last = server.requests().last().unwrap().clone();
+    assert!(last.header("authorization").is_none());
+    assert!(last.path.ends_with("/plain"));
+    // "none" as a choice means the service of the settings.
+    assert_eq!(
+        h.ok("shorten_url", json!({ "url": LONG, "provider": "none" })),
+        "https://bit.example/q"
+    );
+}

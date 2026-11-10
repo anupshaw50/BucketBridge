@@ -254,7 +254,7 @@ pub async fn lock_set(ctx: &Context, args: &LockSetArgs, out: &mut Output) -> Re
 struct RestoreRecord<'a> {
     bucket: &'a str,
     key: &'a str,
-    days: u32,
+    days: Option<u32>,
     tier: &'static str,
     dry_run: bool,
     requested: bool,
@@ -270,7 +270,7 @@ pub async fn restore(ctx: &Context, args: &RestoreArgs, out: &mut Output) -> Res
     while let Some(chunk) = keys.next().await? {
         let results = ctx
             .s3
-            .restore_objects(
+            .restore_archived(
                 bucket,
                 &chunk,
                 args.days,
@@ -290,24 +290,25 @@ pub async fn restore(ctx: &Context, args: &RestoreArgs, out: &mut Output) -> Res
                 requested: result.changed,
                 error: result.error.clone(),
             };
-            let line = if args.dry_run {
-                trf(
+            let line = match (args.days, args.dry_run) {
+                (Some(days), true) => trf(
                     "would request the restore of {uri} for {days} days ({tier})",
                     &[
                         ("uri", &uri),
-                        ("days", args.days.to_string().as_str()),
+                        ("days", days.to_string().as_str()),
                         ("tier", args.tier.as_str()),
                     ],
-                )
-            } else {
-                trf(
+                ),
+                (Some(days), false) => trf(
                     "requested the restore of {uri} for {days} days ({tier})",
                     &[
                         ("uri", &uri),
-                        ("days", args.days.to_string().as_str()),
+                        ("days", days.to_string().as_str()),
                         ("tier", args.tier.as_str()),
                     ],
-                )
+                ),
+                (None, true) => trf("would request the restore of {uri}", &[("uri", &uri)]),
+                (None, false) => trf("requested the restore of {uri}", &[("uri", &uri)]),
             };
             emit(out, &mut batch, &uri, result, "restore", &record, line)?;
         }

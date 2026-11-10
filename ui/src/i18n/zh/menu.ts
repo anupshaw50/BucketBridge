@@ -51,6 +51,7 @@ export const zhMenu: Messages = {
   "action.bookmark.add": "添加书签…",
   "action.list.filter": "筛选…",
   "action.bucket.sharing-wizard": "共享向导…",
+  "action.bucket.clone": "克隆存储桶…",
   "action.bucket.mount": "挂载为驱动器",
   "action.bucket.open-browser": "在浏览器中打开",
   "action.bucket.add-external": "添加外部存储桶…",

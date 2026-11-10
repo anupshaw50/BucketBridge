@@ -23,7 +23,8 @@ fn settings_are_validated_and_applied() {
             "logging",
             "proxy",
             "shortener",
-            "transfer"
+            "transfer",
+            "upload_rules"
         ]
     );
     assert_eq!(settings["advanced"]["list_page_size"], 1000);
@@ -206,6 +207,19 @@ fn crash_reports_are_read_and_dismissed() {
         h.code("dismiss_crash_report", json!({ "path": path })),
         "not_found"
     );
+}
+
+#[test]
+fn list_regions_returns_the_region_table_with_partitions() {
+    let h = Harness::new();
+    let regions = h.ok("list_regions", json!({}));
+    let regions = regions.as_array().unwrap();
+    assert!(regions.len() > 30);
+    let cn = regions.iter().find(|r| r["id"] == "cn-north-1").unwrap();
+    assert_eq!(cn["partition"], "aws-cn");
+    assert_eq!(cn["dns_suffix"], "amazonaws.com.cn");
+    let gov = regions.iter().find(|r| r["id"] == "us-gov-west-1").unwrap();
+    assert_eq!(gov["partition"], "aws-us-gov");
 }
 
 #[test]

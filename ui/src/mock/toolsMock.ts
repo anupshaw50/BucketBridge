@@ -2,7 +2,7 @@
 // diagnostics, uncompleted multipart uploads, saved filters and the export of a listing. The state
 // and the rules live here; MockBackend only delegates, after its own latency and bookkeeping.
 
-import type { CommandArgs } from "../api/backend";
+import type { CommandArgs, MultipartResumeArgs } from "../api/backend";
 import { BackendError } from "../api/errors";
 import type {
   AbortResult,
@@ -21,6 +21,7 @@ import type {
   SavedFilter,
   Settings,
   UploadListing,
+  UploadResumeCheck,
   UploadRow,
 } from "../api/types";
 import { compileFilter, matchesObject } from "../lib/filters";
@@ -53,6 +54,10 @@ const MAX_FILTERS = 200;
 const MAX_FILTER_NAME = 100;
 const DAY_MS = 86_400_000;
 const MOCK_CA = "Mock Trust Services CA";
+const MIB = 1024 * 1024;
+/** The mock uploads were started with parts of this size, and two of them are on the server. */
+const MOCK_PART_SIZE = 8 * MIB;
+const MOCK_UPLOADED_PARTS = 2;
 
 /** Buckets whose uploads the demo account may not list (a bucket policy denies it). */
 const LISTING_DENIED: ReadonlySet<string> = new Set(["demo-website"]);
@@ -185,6 +190,8 @@ export class ToolsMock {
   private readonly host: ToolsHost;
   private filters: SavedFilter[] = [];
   private readonly uploads = new Map<string, UploadRow[]>();
+  /** The size of the file each seeded upload was made from, by upload ID. */
+  private readonly origins = new Map<string, number>();
 
   constructor(host: ToolsHost) {
     this.host = host;
@@ -194,10 +201,12 @@ export class ToolsMock {
         continue;
       }
       const list = this.uploadsOf(seed.provider, seed.bucket);
+      const uploadId = toHex(seededBytes(`upload:${seed.bucket}/${seed.key}`, 16));
+      this.origins.set(uploadId, 20 * MIB + 123 + list.length);
       list.push({
         bucket: seed.bucket,
         key: seed.key,
-        upload_id: toHex(seededBytes(`upload:${seed.bucket}/${seed.key}`, 16)),
+        upload_id: uploadId,
         initiated: isoMinusDays(seed.ageDays),
         storage_class: seed.storageClass,
         initiator: "demo-owner",
@@ -502,6 +511,81 @@ export class ToolsMock {
       results.push(result);
     }
     return results;
+  }
+
+  /**
+   * What a local file would do for an unfinished upload. The mock knows the size of the file each
+   * seeded upload was made from: the same size matches, a smaller file is refused for being too
+   * small, any other size differs in the first part.
+   */
+  checkResume(args: MultipartResumeArgs): UploadResumeCheck {
+    const account = this.host.account(args.account_id);
+    this.host.requireAccess(account);
+    const problem = validateBucketName(args.bucket);
+    if (problem !== null) {
+      fail("usage", `${args.bucket}: ${problem}`);
+    }
+    if (args.key.length === 0 || utf8Length(args.key) > 1024) {
+      fail("usage", "An upload key must be 1 to 1024 bytes long.");
+    }
+    if (args.upload_id.length === 0) {
+      fail("usage", "The upload ID is empty.");
+    }
+    const path = normalizePath(args.path);
+    if (path === null || args.path !== path) {
+      fail("usage", "the file must be an absolute path");
+    }
+    const denied = this.denial(account, args.bucket, false);
+    if (denied !== null) {
+      fail(denied.code, denied.message);
+    }
+    const list = this.uploadsOf(account.endpoint ?? AWS_PROVIDER, args.bucket);
+    if (!list.some((row) => row.key === args.key && row.upload_id === args.upload_id)) {
+      fail("not_found", "The specified upload does not exist (NoSuchUpload).");
+    }
+    const file = this.host.fs.stat(path);
+    if (file === null) {
+      fail("not_found", `The local file does not exist: ${args.path}`);
+    }
+    const origin = this.origins.get(args.upload_id) ?? 20 * MIB;
+    const uploaded = MOCK_UPLOADED_PARTS * MOCK_PART_SIZE;
+    const count = Math.ceil(file.size / MOCK_PART_SIZE);
+    const check: UploadResumeCheck = {
+      bucket: args.bucket,
+      key: args.key,
+      upload_id: args.upload_id,
+      file_size: file.size,
+      part_size: MOCK_PART_SIZE,
+      part_count: count,
+      checksum_algorithm: "crc32",
+      parts: Array.from({ length: MOCK_UPLOADED_PARTS }, (_, index) => ({
+        number: index + 1,
+        size: MOCK_PART_SIZE,
+        verified: args.skip_part_verification ? "skipped" : "checksum",
+      })),
+      missing_parts: Math.max(0, count - MOCK_UPLOADED_PARTS),
+      bytes_uploaded: uploaded,
+      bytes_remaining: Math.max(0, file.size - uploaded),
+      problem: null,
+    };
+    if (file.size < uploaded) {
+      check.problem = { code: "file_too_small", message: `the file has ${file.size} bytes, but ${uploaded} bytes were already uploaded`, part: null };
+    } else if (file.size !== origin && !args.skip_part_verification) {
+      check.parts = check.parts.map((part) => (part.number === 1 ? { ...part, verified: "mismatch" } : part));
+      check.problem = { code: "part_mismatch", message: "part 1 of the upload is not the same as the file (the checksums differ)", part: 1 };
+    }
+    return check;
+  }
+
+  /** A resumed upload completes at once in the mock: it is no longer listed. */
+  finishUpload(args: MultipartResumeArgs): void {
+    const account = this.host.account(args.account_id);
+    const list = this.uploadsOf(account.endpoint ?? AWS_PROVIDER, args.bucket);
+    const index = list.findIndex((row) => row.key === args.key && row.upload_id === args.upload_id);
+    if (index !== -1) {
+      list.splice(index, 1);
+    }
+    this.host.log("information", "s3", `Resumed upload ${args.upload_id} of s3://${args.bucket}/${args.key}.`);
   }
 
   private uploadsOf(providerKey: string, bucket: string): UploadRow[] {

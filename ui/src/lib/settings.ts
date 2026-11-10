@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
     if_exists: "overwrite",
   },
   shortener: { provider: "none", token_ref: null },
+  upload_rules: { enabled: true, rules: [] },
 };
 
 export function cloneSettings(settings: Settings): Settings {
@@ -55,6 +56,10 @@ export function cloneSettings(settings: Settings): Settings {
     proxy: { ...settings.proxy, bypass: [...settings.proxy.bypass] },
     transfer: { ...settings.transfer },
     shortener: { ...settings.shortener },
+    upload_rules: {
+      enabled: settings.upload_rules.enabled,
+      rules: settings.upload_rules.rules.map((rule) => ({ ...rule, headers: { ...rule.headers } })),
+    },
   };
 }
 
@@ -96,7 +101,8 @@ export type SettingsField =
   | "proxy.kind"
   | "proxy.host"
   | "proxy.username"
-  | "proxy.bypass";
+  | "proxy.bypass"
+  | "upload_rules.rules";
 
 export type SettingsErrors = Partial<Record<SettingsField, string>>;
 
@@ -204,6 +210,10 @@ export function validateSettings(settings: Settings): SettingsErrors {
       break;
     }
   }
+  const emptyPattern = settings.upload_rules.rules.findIndex((rule) => rule.pattern.trim().length === 0);
+  if (emptyPattern >= 0) {
+    errors["upload_rules.rules"] = tr("Rule {number} has no file pattern.", { number: emptyPattern + 1 });
+  }
   return errors;
 }
 
@@ -229,6 +239,8 @@ export function pageOfField(field: SettingsField): SettingsPage {
       return "proxy";
     case "shortener":
       return "sharing";
+    case "upload_rules":
+      return "upload_rules";
     default:
       return "transfer";
   }
@@ -242,4 +254,5 @@ export type SettingsPage =
   | "data_integrity"
   | "logging"
   | "proxy"
-  | "sharing";
+  | "sharing"
+  | "upload_rules";

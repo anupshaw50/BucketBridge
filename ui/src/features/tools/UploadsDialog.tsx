@@ -2,12 +2,13 @@ import { Alert, Button, Checkbox, Group, MultiSelect, NumberInput, Stack, Table,
 import { IconRefresh } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toBbError } from "../../api/errors";
-import type { AbortResult, UploadListing } from "../../api/types";
+import type { AbortResult, UploadListing, UploadRow } from "../../api/types";
 import { useModel, useSlice } from "../../app/context";
 import { AppModal } from "../../components/AppModal";
 import { tr } from "../../i18n";
 import { formatCount, formatDateTime } from "../../lib/format";
 import { formatAge, uploadId, uploadsOlderThan } from "../../lib/tools";
+import { ResumeUploadDialog } from "./ResumeUploadDialog";
 
 const DEFAULT_DAYS = 30;
 
@@ -35,6 +36,7 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [days, setDays] = useState<number | string>(DEFAULT_DAYS);
   const [results, setResults] = useState<AbortResult[] | null>(null);
+  const [resuming, setResuming] = useState<UploadRow | null>(null);
 
   const list = useCallback(
     async (buckets: string[]) => {
@@ -223,6 +225,13 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
                       ? tr("1 upload selected of {count}", { count: formatCount(rows.length) })
                       : tr("{count} uploads selected of {total}", { count: formatCount(picked.size), total: formatCount(rows.length) })}
                   </Text>
+                  <Button
+                    variant="default"
+                    disabled={picked.size !== 1}
+                    onClick={() => setResuming(rows.find((row) => picked.has(uploadId(row))) ?? null)}
+                  >
+                    {tr("Resume...")}
+                  </Button>
                   <Button color="red" disabled={picked.size === 0} loading={aborting} onClick={() => void abort()}>
                     {tr("Abort selected ({count})", { count: picked.size })}
                   </Button>
@@ -310,6 +319,21 @@ export function UploadsDialog({ onClose }: { onClose: () => void }) {
           </Group>
         </Stack>
       )}
+      {resuming !== null && accountId !== null ? (
+        <ResumeUploadDialog
+          accountId={accountId}
+          upload={resuming}
+          onClose={() => setResuming(null)}
+          onResumed={() => {
+            const id = uploadId(resuming);
+            setListing((current) =>
+              current === null ? current : { ...current, uploads: current.uploads.filter((row) => uploadId(row) !== id) },
+            );
+            setPicked(new Set());
+            setResuming(null);
+          }}
+        />
+      ) : null}
     </AppModal>
   );
 }

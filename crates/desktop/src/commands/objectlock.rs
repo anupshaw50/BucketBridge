@@ -12,7 +12,7 @@ use bucketbridge_core::bucketcfg::VersioningStatus;
 use bucketbridge_core::model::DeleteOutcome;
 use bucketbridge_core::objectlock::{
     ArchiveState, BucketObjectLock, DefaultRetentionRule, MfaDeleteAuth, ObjectLockState,
-    ObjectOwnership, RestoreTier, RetentionChange,
+    ObjectOwnership, RestoreEstimate, RestoreTier, RetentionChange,
 };
 use bucketbridge_core::objectmeta::{BatchOptions, ObjectChange};
 use bucketbridge_core::versions::{PurgeOptions, VersionRef};
@@ -212,7 +212,7 @@ pub async fn restore_objects(
     account_id: String,
     bucket: String,
     keys: Vec<String>,
-    days: u32,
+    days: Option<u32>,
     tier: RestoreTier,
     version_id: Option<String>,
 ) -> CommandResult<Vec<ObjectChange>> {
@@ -220,7 +220,7 @@ pub async fn restore_objects(
     logged("requesting a restore", async {
         let s3 = core.session.s3_for(&account_id).await?;
         let results = s3
-            .restore_objects(
+            .restore_archived(
                 &bucket,
                 &keys,
                 days,
@@ -231,6 +231,23 @@ pub async fn restore_objects(
             .await?;
         record("requested the restore of objects", &bucket, &results);
         Ok(results)
+    })
+    .await
+}
+
+/// Size, object count and the list-price cost of restoring `keys` per tier.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn estimate_restore(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    keys: Vec<String>,
+) -> CommandResult<RestoreEstimate> {
+    let core = state.core()?;
+    logged("estimating a restore", async {
+        let s3 = core.session.s3_for(&account_id).await?;
+        let summary = s3.restore_summary(&bucket, &keys).await?;
+        Ok(bucketbridge_core::objectlock::estimate_restore(&summary))
     })
     .await
 }

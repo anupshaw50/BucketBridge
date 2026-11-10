@@ -18,4 +18,7 @@ export const zhComponents: Record<string, string> = {
   Copied: "已复制",
   "Copy to clipboard": "复制到剪贴板",
   "Copy {label}": "复制 {label}",
+
+  // ---- components/RegionInput.tsx ----
+  "{name}, partition {partition}.": "{name}，分区 {partition}。",
 };

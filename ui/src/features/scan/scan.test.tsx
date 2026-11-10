@@ -39,6 +39,7 @@ describe("scan helpers", () => {
     expect(rows.at(-1)?.finding.severity).toBe("low");
     expect(countBySeverity(report, "critical")).toBe(2);
     expect(openableTab("policy")).toBe("policy");
-    expect(openableTab("encryption")).toBeNull();
+    expect(openableTab("encryption")).toBe("encryption");
+    expect(openableTab("ownership")).toBeNull();
   });
 });

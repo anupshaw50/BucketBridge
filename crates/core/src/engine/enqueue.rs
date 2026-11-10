@@ -20,7 +20,8 @@ use crate::secrets::SecretString;
 
 use super::expand::{ExpandFailure, Expansion, expand_delete, expand_upload};
 use super::job::JobOptions;
-use super::runner::rejected;
+use super::runner::{RunnerState, rejected};
+use super::upload::UploadState;
 use super::{TransferEngine, TransferOptions};
 use crate::error::Result;
 use crate::model::{Location, TransferKind, TransferTask};
@@ -136,6 +137,104 @@ async fn upload_in_batch(
             )
         },
     )
+}
+
+/// `resume_multipart_upload`: queues the upload of `path` that finishes the
+/// unfinished multipart upload of `state` (from
+/// [`TransferEngine::check_upload_resume`]). The task starts from the verified
+/// parts, uploads the missing ones and completes the upload. The destination
+/// is replaced whatever the overwrite policy says: the user chose to finish
+/// this upload.
+pub fn enqueue_resume_upload(
+    queue: &TransferQueue,
+    account_id: &str,
+    path: &Path,
+    state: UploadState,
+) -> Result<TransferTask> {
+    validate_bucket_name(&state.bucket)?;
+    let options = JobOptions {
+        if_exists: Some(crate::settings::IfExists::Overwrite),
+        ..JobOptions::default()
+    };
+    let task = NewTask {
+        account_id: account_id.to_owned(),
+        group_id: Some(options.group_id(uuid::Uuid::new_v4().to_string())),
+        kind: TransferKind::Upload,
+        src: Location::Local {
+            path: path.to_path_buf(),
+        },
+        dst: Some(Location::S3 {
+            bucket: state.bucket.clone(),
+            key: state.key.clone(),
+        }),
+        bytes_total: Some(state.source.size),
+    };
+    let resume = serde_json::to_value(RunnerState::Upload(state))
+        .map_err(|err| crate::error::Error::Internal(format!("saving the resume state: {err}")))?;
+    queue.add_task_with_resume(task, resume)
+}
+
+/// The copy of a bucket clone: queues the server-side copy of every object of
+/// `source_bucket` (or of those under `prefix`) to `new_bucket`, with the keys
+/// unchanged. Returns the tasks (none for an empty bucket). `prefix` is a
+/// folder: it ends with `/` or is empty.
+pub async fn enqueue_clone_copy(
+    queue: &TransferQueue,
+    s3: &S3,
+    account_id: &str,
+    source_bucket: &str,
+    new_bucket: &str,
+    prefix: &str,
+) -> Result<Vec<TransferTask>> {
+    validate_bucket_name(source_bucket)?;
+    validate_bucket_name(new_bucket)?;
+    if source_bucket == new_bucket {
+        return Err(crate::error::Error::Usage(
+            "the new bucket must have a different name than the source".into(),
+        ));
+    }
+    if !prefix.is_empty() && !prefix.ends_with('/') {
+        return Err(crate::error::Error::Usage(format!(
+            "the prefix '{prefix}' must end with '/'"
+        )));
+    }
+    // A folder lands under the destination prefix with its own name, so a
+    // prefix is copied into its parent to keep every key as it is; the whole
+    // bucket is copied entry by entry from its root.
+    let (keys, dst_prefix) = if prefix.is_empty() {
+        let mut keys = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let page = s3
+                .list_objects(source_bucket, "", false, token.as_deref(), 1000)
+                .await?;
+            keys.extend(page.entries.into_iter().map(|entry| entry.key));
+            match page.next_token {
+                Some(next) => token = Some(next),
+                None => break,
+            }
+        }
+        (keys, String::new())
+    } else {
+        let parent = match prefix.trim_end_matches('/').rfind('/') {
+            Some(at) => prefix[..=at].to_owned(),
+            None => String::new(),
+        };
+        (vec![prefix.to_owned()], parent)
+    };
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    enqueue_copy(
+        queue,
+        s3,
+        account_id,
+        source_bucket,
+        &keys,
+        new_bucket,
+        &dst_prefix,
+    )
+    .await
 }
 
 /// `enqueue_download`: downloads keys and prefixes of `bucket` into

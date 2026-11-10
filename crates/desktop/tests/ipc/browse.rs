@@ -49,7 +49,7 @@ fn buckets_folders_and_paginated_listings() {
             "create_bucket",
             json!({ "account_id": id, "name": bucket, "region": null })
         ),
-        Value::Null
+        json!({ "warnings": [] })
     );
     let buckets = h.ok("list_buckets", json!({ "account_id": id }));
     let listed = buckets.as_array().unwrap();

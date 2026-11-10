@@ -9,6 +9,8 @@ mod app;
 mod bookmarks;
 mod browse;
 mod bucketcfg;
+mod bucketclone;
+mod bucketprops;
 mod bucketrules;
 mod cloudfront;
 mod credentials;
@@ -90,7 +92,20 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         bucketcfg::list_external_buckets,
         bucketcfg::add_external_bucket,
         bucketcfg::remove_external_bucket,
+        bucketclone::preview_bucket_clone,
+        bucketclone::clone_bucket,
+        bucketprops::get_bucket_encryption,
+        bucketprops::put_bucket_encryption,
+        bucketprops::delete_bucket_encryption,
+        bucketprops::get_bucket_tags,
+        bucketprops::put_bucket_tags,
+        bucketprops::get_bucket_acl,
+        bucketprops::set_bucket_acl,
+        bucketprops::put_bucket_acl_grants,
+        bucketprops::put_object_acl_grants,
         bucketrules::get_bucket_rules,
+        bucketrules::read_rules_file,
+        bucketrules::write_rules_file,
         bucketrules::get_bucket_lifecycle,
         bucketrules::put_bucket_lifecycle,
         bucketrules::delete_bucket_lifecycle,
@@ -166,14 +181,18 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         app::export_log,
         app::clear_log,
         app::app_info,
+        app::list_regions,
         app::last_crash_report,
         app::dismiss_crash_report,
         tools::run_diagnostics,
         tools::list_multipart_uploads,
         tools::abort_multipart_uploads,
+        tools::check_multipart_resume,
+        tools::resume_multipart_upload,
         tools::list_filters,
         tools::save_filter,
         tools::delete_filter,
+        tools::test_upload_rules,
         tools::export_listing,
         usage::compute_bucket_usage,
         usage::cancel_bucket_usage,
@@ -194,6 +213,7 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         objectlock::put_object_ownership,
         objectlock::restore_objects,
         objectlock::get_restore_state,
+        objectlock::estimate_restore,
         objectlock::put_bucket_versioning_mfa,
         objectlock::purge_versions_with,
         iam::iam_status,

@@ -12,7 +12,8 @@
 use bucketbridge_core::bucketcfg::VersioningStatus;
 use bucketbridge_core::model::LockMode;
 use bucketbridge_core::objectlock::{
-    DefaultRetentionRule, MfaDeleteAuth, ObjectOwnership, RestoreTier, RetentionChange,
+    ArchiveKind, DefaultRetentionRule, MfaDeleteAuth, ObjectOwnership, RestoreTier,
+    RetentionChange, estimate_restore,
 };
 use bucketbridge_core::objectmeta::{BatchOptions, HeaderChange, HeaderChanges};
 use bucketbridge_core::versions::{PurgeOptions, VersionRef};
@@ -460,7 +461,7 @@ async fn a_restore_request_carries_days_and_tier() {
         .restore_objects(
             BUCKET,
             &keys(&["cold.bin"]),
-            7,
+            Some(7),
             RestoreTier::Bulk,
             Some("v9"),
             BatchOptions::default(),
@@ -505,7 +506,7 @@ async fn restore_problems_are_per_object_and_worded_by_the_server() {
         .restore_objects(
             BUCKET,
             &keys(&["busy", "warm", "cold"]),
-            1,
+            Some(1),
             RestoreTier::Standard,
             None,
             BatchOptions::default(),
@@ -539,7 +540,7 @@ async fn restore_problems_are_per_object_and_worded_by_the_server() {
             .restore_objects(
                 BUCKET,
                 &keys(&["a"]),
-                days,
+                Some(days),
                 RestoreTier::Bulk,
                 None,
                 BatchOptions::default(),
@@ -603,6 +604,169 @@ async fn the_restore_state_comes_from_head_object() {
         .await
         .unwrap();
     assert!(!plain.archived && plain.storage_class == "STANDARD");
+}
+
+fn head_by_path(request: &RecordedRequest) -> MockResponse {
+    let path = request.path.as_str();
+    let archived = |class: &str| {
+        MockResponse::empty(200)
+            .with_header("x-amz-storage-class", class)
+            .with_header("content-length", "2048")
+    };
+    if path.ends_with("/glacier") {
+        archived("GLACIER")
+    } else if path.ends_with("/deep") {
+        archived("DEEP_ARCHIVE")
+    } else if path.ends_with("/tier") {
+        archived("INTELLIGENT_TIERING").with_header("x-amz-archive-status", "ARCHIVE_ACCESS")
+    } else if path.ends_with("/deeptier") {
+        archived("INTELLIGENT_TIERING").with_header("x-amz-archive-status", "DEEP_ARCHIVE_ACCESS")
+    } else {
+        MockResponse::empty(200)
+    }
+}
+
+fn posts(mock: &MockS3) -> Vec<RecordedRequest> {
+    mock.requests()
+        .into_iter()
+        .filter(|request| request.method == "POST")
+        .collect()
+}
+
+#[tokio::test]
+async fn an_intelligent_tiering_restore_has_no_days_and_no_tier() {
+    let mock = MockS3::start(|_| MockResponse::empty(202));
+    mock.ops()
+        .restore_objects(
+            BUCKET,
+            &keys(&["tier.bin"]),
+            None,
+            RestoreTier::Standard,
+            None,
+            BatchOptions::default(),
+        )
+        .await
+        .unwrap();
+    let request = only(&mock);
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.query_param("restore").as_deref(), Some(""));
+    let body = request.body_text();
+    assert!(body.starts_with("<RestoreRequest"), "{body}");
+    assert!(!body.contains("Days") && !body.contains("Tier"), "{body}");
+}
+
+#[tokio::test]
+async fn the_archive_kind_is_reported_for_every_archive() {
+    let mock = MockS3::start(head_by_path);
+    let s3 = mock.ops();
+    let tier = s3.object_restore_state(BUCKET, "tier", None).await.unwrap();
+    assert!(tier.archived);
+    assert_eq!(tier.kind, Some(ArchiveKind::IntelligentArchive));
+    let deep = s3
+        .object_restore_state(BUCKET, "deeptier", None)
+        .await
+        .unwrap();
+    assert_eq!(deep.kind, Some(ArchiveKind::IntelligentDeepArchive));
+    let glacier = s3
+        .object_restore_state(BUCKET, "glacier", None)
+        .await
+        .unwrap();
+    assert_eq!(glacier.kind, Some(ArchiveKind::Glacier));
+    let plain = s3
+        .object_restore_state(BUCKET, "plain", None)
+        .await
+        .unwrap();
+    assert_eq!(plain.kind, None);
+}
+
+#[tokio::test]
+async fn restore_archived_picks_the_request_by_archive() {
+    let mock = MockS3::start(|request| {
+        if request.method == "HEAD" {
+            head_by_path(request)
+        } else {
+            MockResponse::empty(202)
+        }
+    });
+    let results = mock
+        .ops()
+        .restore_archived(
+            BUCKET,
+            &keys(&["glacier", "tier"]),
+            Some(5),
+            RestoreTier::Bulk,
+            None,
+            BatchOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert!(results.iter().all(|result| result.changed));
+    let sent = posts(&mock);
+    assert_eq!(sent.len(), 2);
+    let body_of = |name: &str| {
+        sent.iter()
+            .find(|request| request.path.ends_with(name))
+            .unwrap()
+            .body_text()
+    };
+    assert!(body_of("/glacier").contains("<Days>5</Days>"));
+    assert!(!body_of("/tier").contains("Days"));
+
+    // Without days only the Intelligent-Tiering object can be requested.
+    let results = mock
+        .ops()
+        .restore_archived(
+            BUCKET,
+            &keys(&["glacier", "deeptier"]),
+            None,
+            RestoreTier::Standard,
+            None,
+            BatchOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(results[0].error.as_ref().unwrap().code, ErrorKind::Usage);
+    assert!(results[1].changed);
+
+    // A dry run reads but sends no restore.
+    let before = posts(&mock).len();
+    let options = BatchOptions {
+        dry_run: true,
+        ..BatchOptions::default()
+    };
+    mock.ops()
+        .restore_archived(
+            BUCKET,
+            &keys(&["glacier"]),
+            Some(1),
+            RestoreTier::Bulk,
+            None,
+            options,
+        )
+        .await
+        .unwrap();
+    assert_eq!(posts(&mock).len(), before);
+}
+
+#[tokio::test]
+async fn the_restore_summary_counts_objects_and_sizes_per_archive() {
+    let mock = MockS3::start(head_by_path);
+    let summary = mock
+        .ops()
+        .restore_summary(
+            BUCKET,
+            &keys(&["glacier", "deep", "tier", "plain", "folder/"]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.objects(), 3);
+    assert_eq!(summary.bytes(), 3 * 2048);
+    assert_eq!(summary.not_archived, 1);
+    assert_eq!(summary.unreadable, 0);
+    assert!(!summary.truncated);
+    let estimate = estimate_restore(&summary);
+    assert_eq!(estimate.tiers.len(), 3);
+    assert_eq!(estimate.tiers[0].unsupported, 2);
 }
 
 // ---- MFA delete ----

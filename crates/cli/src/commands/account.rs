@@ -11,8 +11,8 @@
 use std::io::BufRead;
 
 use bucketbridge_core::model::{
-    Account, AccountInput, AccountUpdate, CredentialSource, DEFAULT_ROLE_DURATION_SECS,
-    DEFAULT_ROLE_SESSION_NAME,
+    Account, AccountInput, AccountProxy, AccountUpdate, CredentialSource,
+    DEFAULT_ROLE_DURATION_SECS, DEFAULT_ROLE_SESSION_NAME,
 };
 use bucketbridge_core::secrets::SecretString;
 use bucketbridge_core::session::SsoLoginPoll;
@@ -78,6 +78,24 @@ async fn add(
     input.endpoint.clone_from(&args.endpoint);
     input.path_style = args.path_style;
     input.request_payer = args.request_payer;
+    input.options.accelerate = args.accelerate;
+    input.options.dual_stack = args.dual_stack;
+    input
+        .options
+        .compat
+        .storage_classes
+        .clone_from(&args.storage_classes);
+    input
+        .options
+        .compat
+        .regions
+        .clone_from(&args.provider_regions);
+    input.options.compat.single_deletes = args.single_deletes;
+    input.options.compat.no_multipart_copy = args.no_multipart_copy;
+    input.options.compat.list_all_regions = args.list_all_regions;
+    input.options.proxy = Box::new(parse_account_proxy(&args.proxy)?);
+    input.options.cannot_list_buckets = args.cannot_list_buckets;
+    input.options.known_buckets.clone_from(&args.known_buckets);
     if args.instance_role {
         if !args.no_probe {
             let found = session.probe_instance_role().await?;
@@ -557,6 +575,43 @@ async fn select(session: &Session, selector: &AccountSelector) -> Result<Account
     })
 }
 
+/// `global`, `none`, or `http://HOST:PORT` / `socks5://HOST:PORT` for the
+/// `--proxy` option of `account add`.
+fn parse_account_proxy(text: &str) -> Result<AccountProxy> {
+    use bucketbridge_core::settings::ProxyKind;
+    let bad = || {
+        Error::Usage(format!(
+            "'{text}' is not a proxy: use global, none, http://HOST:PORT or socks5://HOST:PORT"
+        ))
+    };
+    match text {
+        "global" => return Ok(AccountProxy::Global),
+        "none" => return Ok(AccountProxy::None),
+        _ => {}
+    }
+    let (kind, rest) = if let Some(rest) = text.strip_prefix("http://") {
+        (ProxyKind::Http, rest)
+    } else if let Some(rest) = text.strip_prefix("socks5://") {
+        (ProxyKind::Socks5, rest)
+    } else {
+        return Err(bad());
+    };
+    let (host, port) = rest
+        .trim_end_matches('/')
+        .rsplit_once(':')
+        .ok_or_else(bad)?;
+    let port: u16 = port.parse().map_err(|_| bad())?;
+    if host.is_empty() {
+        return Err(bad());
+    }
+    Ok(AccountProxy::Custom {
+        kind,
+        host: host.to_owned(),
+        port,
+        bypass: Vec::new(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,5 +624,26 @@ mod tests {
         assert!(read_line(&mut input).unwrap().is_none());
         assert_eq!(read_line(&mut input).unwrap().unwrap().expose(), "rest");
         assert!(read_line(&mut input).unwrap().is_none());
+    }
+
+    #[test]
+    fn the_proxy_option_reads_global_none_and_urls() {
+        assert_eq!(parse_account_proxy("global").unwrap(), AccountProxy::Global);
+        assert_eq!(parse_account_proxy("none").unwrap(), AccountProxy::None);
+        match parse_account_proxy("socks5://proxy.example:1080/").unwrap() {
+            AccountProxy::Custom { host, port, .. } => {
+                assert_eq!((host.as_str(), port), ("proxy.example", 1080));
+            }
+            other => panic!("{other:?}"),
+        }
+        for bad in [
+            "proxy.example:80",
+            "ftp://h:1",
+            "http://:80",
+            "http://h:x",
+            "http://h",
+        ] {
+            assert!(parse_account_proxy(bad).is_err(), "{bad}");
+        }
     }
 }

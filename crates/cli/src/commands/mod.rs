@@ -3,6 +3,8 @@
 pub mod account;
 pub mod accountfile;
 pub mod bucket;
+pub mod bucketcfg;
+pub mod clonebucket;
 pub mod cloudfront;
 pub mod copy;
 pub mod cse;

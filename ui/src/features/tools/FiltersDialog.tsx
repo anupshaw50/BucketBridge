@@ -87,9 +87,16 @@ function FilterForm({
       prefix: listing.prefix,
     });
   }, [compiled, listing]);
+  const accounts = useSlice(model.session.store, (state) => state.accounts);
   const classOptions = useMemo(
-    () => [...new Set([...STORAGE_CLASS_OPTIONS, ...draft.classes])],
-    [draft.classes],
+    () => [
+      ...new Set([
+        ...STORAGE_CLASS_OPTIONS,
+        ...accounts.flatMap((account) => account.options.compat.storage_classes),
+        ...draft.classes,
+      ]),
+    ],
+    [accounts, draft.classes],
   );
 
   const save = async () => {

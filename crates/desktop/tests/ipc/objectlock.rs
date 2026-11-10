@@ -270,8 +270,23 @@ fn restore_commands_request_and_report_the_state() {
         "get_restore_state",
         json!({ "account_id": f.account, "bucket": BUCKET, "key": "cold", "version_id": null }),
     );
-    assert_eq!(keys(&state), ["archived", "restore", "storage_class"]);
+    assert_eq!(
+        keys(&state),
+        ["archived", "kind", "restore", "storage_class"]
+    );
+    assert_eq!(state["kind"], "glacier");
     assert_eq!(state["storage_class"], "GLACIER");
+
+    let estimate = f.h.ok(
+        "estimate_restore",
+        json!({ "account_id": f.account, "bucket": BUCKET, "keys": ["cold"] }),
+    );
+    assert_eq!(
+        keys(&estimate),
+        ["bytes", "note", "objects", "price_date", "summary", "tiers"]
+    );
+    assert_eq!(estimate["tiers"].as_array().unwrap().len(), 3);
+    assert_eq!(estimate["tiers"][0]["tier"], "expedited");
     assert_eq!(state["archived"], true);
     assert_eq!(
         state["restore"],

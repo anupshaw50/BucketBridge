@@ -13,7 +13,7 @@ export interface ConfirmOptions {
 }
 
 /** Tabs of the bucket properties dialog. */
-export type BucketPropertiesTab = "policy" | "public-access" | "versioning" | "logging" | "website" | "acceleration" | "usage";
+export type BucketPropertiesTab = "policy" | "public-access" | "versioning" | "logging" | "website" | "acceleration" | "encryption" | "tags" | "acl" | "usage";
 
 /** Tabs of the bucket rules dialog. */
 export type BucketRulesTab = "cors" | "lifecycle" | "tiering" | "replication";
@@ -74,6 +74,7 @@ export type DialogRequest =
   | { kind: "preview"; accountId: string; bucket: string; key: string; versionId: string | null }
   | { kind: "sharing-wizard"; accountId: string; bucket: string }
   | { kind: "bucket-lock"; accountId: string; bucket: string }
+  | { kind: "bucket-clone"; accountId: string; bucket: string }
   | { kind: "bucket-ownership"; accountId: string; bucket: string }
   | { kind: "object-lock"; accountId: string; bucket: string; keys: string[] }
   | { kind: "object-restore"; accountId: string; bucket: string; keys: string[] }

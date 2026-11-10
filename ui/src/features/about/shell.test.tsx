@@ -95,7 +95,7 @@ describe("bucket dialogs", () => {
     expect(await within(dialog).findByText(/already own a bucket/)).toBeInTheDocument();
     await user.clear(name);
     await user.type(name, "fresh-bucket");
-    await user.type(within(dialog).getByRole("textbox", { name: tr("Region (optional)") }), "eu-west-1");
+    await user.type(within(dialog).getByRole("combobox", { name: tr("Region (optional)") }), "eu-west-1");
     await user.click(within(dialog).getByRole("button", { name: tr("Create bucket") }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: tr("New bucket") })).not.toBeInTheDocument());
     expect(await screen.findByText(tr("This folder is empty"))).toBeInTheDocument();

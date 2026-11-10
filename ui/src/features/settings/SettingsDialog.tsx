@@ -35,6 +35,7 @@ import {
 } from "../../lib/settings";
 import { parseBypassList } from "../../lib/validation";
 import { ShortenerSettings } from "../sharing/ShortenerSettings";
+import { UploadRulesPage } from "../uploadrules/UploadRulesPage";
 
 const PAGES: { id: SettingsPage; label: string }[] = [
   { id: "general", label: tr("General") },
@@ -44,6 +45,7 @@ const PAGES: { id: SettingsPage; label: string }[] = [
   { id: "data_integrity", label: tr("Data integrity") },
   { id: "logging", label: tr("Logging") },
   { id: "proxy", label: tr("Proxy") },
+  { id: "upload_rules", label: tr("Upload rules") },
   { id: "sharing", label: tr("Sharing") },
 ];
 
@@ -804,6 +806,21 @@ function SettingsForm({ saved, onClose, initialPage }: { saved: Settings; onClos
             rows={4}
             resize="vertical"
             spellCheck={false}
+          />
+        </Section>
+      );
+      break;
+    case "upload_rules":
+      content = (
+        <Section title={tr("Upload rules")}>
+          <UploadRulesPage
+            value={draft.upload_rules}
+            error={errors["upload_rules.rules"]}
+            onChange={(next) =>
+              change((draft) => {
+                draft.upload_rules = next;
+              }, ["upload_rules.rules"])
+            }
           />
         </Section>
       );

@@ -84,6 +84,35 @@ pub async fn validate_bucket_lifecycle(
     Ok(bucketrules::check_lifecycle_json(&document))
 }
 
+/// The text of a rules document saved as a `.json` file (import).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn read_rules_file(state: State<'_, AppState>, path: String) -> CommandResult<String> {
+    state.core()?;
+    logged("reading a rules file", async {
+        super::require_absolute("the rules file path", &path)?;
+        super::blocking(move || bucketrules::read_rules_file(std::path::Path::new(&path))).await
+    })
+    .await
+}
+
+/// Saves a rules document as a `.json` file (export).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn write_rules_file(
+    state: State<'_, AppState>,
+    path: String,
+    document: String,
+) -> CommandResult<()> {
+    state.core()?;
+    logged("writing a rules file", async {
+        super::require_absolute("the rules file path", &path)?;
+        super::blocking(move || {
+            bucketrules::write_rules_file(std::path::Path::new(&path), &document)
+        })
+        .await
+    })
+    .await
+}
+
 /// The Intelligent-Tiering configurations of the bucket, sorted by id.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn list_bucket_tiering(

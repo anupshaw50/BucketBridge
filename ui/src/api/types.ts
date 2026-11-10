@@ -56,6 +56,44 @@ export interface Account {
   mfa_serial: string | null;
   /** Credential source; every account of version 0.1.0 has static keys. */
   source: CredentialSource;
+  /** Network options; all off for accounts saved before version 0.4.0. */
+  options: AccountOptions;
+}
+
+/** AWS endpoint variants; both need an account without a custom endpoint. */
+export interface AccountOptions {
+  /** Transfer Acceleration endpoint for transfers of buckets that have it enabled. */
+  accelerate: boolean;
+  /** Dual-stack (IPv4 and IPv6) endpoints. */
+  dual_stack: boolean;
+  /** Settings for S3-compatible providers. */
+  compat: CompatOptions;
+  /** Never send ListBuckets; show the known and pinned buckets instead. */
+  cannot_list_buckets: boolean;
+  /** `bucket` or `bucket/folder/`, shown when the server refuses to list buckets. */
+  known_buckets: string[];
+  /** How the account uses the proxy. */
+  proxy: AccountProxy;
+}
+
+/** `global`: the app's proxy; `none`: connect directly; `custom`: this proxy for this account (no authentication). */
+export type AccountProxy =
+  | { type: "global" }
+  | { type: "none" }
+  | { type: "custom"; kind: "http" | "socks5"; host: string; port: number; bypass: string[] };
+
+/** Settings for S3-compatible providers; the defaults are the AWS behaviour. */
+export interface CompatOptions {
+  /** Storage classes the provider offers; empty = the AWS list. */
+  storage_classes: string[];
+  /** Regions the provider has; empty = the AWS table. */
+  regions: string[];
+  /** Delete one object per request instead of DeleteObjects. */
+  single_deletes: boolean;
+  /** Copy with one CopyObject request (objects over 5 GiB fail). */
+  no_multipart_copy: boolean;
+  /** List buckets once per region in `regions` and merge. */
+  list_all_regions: boolean;
 }
 
 export interface AccountInput {
@@ -71,6 +109,8 @@ export interface AccountInput {
   mfa_serial: string | null;
   /** Default `{ type: "static_keys" }`. */
   source?: CredentialSource;
+  /** Default: all off. */
+  options?: AccountOptions;
 }
 
 /** update_account payload: null = keep current value. */
@@ -89,6 +129,8 @@ export interface AccountUpdate {
   clear_mfa_serial: boolean;
   /** New settings of an account that is not static keys (same kind of source). */
   source?: CredentialSource | null;
+  /** Non-null replaces all network options. */
+  options?: AccountOptions | null;
 }
 
 // ---- credential sources: AWS profiles, instance role, SSO ----
@@ -469,6 +511,34 @@ export type QuitWithTasks = "ask" | "wait" | "quit";
 export type ProxyKind = "http" | "socks5";
 export type ShortenerProvider = "none" | "bitly" | "tinyurl";
 
+export type UploadRuleSse = "AES256" | "aws:kms" | "aws:kms:dsse";
+
+/** One upload rule (docs/desktop-api.md, "Upload rules"). */
+export interface UploadRule {
+  name: string; // ""
+  enabled: boolean; // true
+  pattern: string; // glob; a pattern without "/" matches the file name
+  case_insensitive: boolean; // true
+  content_type: string | null;
+  cache_control: string | null;
+  content_disposition: string | null;
+  content_encoding: string | null;
+  headers: Record<string, string>; // "Content-Language", "Expires", "x-amz-meta-<name>"
+  storage_class: string | null;
+  sse: UploadRuleSse | null;
+  sse_kms_key_id: string | null;
+}
+
+export interface UploadRulesSettings {
+  enabled: boolean; // true
+  rules: UploadRule[]; // in order, the first match wins
+}
+
+export interface UploadRuleMatch {
+  index: number | null;
+  rule: UploadRule | null;
+}
+
 export interface Settings {
   general: {
     confirm_delete: boolean; // true
@@ -527,6 +597,7 @@ export interface Settings {
     provider: ShortenerProvider; // "none": share links are never sent to a third party
     token_ref: string | null; // SecretStore key, set via set_shortener_token
   };
+  upload_rules: UploadRulesSettings; // { enabled: true, rules: [] }
 }
 
 // ---- log, app, crash ----
@@ -546,6 +617,16 @@ export interface AppInfo {
   config_dir: string;
   data_dir: string;
   log_dir: string;
+}
+
+export type PartitionId = "aws" | "aws-cn" | "aws-us-gov" | "aws-eusc";
+
+export interface RegionEntry {
+  id: string;
+  name: string;
+  partition: PartitionId;
+  dns_suffix: string;
+  opt_in: boolean;
 }
 
 export interface CrashReport {
@@ -717,6 +798,64 @@ export interface AbortResult {
   upload_id: string;
   aborted: boolean;
   error: BbError | null; // why this upload could not be aborted
+}
+
+// ---- clone a bucket (docs/desktop-api.md, "Clone a bucket") ----
+export type CloneSetting = "versioning" | "encryption" | "public_access_block" | "policy" | "website" | "cors" | "tags" | "lifecycle";
+export type CloneSettingState = "configured" | "not_configured" | "unsupported" | "failed";
+export type ClonePreviewWarning = "policy_denies" | "kms_key" | "versions_not_copied";
+export type CloneApplyState = "applied" | "skipped" | "failed";
+
+export interface CloneSettingPreview {
+  setting: CloneSetting;
+  state: CloneSettingState;
+  count: number | null; // policy statements, CORS rules, lifecycle rules, tags, blocked toggles
+  detail: string | null; // "enabled" | "suspended", the encryption algorithm, the website index document
+  error: BbError | null;
+}
+
+export interface ClonePreview {
+  source_bucket: string;
+  region: string | null;
+  settings: CloneSettingPreview[];
+  warnings: ClonePreviewWarning[];
+}
+
+export interface CloneSettingResult {
+  setting: CloneSetting;
+  state: CloneApplyState;
+  error: BbError | null;
+}
+
+export interface CloneOutcome {
+  bucket: string;
+  region: string | null;
+  results: CloneSettingResult[];
+}
+
+export interface CloneBucketResult {
+  outcome: CloneOutcome;
+  tasks: TransferTask[];
+  copy_error: BbError | null;
+}
+
+export type PartVerification = "checksum" | "etag" | "skipped" | "mismatch";
+export type ResumeProblemCode = "file_too_small" | "part_sizes" | "part_mismatch";
+
+/** What a local file would do for an unfinished multipart upload (docs/desktop-api.md, "Resume an unfinished multipart upload"). */
+export interface UploadResumeCheck {
+  bucket: string;
+  key: string;
+  upload_id: string;
+  file_size: number;
+  part_size: number; // bytes of every part but the last
+  part_count: number;
+  checksum_algorithm: ChecksumAlgorithm; // "none" when the upload has none
+  parts: { number: number; size: number; verified: PartVerification }[];
+  missing_parts: number;
+  bytes_uploaded: number;
+  bytes_remaining: number;
+  problem: { code: ResumeProblemCode; message: string; part: number | null } | null;
 }
 
 export type ListingFormat = "csv" | "xlsx" | "parquet";
@@ -1077,10 +1216,47 @@ export type ObjectOwnership = "BucketOwnerEnforced" | "ObjectWriter" | "BucketOw
 
 export type RestoreTier = "expedited" | "standard" | "bulk";
 
+export type ArchiveKind = "glacier" | "deep_archive" | "intelligent_archive" | "intelligent_deep_archive";
+
 export interface ArchiveState {
   storage_class: string;
   archived: boolean;
   restore: RestoreStatus | null;
+  /** The archive the object sits in (also while or after a restore); null for a class that is always readable. */
+  kind: ArchiveKind | null;
+}
+
+export interface ArchiveGroup {
+  kind: ArchiveKind;
+  objects: number;
+  bytes: number;
+}
+
+export interface RestoreSummary {
+  groups: ArchiveGroup[];
+  not_archived: number;
+  unreadable: number;
+  truncated: boolean;
+}
+
+export interface TierEstimate {
+  tier: RestoreTier;
+  total_usd: number;
+  retrieval_usd: number;
+  requests_usd: number;
+  objects: number;
+  /** Archived objects this tier cannot restore. */
+  unsupported: number;
+}
+
+/** Size, object count and a list-price cost per tier for a restore (approximate, dated, never fetched). */
+export interface RestoreEstimate {
+  summary: RestoreSummary;
+  objects: number;
+  bytes: number;
+  tiers: TierEstimate[];
+  price_date: string;
+  note: string;
 }
 
 // ---- IAM (T02) ----
@@ -1329,4 +1505,31 @@ export type QuitMode = "now" | "when_idle";
 export interface QuitRequest {
   active_transfers: number;
   active_syncs: number;
+}
+
+// ---- bucket encryption, tags, ACLs and creation options (docs/desktop-api.md, "Priority 3") ----
+
+export type BucketSse = "AES256" | "aws:kms" | "aws:kms:dsse"; // dsse is shown, never set
+
+export interface BucketEncryption {
+  algorithm: BucketSse;
+  kms_key_id: string | null; // key ID, key ARN, alias name or alias ARN; null = SSE-S3, or the AWS managed key
+  bucket_key_enabled: boolean; // S3 Bucket Key; SSE-KMS only
+}
+
+export interface BucketAcl {
+  acl: ObjectAcl;
+  ownership: ObjectOwnership | null; // null = none set, or it could not be read
+  acls_disabled: boolean; // ownership is BucketOwnerEnforced: every ACL change is refused
+}
+
+/** Optional extras of `create_bucket`; null fields leave the setting to the server. */
+export interface CreateBucketOptions {
+  object_lock: boolean; // turn Object Lock on (S3 also turns versioning on); never reversible
+  ownership: ObjectOwnership | null;
+  public_access_block: PublicAccessBlock | null;
+}
+
+export interface CreateBucketResult {
+  warnings: string[]; // what could not be applied although the bucket exists
 }

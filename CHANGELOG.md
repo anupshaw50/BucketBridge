@@ -7,6 +7,47 @@ version are on the [Releases page](https://github.com/anupshaw50/BucketBridge/re
 
 ## [Unreleased]
 
+### Added
+
+- **Bucket default encryption** (SSE-S3, SSE-KMS with the bucket key) and
+  **bucket tags**, in bucket properties and with `bb bucket encryption` and
+  `bb bucket tags`.
+- **ACL grant editor** for buckets and objects: grant by canonical account ID,
+  e-mail or group, permission by permission (`bb bucket acl`, `bb acl grant`
+  and `bb acl revoke`).
+- **New bucket options:** region, Object Lock, object ownership and the public
+  access block (`bb mb --object-lock --ownership --public-access-block`).
+- **Turn on Object Lock** for an existing versioned bucket.
+- **Restore cost estimate** per retrieval tier before a Glacier restore, from a
+  bundled, dated price table (approximate list prices), and **restore of
+  Intelligent-Tiering archives** (`bb restore --days` is now optional).
+- **Lifecycle rules:** a form editor next to the JSON one, copy and paste
+  between buckets, and JSON file import and export.
+- **Upload rules:** headers, content type, storage class and encryption chosen
+  by file pattern, in the app and with `bb cp` and `bb sync`
+  (`--no-upload-rules` turns them off).
+- **Resume an unfinished multipart upload** from the multipart uploads tool or
+  with `bb mpu resume`, after checking the local file against the uploaded
+  parts.
+- **Clone a bucket:** a new bucket with the chosen settings and, optionally,
+  the objects (`bb clone-bucket`).
+- **Access points and Multi-Region Access Points** as targets by ARN.
+- Per-account **Transfer Acceleration** and **dual-stack** endpoints.
+- **S3-compatible provider settings** per account: custom storage classes and
+  regions, single deletes, no multipart copy, listing buckets across regions.
+- **Per-account proxy:** the app proxy, none, or a custom proxy.
+- **Accounts that cannot list buckets**, with known buckets and folders.
+- **Links:** public links on a CloudFront or custom host, HTML and Markdown
+  snippets, and a choice of shortener per link.
+- **Regions and partitions** kept in one table, including China, GovCloud and
+  the European Sovereign Cloud.
+
+### Changed
+
+- A refreshed desktop look: brand colours, a navy dark theme, a grouped
+  toolbar, file-type icons and a collapsible transfers dock with overall
+  progress.
+
 ## [0.3.1] - 2026-11-09
 
 ### Changed

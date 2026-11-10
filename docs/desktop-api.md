@@ -56,6 +56,38 @@ interface Account {
   path_style: boolean;
   request_payer: boolean;
   mfa_serial: string | null;
+  options: AccountOptions;          // network options; all false for accounts saved before 0.4.0
+}
+
+// AWS endpoint variants. Both apply to AWS accounts only: add_account and
+// update_account reject either option on an account with a custom endpoint
+// (`usage`), and acceleration in the China regions (`usage`).
+interface AccountOptions {
+  accelerate: boolean;              // Transfer Acceleration endpoint for transfers of buckets that have it enabled
+  dual_stack: boolean;              // dual-stack (IPv4 and IPv6) endpoints
+  compat: CompatOptions;            // S3-compatible provider settings
+  cannot_list_buckets: boolean;     // never send ListBuckets; the list is known_buckets plus the pinned buckets
+  known_buckets: string[];          // "bucket" or "bucket/folder/" (at most 256); shown whenever the server refuses to list
+  proxy: AccountProxy;              // how the account uses the proxy
+}
+
+// "global" (default): the proxy of the app settings. "none": connect directly; neither the app's
+// proxy nor the HTTP_PROXY environment variables apply. "custom": this proxy for this account only,
+// without authentication (a proxy that needs a password is configured in the app settings).
+// A custom proxy is checked like settings.proxy (host, port 1..65535, bypass entries): `usage` otherwise.
+// Every request of the account (S3, STS, IAM, CloudFront) goes the chosen way.
+type AccountProxy =
+  | { type: "global" }
+  | { type: "none" }
+  | { type: "custom"; kind: "http" | "socks5"; host: string; port: number; bypass: string[] };
+
+// Settings for S3-compatible providers; every field defaults to the AWS behaviour.
+interface CompatOptions {
+  storage_classes: string[];        // classes the provider offers; [] = the AWS list (at most 64; letters, digits, _ and -)
+  regions: string[];                // regions the provider has; [] = the AWS table (at most 64)
+  single_deletes: boolean;          // delete one object per request instead of DeleteObjects
+  no_multipart_copy: boolean;       // copy with one CopyObject request; objects over 5 GiB fail with a usage error
+  list_all_regions: boolean;        // list buckets once per region in `regions` and merge (needs `regions`)
 }
 
 interface AccountInput {            // add_account
@@ -68,6 +100,7 @@ interface AccountInput {            // add_account
   path_style: boolean;
   request_payer: boolean;
   mfa_serial: string | null;
+  options: AccountOptions;          // optional: all false when omitted
 }
 
 interface AccountUpdate {           // update_account: null = keep current value
@@ -83,6 +116,7 @@ interface AccountUpdate {           // update_account: null = keep current value
   request_payer: boolean | null;
   mfa_serial: string | null;
   clear_mfa_serial: boolean;
+  options: AccountOptions | null;   // non-null replaces all network options
 }
 
 interface AccountFolder {
@@ -290,6 +324,7 @@ interface Settings {
     provider: "none" | "bitly" | "tinyurl"; // "none"
     token_ref: string | null;             // SecretStore key of the API token; save_settings keeps it
   };
+  upload_rules?: UploadRulesSettings;     // optional in what the UI sends (the host fills in the default); see "Upload rules"
 }
 // All numeric settings are whole numbers. save_settings rejects any value
 // outside its range with a single `usage` error that lists every problem.
@@ -303,6 +338,15 @@ interface AppInfo {
 }
 
 interface CrashReport { path: string; created_at: string; contents: string }
+
+// One entry of the region table (crates/core/src/regions.rs).
+interface RegionEntry {
+  id: string;          // "eu-west-1"
+  name: string;        // "Europe (Ireland)"
+  partition: "aws" | "aws-cn" | "aws-us-gov" | "aws-eusc";
+  dns_suffix: string;  // "amazonaws.com", "amazonaws.com.cn", "amazonaws.eu"
+  opt_in: boolean;     // region is off until enabled for the AWS account
+}
 ```
 
 ## Commands
@@ -393,6 +437,7 @@ File format (`format: "bucketbridge-accounts"`, `version: 1`):
   "accounts": [
     { "label": "Main", "folder": "Work", "access_key_id": "AKIA...", "region": "eu-west-1",
       "endpoint": null, "path_style": false, "request_payer": false, "mfa_serial": null,
+      "options": { "accelerate": false, "dual_stack": false },
       "source": { "type": "static_keys" } }
   ]
 }
@@ -409,7 +454,7 @@ session_name, duration_secs, external_id?, mfa_serial? }` (`source_account` is a
 | `list_buckets` | `account_id` | `Bucket[]` (sorted by name) |
 | `list_objects` | `account_id, bucket, prefix: string, flat: boolean, token: string \| null` | `ObjectPage` (page size from settings; prefixes first, then objects; never contains an entry whose key equals `prefix`; in flat listings nested folder markers, zero-byte keys ending in `/`, are ordinary entries with `is_prefix: false`, so clients treat any key ending in `/` as a folder) |
 | `create_folder` | `account_id, bucket, key` | `void` (`key` ends with `/`) |
-| `create_bucket` | `account_id, name, region: string \| null` | `void` |
+| `create_bucket` | `account_id, name, region: string \| null, options: CreateBucketOptions \| null` | `CreateBucketResult` (see "Bucket encryption, tags, ACLs and creation options") |
 | `delete_bucket` | `account_id, name` | `void` (`conflict` while not empty) |
 | `presign` | `account_id, bucket, key, method: "get" \| "put", expires_secs: number` | `string` URL (1 s to 7 days) |
 | `open_object` | `account_id, bucket, key` | `void` (downloads to a temp dir and opens with the OS default app) |
@@ -494,6 +539,7 @@ Sync rules:
 | `export_log` | `path: string, format: "csv" \| "json"` | `void` |
 | `clear_log` | | `void` |
 | `app_info` | | `AppInfo` |
+| `list_regions` | | `RegionEntry[]` (the one table of regions and partitions; needs no session; the account form, bucket creation and policy templates use it) |
 | `last_crash_report` | | `CrashReport \| null` |
 | `dismiss_crash_report` | `path: string` | `void` |
 
@@ -691,6 +737,17 @@ for policy, public access block, versioning, logging and website).
 
 ### External buckets
 
+Wherever a bucket name is accepted (the `bucket` argument of every command, the
+address bar, pinned buckets), an S3 access point ARN is accepted too:
+`arn:<partition>:s3:<region>:<account>:accesspoint/<name>`, or
+`arn:<partition>:s3::<account>:accesspoint/<alias>.mrap` for a Multi-Region
+Access Point. The address bar writes them as
+`s3://arn:aws:s3:us-west-2:123456789012:accesspoint/name/folder/`. The core
+sends the request to the region in the ARN (no `HeadBucket`), lets the SDK
+resolve the access point endpoint, and signs Multi-Region Access Points with
+SigV4A. They need an AWS account (a custom endpoint is a `usage` error), and
+cannot be created, deleted or configured as buckets.
+
 A bucket that an account can use but not list (`ListBuckets` is denied, or the
 bucket belongs to another account) is pinned to the account. The pins are
 stored in `config.toml` per account id (`pinned_buckets`), so they survive
@@ -712,6 +769,17 @@ its own entry, and the result stays sorted by name. When the server refuses
 to list buckets (`AccessDenied`) and the account has pinned buckets, the
 pinned buckets are returned alone; without pins the refusal is the error, as
 before.
+
+Accounts with limited permissions (write-only access, one bucket) set
+`options.cannot_list_buckets` and name their buckets in `options.known_buckets`
+(`bucket`, or `bucket/folder/` to also say where to start). Known buckets are
+treated like pinned ones: `list_buckets` merges them into its result. With
+`cannot_list_buckets` it never sends `ListBuckets` (no refused request per
+refresh) and returns the known and pinned buckets alone. Without it, a refused
+listing and nothing known or pinned is an `auth` error whose message says to
+turn the option on. Uploads, downloads and object listings of a typed bucket
+and prefix do not depend on `ListBuckets`. The UI opens a known bucket at its
+folder.
 
 ## Tools and export (T12)
 
@@ -1209,6 +1277,8 @@ which need no account.
 | `put_bucket_tiering` | `config` | `null` (creates or replaces the id) |
 | `delete_bucket_tiering` | `id` | `null` (also when the id is unknown) |
 | `validate_bucket_lifecycle` / `_cors` / `_tiering` / `_replication` | `document` (JSON text) | `RuleIssue[]`, empty when valid |
+| `read_rules_file` | `path` (absolute, `.json`) | `string`: the text of a rules document saved earlier (import). `usage` for another extension, a file above 1 MiB or text that is not UTF-8; the text is not checked (the editor validates it) |
+| `write_rules_file` | `path` (absolute, `.json`), `document` (JSON text) | `null`: saves the document (export), replacing the file atomically. `usage` for another extension, a document above 1 MiB or one that is not JSON |
 
 `BucketRules` has `cors`, `lifecycle`, `tiering` and `replication`, each a
 `Section` (`loaded`, `unsupported` or `failed`, as in `BucketConfig`), so a
@@ -1234,6 +1304,14 @@ defaults):
   expose_headers, max_age_seconds }] }`.
 - `ReplicationConfig { role, rules[{ id, priority, status, filter { prefix,
   tags }, destination_bucket (ARN), storage_class, delete_marker_replication }] }`.
+
+The lifecycle tab of the rules dialog edits the same document in two views, a
+form and the JSON text (the form rewrites the text and the text is parsed back
+into the form), and can copy the rules of a bucket and paste them into another
+one (kept in memory in the window; pasting adds the rules to the document, a
+rule whose id exists already gets the suffix `-copy`, nothing is saved before
+Save), and import or export the document as a `.json` file through
+`read_rules_file` and `write_rules_file`.
 
 Every `put_*` validates first and rejects with `usage` listing all problems
 (`invalid lifecycle configuration: rules[0]...; ...`); nothing is sent then.
@@ -1359,11 +1437,126 @@ Rules:
 Errors: `usage`, `not_found` (distribution, invalidation, path set), `conflict`, `auth`, `remote`,
 plus the account errors of the other commands.
 
+## Bucket encryption, tags, ACLs and creation options (Priority 3)
+
+Core: `bucketbridge_core::bucketprops` (default encryption, tags),
+`bucketbridge_core::objectmeta` (ACL grants) and `S3::create_bucket_with`
+(creation options). Commands that take an `account_id` follow the rules of
+"Commands" above.
+
+### Default encryption and tags
+
+```ts
+type BucketSse = "AES256" | "aws:kms" | "aws:kms:dsse";   // dsse is shown, never set
+
+interface BucketEncryption {
+  algorithm: BucketSse;
+  kms_key_id: string | null;      // key ID, key ARN, alias name or alias ARN; null = SSE-S3, or the AWS managed key aws/s3
+  bucket_key_enabled: boolean;    // S3 Bucket Key; SSE-KMS only
+}
+```
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `get_bucket_encryption` | `account_id, bucket` | `BucketEncryption \| null` (`null` = none configured) |
+| `put_bucket_encryption` | `account_id, bucket, config: BucketEncryption` | `void` |
+| `delete_bucket_encryption` | `account_id, bucket` | `void` (succeeds when there is none) |
+| `get_bucket_tags` | `account_id, bucket` | `Record<string, string>` (empty when there are none) |
+| `put_bucket_tags` | `account_id, bucket, tags: Record<string, string>` | `void` (replaces the whole set; `{}` removes every tag) |
+
+Rules, checked before any request (`usage`): SSE-S3 takes neither a key nor a
+bucket key; SSE-KMS takes an optional key without spaces (up to 2048
+characters) and the bucket key option; `aws:kms:dsse` cannot be set. Tags
+follow the S3 rules for buckets: at most 50 tags, keys of 1 to 128 and values
+of at most 256 characters made of letters, digits, spaces and `+ - = . _ : / @`,
+no `aws:` prefix. A server that does not implement the setting rejects with
+`remote` (HTTP 501 or 405) and its own message.
+
+### ACL grants
+
+`AclGrant` and `ObjectAcl` are the types of "Object metadata (T06)".
+
+```ts
+type AclGroup =                       // the predefined groups, as group URIs in AclGrant.grantee
+  | "http://acs.amazonaws.com/groups/global/AllUsers"
+  | "http://acs.amazonaws.com/groups/global/AuthenticatedUsers"
+  | "http://acs.amazonaws.com/groups/s3/LogDelivery";
+
+type BucketCannedAcl = "private" | "public-read" | "public-read-write" | "authenticated-read";
+
+interface BucketAcl {
+  acl: ObjectAcl;
+  ownership: ObjectOwnership | null;  // null = none set, or it could not be read
+  acls_disabled: boolean;             // ownership is BucketOwnerEnforced: every ACL change is refused
+}
+```
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `get_bucket_acl` | `account_id, bucket` | `BucketAcl` |
+| `set_bucket_acl` | `account_id, bucket, acl: BucketCannedAcl` | `void` |
+| `put_bucket_acl_grants` | `account_id, bucket, grants: AclGrant[]` | `void` (replaces every grant) |
+| `put_object_acl_grants` | `account_id, bucket, key, grants: AclGrant[]` | `void` (replaces every grant) |
+
+`put_*_acl_grants` sends the whole grant list with the owner the bucket or
+object has now (read first). The list is checked before any request
+(`usage`): it is not empty, each grant has a known permission (`FULL_CONTROL`,
+`READ`, `WRITE`, `READ_ACP`, `WRITE_ACP`), a `group` grantee is one of the three
+group URIs, an `email` grantee looks like an address, a `canonical_user`
+grantee is a non-empty ID without spaces, and no grant is listed twice. Object
+keys ending in `/` are `usage`. S3 accepts e-mail grantees only in some
+regions and answers `usage`-like errors (`remote`) elsewhere; the message of S3
+is passed on. A bucket with ACLs disabled (Object Ownership BucketOwnerEnforced)
+rejects every change with `conflict` and a message that names the setting;
+`get_bucket_acl` still works and reports `acls_disabled: true`. The UI reads
+`get_object_ownership` for the same answer on objects.
+
+### Creation options
+
+`create_bucket` takes an optional `options` object and returns what could not
+be applied:
+
+```ts
+interface CreateBucketOptions {
+  object_lock: boolean;                       // enable Object Lock (S3 also turns versioning on)
+  ownership: ObjectOwnership | null;          // null = leave to the server (AWS: BucketOwnerEnforced)
+  public_access_block: PublicAccessBlock | null;   // null = leave to the server
+}
+
+interface CreateBucketResult {
+  warnings: string[];                         // for example a public access block the server does not implement
+}
+```
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `create_bucket` | `account_id, name, region: string \| null, options: CreateBucketOptions \| null` | `CreateBucketResult` |
+
+`object_lock` and `ownership` travel with the CreateBucket request
+(`x-amz-bucket-object-lock-enabled`, `x-amz-object-ownership`), so the bucket
+never exists without them. The public access block is a second request after
+the bucket exists; when the server does not implement it the bucket stays
+created and the answer carries a warning; any other failure rejects with the
+error, and the message says the bucket was created. With `options: null` the
+request is the same as before this change.
+
+### Enabling Object Lock on an existing bucket
+
+`put_bucket_object_lock` (see "Object Lock, ownership, restore and MFA delete")
+turns Object Lock on and cannot be undone. S3 needs versioning to be
+`"enabled"` first; the UI reads `get_bucket_versioning`, offers to enable
+versioning when it is not (the turn-on button stays disabled until it is), and
+asks for the bucket name as a confirmation. The core call
+`S3::enable_bucket_object_lock` (used by `bb bucket lock enable`) reads the lock
+and versioning first: a lock that already is on is left alone (a default
+retention stays), and versioning that is not enabled is a `conflict` with a
+message that says so, before any write.
+
 ## Object Lock, ownership, restore and MFA delete (T07)
 
 Core: `bucketbridge_core::objectlock`. Batch commands return one `ObjectChange` per key (`key`, `changed`, `previous`, `error`, `warnings`); a refusal by the server (a locked object) is that key's `error`, with the server's code and message as sent.
 
-Shapes: `LockMode` is `"governance"` or `"compliance"`. `DefaultRetentionRule` is `{ mode, days, years }` (exactly one of `days`, `years`). `BucketObjectLock` is `{ enabled, default_retention }`. `ObjectLockState` is `{ mode, retain_until, legal_hold }`. `RetentionChange` is `{ "action": "set", "mode", "retain_until" }` (RFC 3339, in the future) or `{ "action": "clear" }`. `ObjectOwnership` is `"BucketOwnerEnforced"`, `"ObjectWriter"` or `"BucketOwnerPreferred"`. `RestoreTier` is `"expedited"`, `"standard"` or `"bulk"`. `ArchiveState` is `{ storage_class, archived, restore }` with `restore` a `RestoreStatus` or `null`.
+Shapes: `LockMode` is `"governance"` or `"compliance"`. `DefaultRetentionRule` is `{ mode, days, years }` (exactly one of `days`, `years`). `BucketObjectLock` is `{ enabled, default_retention }`. `ObjectLockState` is `{ mode, retain_until, legal_hold }`. `RetentionChange` is `{ "action": "set", "mode", "retain_until" }` (RFC 3339, in the future) or `{ "action": "clear" }`. `ObjectOwnership` is `"BucketOwnerEnforced"`, `"ObjectWriter"` or `"BucketOwnerPreferred"`. `RestoreTier` is `"expedited"`, `"standard"` or `"bulk"`. `ArchiveKind` is `"glacier"`, `"deep_archive"`, `"intelligent_archive"` or `"intelligent_deep_archive"` (the two Intelligent-Tiering archive tiers). `ArchiveState` is `{ storage_class, archived, restore, kind }` with `restore` a `RestoreStatus` or `null` and `kind` the `ArchiveKind` of the object (also while or after a restore) or `null`. `RestoreEstimate` is `{ summary, objects, bytes, tiers, price_date, note }`: `summary` is `{ groups: { kind, objects, bytes }[], not_archived, unreadable, truncated }`, `objects` and `bytes` count the archived objects, `tiers` has one `TierEstimate` `{ tier, total_usd, retrieval_usd, requests_usd, objects, unsupported }` per tier (`unsupported` counts archived objects the tier cannot restore, for example Expedited for `deep_archive`), `price_date` is the date of the bundled price table and `note` the text to show next to the figures.
 
 | Command | Arguments | Result |
 |---|---|---|
@@ -1374,7 +1567,8 @@ Shapes: `LockMode` is `"governance"` or `"compliance"`. `DefaultRetentionRule` i
 | `set_object_legal_hold` | `account_id`, `bucket`, `keys`, `on`, `version_id` | `ObjectChange[]` (`previous` is `"on"` or `"off"`) |
 | `get_object_ownership` | `account_id`, `bucket` | `ObjectOwnership` or `null` when none is set |
 | `put_object_ownership` | `account_id`, `bucket`, `ownership` | `null` |
-| `restore_objects` | `account_id`, `bucket`, `keys`, `days` (1 to 3650), `tier`, `version_id` | `ObjectChange[]` (accepted means requested; a running restore is `conflict`) |
+| `restore_objects` | `account_id`, `bucket`, `keys`, `days` (1 to 3650, or `null`), `tier`, `version_id` | `ObjectChange[]` (accepted means requested; a running restore is `conflict`). Each object is read first: an Intelligent-Tiering archive tier object is restored with the empty request S3 wants (no days, no tier), any other object needs `days` (`usage` for that key when `null`) |
+| `estimate_restore` | `account_id`, `bucket`, `keys` | `RestoreEstimate`: size, object count and a cost per tier from a bundled list-price table (us-east-1, dated, approximate; never fetched). Reads at most 1000 objects with `HeadObject` (`summary.truncated`) |
 | `get_restore_state` | `account_id`, `bucket`, `key`, `version_id` | `ArchiveState` from `HeadObject` (`x-amz-restore`) |
 | `put_bucket_versioning_mfa` | `account_id`, `bucket`, `status`, `mfa_delete`, `mfa_code` | `null`; sends `x-amz-mfa` with the account's `mfa_serial` and the six-digit code (`usage` without a serial) |
 | `purge_versions_with` | `account_id`, `bucket`, `versions`, `bypass_governance`, `mfa_code` | `DeleteOutcome` like `purge_versions`; retained versions are in `failures` |
@@ -1681,10 +1875,26 @@ The service is chosen on the Sharing page of the settings: `settings.shortener` 
 default). Nothing is sent until Shorten is pressed. When the provider is `none` the
 dialogs show no button, only a link to the Sharing page.
 
+Link formats of the wizard (no command, the UI builds them): next to the signed S3 link it
+can create a **public link** `https://<host>/<key>` for a CloudFront distribution domain
+(or an alias) or a custom host name that serves the bucket. The key is percent-encoded
+segment by segment; the link has no signature and no expiry and works only when the object
+is readable through that host. The host may be typed or picked from
+`find_cloudfront_distributions` (only when the user presses the button for it). Any link
+also gets HTML and Markdown snippets: `<img>` and `![]()` for an image key, `<a>` and
+`[]()` otherwise, with the file name as text and attribute values escaped.
+
 | Command | Arguments | Result |
 |---|---|---|
-| `shorten_url` | `url: string` | the short link (`string`) |
+| `shorten_url` | `url: string`, `provider?: "bitly" \| "tinyurl" \| null` | the short link (`string`) |
 | `set_shortener_token` | `token: string \| null` | `void` (stores or deletes the API token in the secret store; `save_settings` keeps `token_ref`) |
+
+`provider` picks the service for this one link (the wizard offers the choice); `null` or
+omitted uses the service of the settings. A shortener must still be chosen in the settings
+(`none` there means shortening is off and `usage` is returned whatever `provider` says), so
+nothing is ever sent by default. The stored token belongs to the service of the settings:
+with another `provider` it is not sent, so TinyURL works without a token and Bitly fails
+with `usage` ("Bitly needs an access token").
 
 `shorten_url` errors: `usage` (no provider chosen, Bitly without a token, a link that is
 not `http(s)` or longer than 8192 bytes; nothing is sent), `auth` (the service rejected
@@ -2251,3 +2461,171 @@ A saved position that no longer shows a usable part of any connected monitor
 (a monitor was removed or the layout changed) is replaced: the window is
 centred on the primary monitor, and a window larger than that monitor is made
 to fit. No commands or events are involved.
+
+## Upload rules (Priority 3)
+
+Values an upload gets by file pattern. Implemented by
+`crates/core/src/upload_rules.rs` (matching, validation), the upload engine
+(`TransferEngine::with_upload_rules`) and `crates/desktop/src/commands/tools.rs`;
+the UI is the Upload rules page of the settings (`ui/src/features/uploadrules/`).
+
+```ts
+interface UploadRulesSettings {
+  enabled: boolean;                       // true; false switches every rule off
+  rules: UploadRule[];                    // [], at most 200, in order: the first enabled match wins
+}
+interface UploadRule {
+  name: string;                           // "" (a label for the list)
+  enabled: boolean;                       // true
+  pattern: string;                        // glob: * ** ? [a-z] {a,b}; required
+  case_insensitive: boolean;              // true
+  content_type: string | null;            // type/subtype
+  cache_control: string | null;
+  content_disposition: string | null;
+  content_encoding: string | null;
+  headers: Record<string, string>;        // {}: "Content-Language", "Expires" (an HTTP date) and "x-amz-meta-<name>" (user metadata)
+  storage_class: string | null;           // "STANDARD_IA", "GLACIER_IR", ... (upper case letters, digits, "_")
+  sse: "AES256" | "aws:kms" | "aws:kms:dsse" | null;
+  sse_kms_key_id: string | null;          // only with an aws:kms encryption; null or "" is the default key
+}
+interface UploadRuleMatch { index: number | null; rule: UploadRule | null }
+```
+
+A pattern without `/` is matched against the file name (the last part of the
+key), so `*.jpg` matches `photos/2024/a.JPG`; a pattern with `/` is matched
+against the whole key (`**/*.min.js`, `assets/*.css`). Every field that is
+`null` leaves the value alone. `save_settings` validates the list and rejects an
+invalid rule with one `usage` error (an empty or malformed pattern, a header that
+is not listed above, a line break in a value, an unknown encryption, a KMS key
+without a KMS encryption). Older settings without `upload_rules` load with the
+default (no rules).
+
+Rules apply to every upload of the app (the transfer queue, sync runs) and to
+`bb cp` and `bb sync` (`--no-upload-rules` turns them off for one command). A
+value that a caller set explicitly for a transfer (the headers of an edit-in-place
+session, for example) is never replaced; a rule fills what is left open and its
+content type replaces the one guessed from the file extension. Rules do not
+change objects that are copied or moved.
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `test_upload_rules` | `rules: UploadRulesSettings, name: string` | `UploadRuleMatch` (the rule an upload of `name`, a file name or key, would get, whether or not the list is switched on; `usage` for an invalid rule) |
+
+## Resume an unfinished multipart upload (Priority 3)
+
+An upload that was started and not finished keeps its parts on the server and
+shows up in the multipart uploads tool. The tool can finish it from the local
+file it was made from. Implemented by `crates/core/src/engine/resume.rs`
+(`TransferEngine::check_upload_resume`), `enqueue_resume_upload` and
+`crates/desktop/src/commands/tools.rs`; the UI is in
+`ui/src/features/tools/UploadsDialog.tsx` and `ResumeUploadDialog.tsx`.
+
+```ts
+type PartVerification = "checksum" | "etag" | "skipped" | "mismatch";
+type ResumeProblemCode = "file_too_small" | "part_sizes" | "part_mismatch";
+interface UploadResumeCheck {
+  bucket: string; key: string; upload_id: string;
+  file_size: number;                      // bytes of the chosen file
+  part_size: number;                      // bytes of every part but the last, read from the parts on the server
+  part_count: number;                     // parts of the whole file
+  checksum_algorithm: ChecksumAlgorithm;  // the algorithm the upload was created with, "none" when it has none
+  parts: { number: number; size: number; verified: PartVerification }[]; // the parts on the server
+  missing_parts: number;                  // parts still to upload
+  bytes_uploaded: number;
+  bytes_remaining: number;
+  problem: { code: ResumeProblemCode; message: string; part: number | null } | null; // why the file is refused, null when it can finish the upload
+}
+```
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `check_multipart_resume` | `account_id: string, bucket: string, key: string, upload_id: string, path: string, skip_part_verification: boolean` | `UploadResumeCheck` |
+| `resume_multipart_upload` | same | `TransferTask` (an upload task of the queue) |
+
+* `path` must be absolute. A missing upload is `not_found`; an unknown or locked
+  account rejects as for any account-bound command.
+* The check lists the parts of the upload and compares them with the file. The
+  part size is the size of the parts on the server (all but the last are equal);
+  it must split the file into the same parts, and the file must not be smaller
+  than what was uploaded (`file_too_small`, `part_sizes`). Each uploaded part must
+  be the bytes of the file at its position: by the checksum stored with the part
+  (`checksum`) or else by its ETag, which is the MD5 of the part unless the upload
+  is encrypted with a KMS key or a customer key (`etag`). Any part that differs
+  makes the file refused with `part_mismatch` and the number of the first such
+  part. `skip_part_verification: true` leaves the content comparison out for
+  uploads whose ETags are not an MD5 (parts are then `skipped`); sizes and
+  positions are still checked. Nothing on the server changes during a check.
+* `resume_multipart_upload` runs the check again, answers `usage` (with the
+  reason) when the file is refused, and otherwise adds an upload task to the
+  transfer queue that starts from the verified parts, uploads the missing ones
+  and completes the upload. The destination is replaced whatever the overwrite
+  policy says. The task behaves like any upload: pause, resume, retry; a
+  cancelled task aborts the upload. An upload with no parts yet starts from the
+  first part with the part size of the settings.
+
+## Clone a bucket (Priority 3)
+
+A new bucket with the chosen settings of an existing one, and the server-side copy
+of its objects through the transfer queue. Implemented by
+`crates/core/src/bucketclone.rs`, `enqueue_clone_copy` (`crates/core/src/engine/enqueue.rs`)
+and `crates/desktop/src/commands/bucketclone.rs`; the UI is the "Clone bucket..." entry of
+the bucket menu (`ui/src/features/bucketclone/`). The CLI is `bb clone-bucket`.
+
+```ts
+type CloneSetting = "versioning" | "encryption" | "public_access_block" | "policy" | "website" | "cors" | "tags" | "lifecycle";
+type CloneSettingState = "configured" | "not_configured" | "unsupported" | "failed";
+interface CloneSettingPreview {
+  setting: CloneSetting;
+  state: CloneSettingState;               // configured: the source has it and a clone copies it
+  count: number | null;                   // policy statements, CORS rules, lifecycle rules, tags, blocked toggles (of 4)
+  detail: string | null;                  // "enabled" | "suspended" (versioning), the encryption algorithm, the website index document or redirect host
+  error: BbError | null;                  // for unsupported and failed
+}
+type ClonePreviewWarning = "policy_denies" | "kms_key" | "versions_not_copied";
+interface ClonePreview {
+  source_bucket: string;
+  region: string | null;                  // the region of the source bucket, the default of the clone
+  settings: CloneSettingPreview[];        // all eight, in the order above (the order they are applied)
+  warnings: ClonePreviewWarning[];
+}
+type CloneApplyState = "applied" | "skipped" | "failed";   // skipped: the source has nothing configured
+interface CloneSettingResult { setting: CloneSetting; state: CloneApplyState; error: BbError | null }
+interface CloneOutcome { bucket: string; region: string | null; results: CloneSettingResult[] }
+interface CloneBucketResult {
+  outcome: CloneOutcome;
+  tasks: TransferTask[];                  // the copy tasks (none without copy_objects or for an empty bucket)
+  copy_error: BbError | null;             // why the objects could not be queued; the bucket exists anyway
+}
+```
+
+| Command | Arguments | Returns |
+|---|---|---|
+| `preview_bucket_clone` | `account_id: string, bucket: string` | `ClonePreview` |
+| `clone_bucket` | `account_id: string, source_bucket: string, new_bucket: string, region: string \| null, prefix: string, copy_objects: boolean, settings: CloneSetting[]` | `CloneBucketResult` |
+
+* `preview_bucket_clone` reads the eight settings, each on its own: one that is refused
+  or not implemented is `failed` or `unsupported` and never hides the others. It
+  changes nothing. The number and size of the objects are the existing
+  `compute_bucket_usage`.
+* `clone_bucket` reads the chosen settings from the source first, then creates `new_bucket`
+  (`usage` for an invalid name or the name of the source, `conflict` when the bucket exists, in
+  which case nothing is changed) in `region` (the region of the source when `null`; servers
+  without regions use the account region) and applies each chosen setting. A setting that
+  cannot be read or applied is a `failed` result with its error and never stops the others; a
+  setting the source does not have is `skipped`. The order is: versioning, default encryption,
+  public access block, policy, website, CORS, tags, lifecycle. The public access block of the
+  source is copied first because a new bucket blocks public access by default, which would
+  refuse a public policy; a source without a public access block makes the clone remove the
+  block. The bucket policy names the source in its resource ARNs
+  (`arn:aws:s3:::source/*`); the name of the source is replaced by the name of the new bucket.
+* With `copy_objects`, the objects are queued as server-side copy tasks of one group with their
+  keys unchanged (all of them when `prefix` is empty, else those under `prefix`, which must end
+  with `/`), the same tasks as `enqueue_copy` makes (overwrite policy, progress, pause, retry).
+  The settings are applied before the copy starts, so a policy with a `Deny` statement for the
+  copying principal blocks the copy (`policy_denies` warns); clear the box for the policy and
+  copy it afterwards from the bucket properties. Older object versions and delete markers are
+  not copied (`versions_not_copied`), and neither are object lock, ownership, logging,
+  replication, Intelligent-Tiering configurations or ACLs.
+* An error while queueing (the objects of a prefix cannot be listed) does not undo the bucket:
+  it comes back as `copy_error`.
+

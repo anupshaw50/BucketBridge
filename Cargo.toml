@@ -19,7 +19,7 @@ bucketbridge-tests = { path = "tests" }
 # default `rustls` feature pulls in the legacy hyper 0.14 / rustls 0.21 stack,
 # which has RustSec advisories and fails `cargo deny`. Check with
 # `cargo tree --workspace --all-features -i hyper@0.14` (must find nothing).
-aws-sdk-s3 = { version = "1.156.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.156.0", default-features = false, features = ["default-https-client", "rt-tokio", "sigv4a"] }
 # STS GetSessionToken for MFA sessions (crates/core/src/mfa.rs).
 aws-sdk-iam = { version = "1.133.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-config = { version = "1.13.0", default-features = false, features = ["default-https-client", "rt-tokio", "credentials-process", "sso"] }

@@ -34,7 +34,7 @@ and native-tls are not used.
 | Module | Contents | Owner area |
 |---|---|---|
 | `error` | `Error`, `ErrorKind`, `ServiceError`, `BbError`, SDK error conversion | foundation |
-| `model::account` | `Account`, `AccountInput`, `AccountUpdate`, `AccountList`, `SecurityStatus` | accounts, secrets, proxy, MFA |
+| `model::account` | `Account`, `AccountOptions` (Transfer Acceleration, dual-stack), `AccountInput`, `AccountUpdate`, `AccountList`, `SecurityStatus` | accounts, secrets, proxy, MFA |
 | `model::bucket` | `Bucket`, `BucketKind` | foundation |
 | `model::object` | `ObjectEntry`, `ObjectPage`, `ObjectVersion`, `VersionPage`, `ObjectMeta`, `Sse`, `ObjectLock`, `ObjectHead`, `DeleteOutcome`, `MultipartUpload`, `CopyOutcome` | foundation; metadata and versions work extends it |
 | `model::transfer` | `TransferTask`, `TransferKind`, `TransferState`, `Location` | transfers and queue |
@@ -48,6 +48,7 @@ and native-tls are not used.
 | `client` | `Credentials`, `ClientOptions`, `build_client`, `STALL_GRACE_PERIOD`, `redact_endpoint` | foundation; accounts work injects proxy-aware HTTP clients |
 | `ops` | `S3` transport: buckets, listings, head, folders, deletes, server-side copy, presigned URLs, multipart-upload listing and abort; bucket regions (`client_for`) and the per-request read timeout (`metadata_timeout`) | foundation; streaming upload and download belong to transfers |
 | `bucketcfg` | Bucket configuration on `S3`: policy (check, format, put), public access block, versioning, logging, website, acceleration, the combined `get_bucket_config`; the external buckets pinned to an account (`config.toml`, `pinned_buckets`) | bucket configuration (T03) |
+| `bucketprops` | Default encryption (SSE-S3, SSE-KMS with a bucket key) and tags of a bucket, validated before any request | Priority 3 |
 | `objectmeta` | Object metadata (T06): `S3::object_details`, tags, storage class, server-side encryption (`CustomerKey` for SSE-C), HTTP headers and user metadata, canned ACLs; batch methods with per-object `ObjectChange` results; the in-place copy behind class, encryption and header changes | object metadata |
 | `filter` | `Filter` (compiled `FilterSpec`), `Glob`, `IncludeExclude` (CLI `--include`/`--exclude`) | filters |
 | `sync` | `analyze`, local and remote scans, the planner, `SyncStore` (resumable plan store), `RowCounts` | sync (see `docs/sync.md`) |
@@ -64,6 +65,7 @@ and native-tls are not used.
 | `versions` | `S3::list_version_groups` (versions grouped by key, filters, pages), `head_version`, `restore_version`, `purge_versions`, `enqueue_download_version` | versions and preview (T08) |
 | `edit` | `EditManager`: edit sessions (local copy, `notify` watcher with debounce, `HeadObject` ETag check, upload with the object's headers and `If-Match`, conflict resolutions, cleanup) | edit in place |
 | `preview` | `S3::preview_object`: ranged reads of an object or version, image, text and JSON detection, paging of text | versions and preview (T08) |
+| `regions` | the one table of AWS regions and partitions (`aws`, `aws-cn`, `aws-us-gov`, `aws-eusc`): ARN prefix, DNS suffix, `partition_of`, `is_aws_host`; served to the UI by `list_regions` | account form, bucket creation |
 | `proxy` | the proxy-aware HTTP client (HTTP and SOCKS5 proxies, bypass list) shared by every SDK client | accounts and security |
 | `diagnostics` | `run`, `probe_account`, `probe_input`: the step-by-step probe (DNS, TCP, proxy tunnel, TLS with the certificate, a signed request, the bucket region) and its `Report` | tools (T12) |
 | `export` | `export_listing`: CSV, XLSX and Parquet from a streamed listing, written atomically | tools (T12) |

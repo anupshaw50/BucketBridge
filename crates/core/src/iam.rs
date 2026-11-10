@@ -1335,6 +1335,7 @@ mod tests {
 
     fn account(endpoint: Option<&str>) -> Account {
         Account {
+            options: Default::default(),
             source: crate::model::CredentialSource::StaticKeys,
             id: "account-a".to_owned(),
             label: "label".to_owned(),

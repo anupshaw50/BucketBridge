@@ -8,13 +8,14 @@ use bucketbridge_core::export::Format as ExportFormat;
 use bucketbridge_core::filter::{Glob, IncludeExclude};
 use bucketbridge_core::model::LockMode;
 use bucketbridge_core::model::{DEFAULT_REGION, SyncDirection};
-use bucketbridge_core::objectlock::{self, RestoreTier};
+use bucketbridge_core::objectlock::{self, ObjectOwnership, RestoreTier};
 use bucketbridge_core::objectmeta::{CannedAcl, StorageClass, validate_tag};
 use bucketbridge_core::settings::IfExists;
 use bucketbridge_core::{Error, S3Uri};
 use chrono::{DateTime, NaiveDate, Utc};
 use clap::{ArgGroup, ArgMatches, Args, Parser, Subcommand, ValueEnum};
 
+pub use crate::cli_bucket::*;
 use crate::duration::parse_expiry;
 use crate::location::{Location, parse_bucket, parse_location, parse_s3_uri};
 
@@ -84,6 +85,11 @@ pub enum Command {
     Mb(MbArgs),
     /// Remove an empty bucket.
     Rb(RbArgs),
+    /// Make a new bucket with the settings of an existing one, and copy its objects.
+    CloneBucket(CloneBucketArgs),
+    /// Settings of a bucket: default encryption and tags.
+    #[command(subcommand)]
+    Bucket(BucketCommand),
     /// Delete objects, folders or object versions.
     Rm(RmArgs),
     /// Make an older version of an object its current version (a server-side copy).
@@ -490,6 +496,41 @@ pub struct MbArgs {
     /// Region to create the bucket in (default: the account region).
     #[arg(long, value_name = "REGION")]
     pub region: Option<String>,
+    /// Turn Object Lock on (it can never be turned off again; S3 turns versioning on with it).
+    #[arg(long)]
+    pub object_lock: bool,
+    /// Object Ownership: BucketOwnerEnforced (ACLs disabled), BucketOwnerPreferred or ObjectWriter.
+    #[arg(long, value_name = "SETTING", value_parser = parse_ownership)]
+    pub ownership: Option<ObjectOwnership>,
+    /// Set the public access block: on turns all four switches on, off turns them all off.
+    #[arg(long, value_name = "on|off", value_enum)]
+    pub public_access_block: Option<HoldState>,
+}
+
+/// `bb clone-bucket`
+#[derive(Debug, Args)]
+pub struct CloneBucketArgs {
+    /// The bucket to clone, or `s3://bucket`.
+    #[arg(value_name = "SOURCE", value_parser = parse_bucket)]
+    pub source: String,
+    /// The new bucket, or `s3://bucket`.
+    #[arg(value_name = "NEW_BUCKET", value_parser = parse_bucket)]
+    pub new_bucket: String,
+    /// Region to create the new bucket in (default: the region of the source).
+    #[arg(long, value_name = "REGION")]
+    pub region: Option<String>,
+    /// Copy only the objects under PREFIX (a folder ending with `/`); their keys stay as they are.
+    #[arg(long, value_name = "PREFIX")]
+    pub prefix: Option<String>,
+    /// Do not copy the objects, only create the bucket and its settings.
+    #[arg(long)]
+    pub no_objects: bool,
+    /// Settings to copy: `all`, `none`, or a comma separated list of policy, cors, lifecycle, versioning, tags, encryption, website and public_access_block.
+    #[arg(long, value_name = "LIST", default_value = "all")]
+    pub settings: String,
+    /// Show which settings the source has and would be copied, and create nothing.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 /// `bb rb`
@@ -564,6 +605,9 @@ pub struct CopyArgs {
     /// Do not store the local modification time of uploads, nor give downloaded files the time of the object.
     #[arg(long)]
     pub no_preserve_mtime: bool,
+    /// Do not apply the upload rules of the settings (headers, storage class and encryption by file pattern).
+    #[arg(long)]
+    pub no_upload_rules: bool,
     /// Account that owns the source (a label or ID; default: --account).
     #[arg(long, value_name = "ACCOUNT")]
     pub from_account: Option<String>,
@@ -743,6 +787,9 @@ pub struct SyncArgs {
         conflicts_with_all = ["resume", "job"]
     )]
     pub s3: Option<S3Uri>,
+    /// Do not apply the upload rules of the settings (headers, storage class and encryption by file pattern).
+    #[arg(long)]
+    pub no_upload_rules: bool,
     /// Which way files are copied (default: upload; an S3 to S3 sync always copies from the first location to the second).
     #[arg(long, value_enum, value_name = "DIRECTION", conflicts_with_all = ["resume", "job"])]
     pub direction: Option<SyncDirectionArg>,
@@ -880,6 +927,8 @@ pub enum MpuCommand {
     List(MpuListArgs),
     /// Abort uncompleted multipart uploads (frees the storage of their parts).
     Abort(MpuAbortArgs),
+    /// Finish an uncompleted multipart upload from the local file it was made from.
+    Resume(MpuResumeArgs),
 }
 
 /// `bb mount`
@@ -936,6 +985,29 @@ pub struct MpuAbortArgs {
     #[arg(long, value_name = "PREFIX", conflicts_with = "key")]
     pub prefix: Option<String>,
     /// Print what would be aborted without aborting anything.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// `bb mpu resume`
+#[derive(Debug, Args)]
+pub struct MpuResumeArgs {
+    /// Bucket of the upload.
+    #[arg(long, value_name = "BUCKET", value_parser = parse_bucket)]
+    pub bucket: String,
+    /// Key of the upload.
+    #[arg(long, value_name = "KEY")]
+    pub key: String,
+    /// ID of the upload (see `bb mpu list`).
+    #[arg(long, value_name = "ID")]
+    pub upload_id: String,
+    /// The local file the upload was made from.
+    #[arg(value_name = "FILE")]
+    pub file: std::path::PathBuf,
+    /// Do not compare the uploaded parts with the file (for uploads encrypted with a KMS key or a customer key); sizes and positions are still checked.
+    #[arg(long)]
+    pub skip_part_verification: bool,
+    /// Check the file and print what would be uploaded without uploading anything.
     #[arg(long)]
     pub dry_run: bool,
 }
@@ -1165,6 +1237,38 @@ pub struct AccountAddArgs {
     /// Pay for requests to requester-pays buckets.
     #[arg(long)]
     pub request_payer: bool,
+    /// Use the S3 Transfer Acceleration endpoint for buckets that have it
+    /// enabled (AWS only).
+    #[arg(long)]
+    pub accelerate: bool,
+    /// Use dual-stack (IPv4 and IPv6) endpoints (AWS only).
+    #[arg(long)]
+    pub dual_stack: bool,
+    /// A storage class the S3-compatible provider offers (repeatable).
+    #[arg(long = "storage-class", value_name = "NAME")]
+    pub storage_classes: Vec<String>,
+    /// A region the S3-compatible provider has (repeatable).
+    #[arg(long = "provider-region", value_name = "REGION")]
+    pub provider_regions: Vec<String>,
+    /// Delete objects one request at a time (providers without multi-object delete).
+    #[arg(long)]
+    pub single_deletes: bool,
+    /// Copy objects with one request instead of in parts.
+    #[arg(long)]
+    pub no_multipart_copy: bool,
+    /// List buckets once per --provider-region and merge the answers.
+    #[arg(long)]
+    pub list_all_regions: bool,
+    /// Proxy for this account: global (the app's proxy, the default), none,
+    /// or http://HOST:PORT or socks5://HOST:PORT.
+    #[arg(long, value_name = "global|none|URL", default_value = "global")]
+    pub proxy: String,
+    /// The account may not list buckets (limited permissions): never send ListBuckets.
+    #[arg(long)]
+    pub cannot_list_buckets: bool,
+    /// A bucket (or bucket/folder/) to show instead of a listing (repeatable).
+    #[arg(long = "known-bucket", value_name = "BUCKET[/FOLDER/]")]
+    pub known_buckets: Vec<String>,
     /// Serial number or ARN of the account's MFA device (for --assume-role:
     /// the device the role's trust policy asks for).
     #[arg(long, value_name = "SERIAL")]
@@ -1311,6 +1415,10 @@ pub enum AclCommand {
     Get(AclGetArgs),
     /// Apply a canned ACL to objects.
     Set(AclSetArgs),
+    /// Add one grant (an account ID, e-mail address or group, and a permission) to the ACL of an object.
+    Grant(AclChangeArgs),
+    /// Remove one grant from the ACL of an object.
+    Revoke(AclChangeArgs),
 }
 
 /// `bb acl get`
@@ -1513,9 +1621,10 @@ pub struct RestoreArgs {
     /// `s3://bucket/key`, or a prefix ending in `/` with --recursive.
     #[arg(value_name = "S3_URI", value_parser = parse_s3_uri)]
     pub uri: S3Uri,
-    /// Days the restored copy stays available.
+    /// Days the restored copy stays available (needed for Glacier objects;
+    /// objects in an Intelligent-Tiering archive tier are restored without it).
     #[arg(long, value_name = "N")]
-    pub days: u32,
+    pub days: Option<u32>,
     /// Expedited, Standard or Bulk.
     #[arg(long, value_name = "TIER", default_value = "Standard", value_parser = parse_tier)]
     pub tier: RestoreTier,
@@ -1565,6 +1674,10 @@ fn parse_tag(text: &str) -> Result<(String, String), String> {
 }
 
 fn parse_class(text: &str) -> Result<StorageClass, String> {
+    text.parse().map_err(|err: Error| err.to_string())
+}
+
+fn parse_ownership(text: &str) -> Result<ObjectOwnership, String> {
     text.parse().map_err(|err: Error| err.to_string())
 }
 
@@ -1967,7 +2080,6 @@ mod tests {
                 "--until",
                 "2099-01-02",
             ],
-            vec!["restore", "s3://b/k"],
             vec!["restore", "s3://b/k", "--days", "3", "--tier", "fast"],
         ] {
             assert!(parse(&bad).is_err(), "{bad:?} should be rejected");
@@ -1978,12 +2090,17 @@ mod tests {
         let Command::Restore(args) = cli.command else {
             panic!("restore expected")
         };
-        assert_eq!((args.days, args.tier), (3, RestoreTier::Bulk));
+        assert_eq!((args.days, args.tier), (Some(3), RestoreTier::Bulk));
         let (cli, _) = parse(&["restore", "s3://b/k", "--days", "1"]).unwrap();
         let Command::Restore(args) = cli.command else {
             panic!("restore expected")
         };
         assert_eq!(args.tier, RestoreTier::Standard);
+        let (cli, _) = parse(&["restore", "s3://b/k"]).unwrap();
+        let Command::Restore(args) = cli.command else {
+            panic!("restore expected")
+        };
+        assert_eq!(args.days, None);
         let (cli, _) = parse(&["restore-version", "s3://b/k", "--version-id", "v"]).unwrap();
         assert!(matches!(cli.command, Command::RestoreVersion(_)));
     }

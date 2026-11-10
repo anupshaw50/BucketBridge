@@ -695,6 +695,7 @@ mod tests {
 
     fn account(id: &str, region: &str, endpoint: Option<&str>) -> Account {
         Account {
+            options: Default::default(),
             source: crate::model::CredentialSource::StaticKeys,
             id: id.to_owned(),
             label: format!("label {id}"),

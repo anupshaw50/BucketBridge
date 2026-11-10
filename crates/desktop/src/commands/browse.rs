@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bucketbridge_core::bucketcfg;
+use bucketbridge_core::bucketcreate::{CreateBucketOptions, CreateBucketResult};
 use bucketbridge_core::engine::{DownloadState, Hooks, Outcome, TransferEngine, TransferOptions};
 use bucketbridge_core::model::{Bucket, ObjectPage};
 use bucketbridge_core::path::safe_local_path;
@@ -78,18 +79,22 @@ pub async fn create_folder(
     .await
 }
 
-/// Creates a bucket, in `region` or the account's region.
+/// Creates a bucket, in `region` or the account's region, with the optional
+/// advanced `options` (Object Lock, Object Ownership, public access block).
+/// The answer lists what could not be applied although the bucket exists.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn create_bucket(
     state: State<'_, AppState>,
     account_id: String,
     name: String,
     region: Option<String>,
-) -> CommandResult<()> {
+    options: Option<CreateBucketOptions>,
+) -> CommandResult<CreateBucketResult> {
     let core = state.core()?;
     logged("creating a bucket", async {
         let s3 = core.session.s3_for(&account_id).await?;
-        s3.create_bucket(&name, region.as_deref()).await
+        s3.create_bucket_with(&name, region.as_deref(), &options.unwrap_or_default())
+            .await
     })
     .await
 }

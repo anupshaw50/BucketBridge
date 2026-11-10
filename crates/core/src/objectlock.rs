@@ -12,6 +12,8 @@
 //! | [`S3::set_object_legal_hold`] | legal hold on or off for many objects |
 //! | [`S3::get_object_ownership`], [`put_object_ownership`](S3::put_object_ownership) | the bucket's [`ObjectOwnership`] |
 //! | [`S3::restore_objects`] | `RestoreObject` with a [`RestoreTier`] and days on many archived objects |
+//! | [`S3::restore_archived`] | the same, choosing the Glacier or the Intelligent-Tiering request per object |
+//! | [`S3::restore_summary`], [`estimate_restore`] | size, count and a list-price cost estimate per tier |
 //! | [`S3::object_restore_state`] | the archive and restore state from `HeadObject` |
 //! | [`S3::put_bucket_versioning_mfa`] | versioning and MFA delete with an [`MfaDeleteAuth`] |
 //!
@@ -42,12 +44,18 @@ use aws_smithy_types::DateTime as SdkDateTime;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+mod estimate;
 mod mfa;
 mod restore;
 
+pub use estimate::{
+    ArchiveGroup, ESTIMATE_MAX_OBJECTS, PRICE_DATE, PRICE_NOTE, RestoreEstimate, RestoreSummary,
+    TierEstimate, TierPrice, estimate_restore, tier_price,
+};
 pub use mfa::MfaDeleteAuth;
-pub use restore::{ArchiveState, MAX_RESTORE_DAYS, RestoreTier};
+pub use restore::{ArchiveKind, ArchiveState, MAX_RESTORE_DAYS, RestoreTier};
 
+use crate::bucketcfg::VersioningStatus;
 use crate::error::{Error, Result, ServiceError};
 use crate::model::LockMode;
 use crate::objectmeta::{BatchOptions, ObjectChange, run_batch};
@@ -238,6 +246,30 @@ impl S3 {
                     .with_context(bucket_context("saving the Object Lock setting", bucket))
             })?;
         Ok(())
+    }
+
+    /// Turns Object Lock on for an existing bucket and returns whether it
+    /// changed anything (`false`: it already was on, and nothing is sent, so
+    /// an existing default retention stays). S3 only accepts this on a bucket
+    /// with versioning enabled; a bucket where it is not is a `conflict` that
+    /// says so, without a write. Object Lock can never be turned off again.
+    pub async fn enable_bucket_object_lock(&self, bucket: &str) -> Result<bool> {
+        validate_bucket_name(bucket)?;
+        if self.get_bucket_object_lock(bucket).await?.enabled {
+            return Ok(false);
+        }
+        let versioning = self.get_bucket_versioning(bucket).await?;
+        if versioning.status != VersioningStatus::Enabled {
+            let state = match versioning.status {
+                VersioningStatus::Suspended => "suspended",
+                _ => "not enabled",
+            };
+            return Err(Error::Conflict(format!(
+                "Object Lock needs versioning, which is {state} on bucket '{bucket}'; enable versioning first"
+            )));
+        }
+        self.put_bucket_object_lock(bucket, None).await?;
+        Ok(true)
     }
 }
 
@@ -556,7 +588,7 @@ impl ObjectOwnership {
         }
     }
 
-    fn to_sdk(self) -> SdkOwnership {
+    pub(crate) fn to_sdk(self) -> SdkOwnership {
         match self {
             ObjectOwnership::BucketOwnerEnforced => SdkOwnership::BucketOwnerEnforced,
             ObjectOwnership::ObjectWriter => SdkOwnership::ObjectWriter,

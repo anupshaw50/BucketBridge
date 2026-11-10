@@ -524,6 +524,7 @@ fn environment_account(env: &Env) -> Result<(Account, Credentials)> {
         path_style,
         request_payer: false,
         mfa_serial: None,
+        options: Default::default(),
     };
     let credentials = Credentials::new(access_key, secret_key, env.get(env::SESSION_TOKEN)?);
     Ok((account, credentials))

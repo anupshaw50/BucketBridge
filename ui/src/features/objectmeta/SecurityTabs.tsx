@@ -1,7 +1,7 @@
-import { Alert, Button, Group, PasswordInput, SegmentedControl, Select, Stack, Switch, Table, Text, TextInput } from "@mantine/core";
+import { Alert, Button, Group, PasswordInput, SegmentedControl, Select, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { IconAlertCircle } from "@tabler/icons-react";
-import { useState } from "react";
-import type { EncryptionChange, Sse } from "../../api/types";
+import { useEffect, useState } from "react";
+import type { AclGrant, EncryptionChange, Sse } from "../../api/types";
 import { useModel } from "../../app/context";
 import { tr } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
@@ -14,6 +14,7 @@ import {
   STORAGE_CLASSES,
   validateCustomerKey,
 } from "../../lib/objectMeta";
+import { AclGrantsEditor } from "./AclGrantsEditor";
 import { sseKeyArg, sseKeyProblem, type TabContext, useApply } from "./apply";
 import { ApplyBar, CurrentKeyField } from "./parts";
 
@@ -234,6 +235,27 @@ export function PermissionsTab({ ctx }: { ctx: TabContext }) {
   const aclError = ctx.details?.acl_error ?? null;
   const [value, setValue] = useState<string | null>(acl?.canned ?? null);
   const chosen = isCannedAcl(value) ? value : null;
+  const [aclsDisabled, setAclsDisabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    model.api
+      .get_object_ownership({ account_id: ctx.accountId, bucket: ctx.bucket })
+      .then((ownership) => live && setAclsDisabled(ownership === "BucketOwnerEnforced"))
+      // An unreadable ownership setting does not hide the ACL; the server still refuses a change.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [model, ctx.accountId, ctx.bucket]);
+  const [key] = ctx.keys;
+  const saveGrants = async (grants: AclGrant[]) => {
+    if (key === undefined) {
+      return;
+    }
+    await model.api.put_object_acl_grants({ account_id: ctx.accountId, bucket: ctx.bucket, key, grants });
+    model.status.info(tr("The ACL grants of {key} were saved.", { key }));
+    ctx.changed();
+  };
   const apply = () => {
     if (chosen === null) {
       return;
@@ -254,24 +276,15 @@ export function PermissionsTab({ ctx }: { ctx: TabContext }) {
           <Text size="sm">
             <strong>{tr("Current ACL:")}</strong> {acl.canned ?? tr("custom grants")}
           </Text>
-          <Table withTableBorder verticalSpacing={2} fz="xs" aria-label={tr("Grants")}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{tr("Grantee")}</Table.Th>
-                <Table.Th>{tr("Permission")}</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {acl.grants.map((grant) => (
-                <Table.Tr key={`${grant.grantee}/${grant.permission}`}>
-                  <Table.Td style={{ overflowWrap: "anywhere" }}>
-                    {grant.grantee_type === "group" ? grant.grantee.split("/").pop() : grant.grantee}
-                  </Table.Td>
-                  <Table.Td>{grant.permission}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          {!ctx.batch ? (
+            <AclGrantsEditor
+              key={JSON.stringify(acl.grants)}
+              scope="object"
+              grants={acl.grants}
+              disabled={aclsDisabled}
+              onSave={saveGrants}
+            />
+          ) : null}
         </Stack>
       ) : null}
       <Text size="sm" c="dimmed">

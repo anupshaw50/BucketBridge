@@ -252,6 +252,7 @@ export class AccountFilesMock {
         endpoint: incoming.endpoint ?? null,
         path_style: incoming.path_style,
         request_payer: incoming.request_payer,
+        options: { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } },
         mfa_serial: source.type === "assume_role" ? (source.mfa_serial ?? null) : isStatic ? (incoming.mfa_serial ?? null) : null,
         source,
       };

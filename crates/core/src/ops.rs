@@ -38,14 +38,15 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::OnceCell;
 
+use crate::bucketcreate::{CreateBucketOptions, CreateBucketResult};
 use crate::client::{
     ClientOptions, Credentials, build_client, read_timeout_override, validate_region,
 };
 use crate::error::{Error, ErrorKind, Result, ServiceError};
 use crate::model::{
-    Account, Bucket, BucketKind, Checksums, CopyOutcome, DeleteFailure, DeleteOutcome, LockMode,
-    MultipartUpload, ObjectEntry, ObjectHead, ObjectLock, ObjectMeta, ObjectPage, ObjectVersion,
-    Sse, VersionPage,
+    Account, Bucket, BucketKind, Checksums, CompatOptions, CopyOutcome, DeleteFailure,
+    DeleteOutcome, LockMode, MultipartUpload, ObjectEntry, ObjectHead, ObjectLock, ObjectMeta,
+    ObjectPage, ObjectVersion, Sse, VersionPage,
 };
 use crate::objectmeta::{CopyChanges, HeaderSet, SSE_C_ALGORITHM};
 use crate::s3uri::{S3Uri, validate_bucket_name, validate_key, validate_new_bucket_name};
@@ -155,6 +156,16 @@ pub struct S3 {
     regions: Arc<RegionCache>,
     /// The custom endpoint URL of the account, when it has one.
     endpoint: Option<String>,
+    /// Use the Transfer Acceleration endpoint for transfers of buckets that
+    /// have it enabled (see [`S3::transfer_client_for`]).
+    accelerate: bool,
+    /// Provider settings (see [`CompatOptions`]).
+    compat: Arc<CompatOptions>,
+    /// The account may not list buckets (see
+    /// [`AccountOptions::cannot_list_buckets`](crate::model::AccountOptions)).
+    cannot_list_buckets: bool,
+    /// Known buckets (`bucket` or `bucket/folder/`) shown instead of a listing.
+    known_buckets: Arc<[String]>,
 }
 
 impl S3 {
@@ -169,6 +180,10 @@ impl S3 {
         let mut s3 = S3::from_client(client, account.request_payer, account.bucket_kind());
         s3.read_timeout = options.read_timeout;
         s3.endpoint = account.endpoint.clone();
+        s3.accelerate = account.options.accelerate;
+        s3.compat = Arc::new((*account.options.compat).clone());
+        s3.cannot_list_buckets = account.options.cannot_list_buckets;
+        s3.known_buckets = account.options.known_buckets.clone().into();
         Ok(s3)
     }
 
@@ -182,6 +197,11 @@ impl S3 {
         let client = crate::client::build_client_with_provider(account, provider, options)?;
         let mut s3 = S3::from_client(client, account.request_payer, account.bucket_kind());
         s3.read_timeout = options.read_timeout;
+        s3.endpoint = account.endpoint.clone();
+        s3.accelerate = account.options.accelerate;
+        s3.compat = Arc::new((*account.options.compat).clone());
+        s3.cannot_list_buckets = account.options.cannot_list_buckets;
+        s3.known_buckets = account.options.known_buckets.clone().into();
         Ok(s3)
     }
 
@@ -202,7 +222,58 @@ impl S3 {
             resolve_regions: bucket_kind != BucketKind::External,
             regions: Arc::default(),
             endpoint: None,
+            accelerate: false,
+            compat: Arc::default(),
+            cannot_list_buckets: false,
+            known_buckets: Arc::default(),
         }
+    }
+
+    /// Sets the buckets of an account with limited permissions (they are
+    /// taken from the account by [`S3::new`]).
+    #[must_use]
+    pub fn with_known_buckets(mut self, cannot_list: bool, known: Vec<String>) -> Self {
+        self.cannot_list_buckets = cannot_list;
+        self.known_buckets = known.into();
+        self
+    }
+
+    /// `true` when `ListBuckets` is never sent for this account.
+    pub fn cannot_list_buckets(&self) -> bool {
+        self.cannot_list_buckets
+    }
+
+    /// The names of the known buckets (without folders), in order, each once.
+    pub fn known_bucket_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for entry in self.known_buckets.iter() {
+            let (bucket, _) = crate::model::split_known_bucket(entry);
+            if !names.iter().any(|name| name == bucket) {
+                names.push(bucket.to_owned());
+            }
+        }
+        names
+    }
+
+    /// Sets the provider settings (they are taken from the account by
+    /// [`S3::new`]).
+    #[must_use]
+    pub fn with_compat(mut self, compat: CompatOptions) -> Self {
+        self.compat = Arc::new(compat);
+        self
+    }
+
+    /// The provider settings of the account.
+    pub fn compat(&self) -> &CompatOptions {
+        &self.compat
+    }
+
+    /// Turns the use of the Transfer Acceleration endpoint on or off (it is
+    /// on when the account says so; see [`S3::transfer_client_for`]).
+    #[must_use]
+    pub fn with_acceleration(mut self, enabled: bool) -> Self {
+        self.accelerate = enabled;
+        self
     }
 
     /// Turns bucket-region resolution on or off, overriding the default (on
@@ -242,6 +313,9 @@ impl S3 {
     /// invalid region.
     pub async fn client_for(&self, bucket: &str) -> Result<Client> {
         validate_bucket_name(bucket)?;
+        if let Some(access_point) = crate::s3uri::parse_access_point_arn(bucket) {
+            return self.access_point_client(access_point);
+        }
         if !self.resolve_regions {
             return Ok(self.client.clone());
         }
@@ -251,6 +325,78 @@ impl S3 {
             Err(Unresolved::UseAccountRegion) => Ok(self.client.clone()),
             Err(Unresolved::Failed(err)) => Err(err),
         }
+    }
+
+    /// The SDK client for transferring objects of `bucket`: as
+    /// [`S3::client_for`], but through the Transfer Acceleration endpoint
+    /// (`<bucket>.s3-accelerate.amazonaws.com`) when the account asks for it
+    /// and the bucket has acceleration enabled.
+    ///
+    /// Whether a bucket has acceleration enabled is asked once per bucket
+    /// (`GetBucketAccelerateConfiguration`) and remembered. A bucket whose
+    /// name contains a dot cannot use acceleration, and when the status
+    /// cannot be read (access denied, an error) the regional endpoint is
+    /// used, so a transfer never fails because of this option.
+    pub async fn transfer_client_for(&self, bucket: &str) -> Result<Client> {
+        let base = self.client_for(bucket).await?;
+        if !self.accelerate || bucket.contains('.') || bucket.starts_with("arn:") {
+            return Ok(base);
+        }
+        let cell = self.regions.accelerated_cell(bucket);
+        let enabled = *cell
+            .get_or_init(|| async {
+                match base
+                    .get_bucket_accelerate_configuration()
+                    .bucket(bucket)
+                    .set_request_payer(self.request_payer())
+                    .customize()
+                    .config_override(self.metadata_timeout())
+                    .send()
+                    .await
+                {
+                    Ok(out) => {
+                        out.status() == Some(&aws_sdk_s3::types::BucketAccelerateStatus::Enabled)
+                    }
+                    Err(_) => false,
+                }
+            })
+            .await;
+        if !enabled {
+            return Ok(base);
+        }
+        let config = base.config().to_builder().accelerate(true).build();
+        Ok(Client::from_conf(config))
+    }
+
+    /// The client for an access point ARN: the SDK resolves the endpoint
+    /// from the ARN. A regional access point goes to its own region; a
+    /// Multi-Region Access Point is signed with SigV4A for all regions.
+    /// Access points need virtual-hosted addressing and AWS itself.
+    fn access_point_client(
+        &self,
+        access_point: crate::s3uri::AccessPointArn<'_>,
+    ) -> Result<Client> {
+        if self.endpoint.is_some() || self.bucket_kind == BucketKind::External {
+            return Err(Error::Usage(
+                "access point ARNs work with AWS accounts only, not with a custom endpoint".into(),
+            ));
+        }
+        let key = access_point
+            .region
+            .map_or_else(|| "arn:multi-region".to_owned(), |r| format!("arn:{r}"));
+        let mut clients = self
+            .regions
+            .clients
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let client = clients.entry(key).or_insert_with(|| {
+            let mut builder = self.client.config().to_builder().force_path_style(false);
+            if let Some(region) = access_point.region {
+                builder = builder.region(Region::new(region.to_owned()));
+            }
+            Client::from_conf(builder.build())
+        });
+        Ok(client.clone())
     }
 
     /// A per-request configuration override that applies the read timeout
@@ -326,13 +472,46 @@ impl S3 {
     /// Lists every bucket visible to the account, sorted by name, 1000 per
     /// request, following continuation tokens. Regions the server reports
     /// are remembered for [`S3::client_for`].
+    ///
+    /// With [`CompatOptions::list_all_regions`] the buckets are listed once
+    /// per configured region and merged (a bucket seen twice is kept once,
+    /// with the region of the listing that reported it).
     pub async fn list_buckets(&self) -> Result<Vec<Bucket>> {
+        if !(self.compat.list_all_regions && !self.compat.regions.is_empty()) {
+            return self.list_buckets_with(&self.client).await;
+        }
+        let mut merged: BTreeMap<String, Bucket> = BTreeMap::new();
+        let mut first_error = None;
+        let mut any_ok = false;
+        for region in &self.compat.regions {
+            let client = self.client_in(region);
+            match self.list_buckets_with(&client).await {
+                Ok(found) => {
+                    any_ok = true;
+                    for mut bucket in found {
+                        if bucket.region.is_none() {
+                            bucket.region = Some(region.clone());
+                        }
+                        merged.entry(bucket.name.clone()).or_insert(bucket);
+                    }
+                }
+                Err(err) => {
+                    first_error.get_or_insert(err);
+                }
+            }
+        }
+        match (any_ok, first_error) {
+            (false, Some(err)) => Err(err),
+            _ => Ok(merged.into_values().collect()),
+        }
+    }
+
+    async fn list_buckets_with(&self, client: &Client) -> Result<Vec<Bucket>> {
         let mut buckets = Vec::new();
         let mut token: Option<String> = None;
         let mut seen = SeenTokens::new();
         loop {
-            let out = self
-                .client
+            let out = client
                 .list_buckets()
                 .max_buckets(MAX_BUCKETS_PER_PAGE)
                 .set_continuation_token(token.clone())
@@ -385,6 +564,23 @@ impl S3 {
     /// (and is not `us-east-1`), because many S3-compatible servers reject
     /// constraints they do not know.
     pub async fn create_bucket(&self, name: &str, region: Option<&str>) -> Result<()> {
+        self.create_bucket_with(name, region, &CreateBucketOptions::default())
+            .await
+            .map(|_| ())
+    }
+
+    /// [`S3::create_bucket`] with the advanced options: Object Lock and
+    /// Object Ownership travel with the CreateBucket request, so the bucket
+    /// never exists without them; the public access block is applied right
+    /// after. A server that does not implement the public access block leaves
+    /// the bucket created and a warning in the result; any other failure of
+    /// that step is an error that says the bucket exists.
+    pub async fn create_bucket_with(
+        &self,
+        name: &str,
+        region: Option<&str>,
+        options: &CreateBucketOptions,
+    ) -> Result<CreateBucketResult> {
         validate_new_bucket_name(name, self.bucket_kind)?;
         if let Some(region) = region {
             crate::client::validate_region(region)?;
@@ -396,6 +592,12 @@ impl S3 {
             BucketKind::External | BucketKind::CloudFront => region.is_some(),
         };
         let mut request = self.client.create_bucket().bucket(name);
+        if options.object_lock {
+            request = request.object_lock_enabled_for_bucket(true);
+        }
+        if let Some(ownership) = options.ownership {
+            request = request.object_ownership(ownership.to_sdk());
+        }
         if send_constraint
             && let Some(target) = target.as_deref()
             && target != "us-east-1"
@@ -422,7 +624,21 @@ impl S3 {
         if let Some(target) = &target {
             self.learn_region(name, target);
         }
-        Ok(())
+        let mut warnings = Vec::new();
+        if let Some(block) = &options.public_access_block
+            && let Err(error) = self.put_public_access_block(name, block).await
+        {
+            if crate::bucketcfg::is_unsupported(&error) {
+                warnings.push(format!(
+                    "the server does not implement the public access block, so it was not applied to bucket '{name}'"
+                ));
+            } else {
+                return Err(error.with_context(format!(
+                    "bucket '{name}' was created, but its public access block could not be applied"
+                )));
+            }
+        }
+        Ok(CreateBucketResult { warnings })
     }
 
     /// Deletes an empty bucket.
@@ -873,7 +1089,12 @@ impl S3 {
         options.validate()?;
         let head = self.head_raw(src.bucket(), src.key(), None).await?;
         let size = to_size(head.content_length());
-        if size == 0 || size <= options.multipart_threshold {
+        if self.compat.no_multipart_copy && size > MAX_SINGLE_COPY_SIZE {
+            return Err(Error::Usage(format!(
+                "{src} is larger than 5 GiB and this account's provider settings turn multipart copy off; download and upload it instead"
+            )));
+        }
+        if size == 0 || size <= options.multipart_threshold || self.compat.no_multipart_copy {
             // Sent to the destination's region; S3 fetches the source itself.
             // No read timeout: a server may answer only when the copy is done.
             let out = self
@@ -1229,6 +1450,20 @@ impl S3 {
         outcome: &mut DeleteOutcome,
     ) -> Result<()> {
         if keys.is_empty() {
+            return Ok(());
+        }
+        if self.compat.single_deletes {
+            for key in keys {
+                match self.delete_object(bucket, key, None).await {
+                    Ok(()) => outcome.deleted += 1,
+                    Err(err) => outcome.failures.push(DeleteFailure {
+                        key: key.clone(),
+                        version_id: None,
+                        code: None,
+                        message: err.to_string(),
+                    }),
+                }
+            }
             return Ok(());
         }
         let objects = keys
@@ -1664,11 +1899,22 @@ struct RegionCache {
     buckets: Mutex<HashMap<String, Arc<OnceCell<String>>>>,
     /// Region to a client for it (the account region is not stored).
     clients: Mutex<HashMap<String, Client>>,
+    /// Bucket name to whether it has Transfer Acceleration enabled.
+    accelerated: Mutex<HashMap<String, Arc<OnceCell<bool>>>>,
 }
 
 impl RegionCache {
     fn cell(&self, bucket: &str) -> Arc<OnceCell<String>> {
         self.buckets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(bucket.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    fn accelerated_cell(&self, bucket: &str) -> Arc<OnceCell<bool>> {
+        self.accelerated
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(bucket.to_owned())
@@ -1688,6 +1934,10 @@ impl RegionCache {
 
     fn forget(&self, bucket: &str) {
         self.buckets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(bucket);
+        self.accelerated
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(bucket);
@@ -1825,7 +2075,13 @@ fn percent_encode(text: &str, keep_slash: bool) -> String {
 /// The `x-amz-copy-source` value: `bucket/key`, URL-encoded, with an
 /// optional version.
 pub(crate) fn copy_source(bucket: &str, key: &str, version_id: Option<&str>) -> String {
-    let mut source = format!("{bucket}/{}", percent_encode(key, true));
+    // An access point is named by its ARN, followed by `/object/<key>`.
+    let separator = if crate::s3uri::is_access_point_arn(bucket) {
+        "/object/"
+    } else {
+        "/"
+    };
+    let mut source = format!("{bucket}{separator}{}", percent_encode(key, true));
     if let Some(version_id) = version_id {
         source.push_str("?versionId=");
         source.push_str(&percent_encode(version_id, false));
@@ -2134,6 +2390,356 @@ mod tests {
         let resolving = external.with_region_resolution(true);
         resolving.learn_region("eu-bucket-2", "eu-west-1");
         assert_eq!(resolving.regions.buckets.lock().unwrap().len(), 1);
+    }
+
+    /// An `S3` for an AWS account that talks to a scripted HTTP client: the
+    /// accelerate configuration request is answered with `status` (a
+    /// `BucketAccelerateStatus` word, or `deny` for a 403) and every URL
+    /// that was requested is recorded.
+    fn scripted_s3(accelerate: bool, status: &'static str) -> (S3, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        let http = aws_smithy_http_client::test_util::infallible_client_fn(move |request| {
+            let uri = request.uri().to_string();
+            log.lock().unwrap().push(uri.clone());
+            let builder = http::Response::builder();
+            if uri.contains("?accelerate") {
+                return if status == "deny" {
+                    builder.status(403).body(String::new()).unwrap()
+                } else {
+                    builder
+                        .status(200)
+                        .body(format!(
+                            "<AccelerateConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>{status}</Status></AccelerateConfiguration>"
+                        ))
+                        .unwrap()
+                };
+            }
+            builder
+                .status(200)
+                .header("x-amz-bucket-region", "eu-west-1")
+                .body(String::new())
+                .unwrap()
+        });
+        let account = Account {
+            region: "eu-west-1".into(),
+            options: crate::model::AccountOptions {
+                accelerate,
+                ..Default::default()
+            },
+            ..Account::default()
+        };
+        let options = ClientOptions {
+            http_client: Some(http),
+            ..ClientOptions::default()
+        };
+        let s3 = S3::new(&account, &Credentials::new("AK", "SK", None), &options).unwrap();
+        (s3, seen)
+    }
+
+    async fn head_url(s3: &S3, seen: &Arc<Mutex<Vec<String>>>, bucket: &str) -> String {
+        let client = s3.transfer_client_for(bucket).await.unwrap();
+        let _ = client.head_object().bucket(bucket).key("k").send().await;
+        seen.lock().unwrap().last().cloned().unwrap()
+    }
+
+    #[tokio::test]
+    async fn acceleration_is_used_only_for_buckets_that_have_it() {
+        let (s3, seen) = scripted_s3(true, "Enabled");
+        let url = head_url(&s3, &seen, "fast-bucket").await;
+        assert!(
+            url.starts_with("https://fast-bucket.s3-accelerate.amazonaws.com/"),
+            "{url}"
+        );
+        // The status is asked once per bucket.
+        head_url(&s3, &seen, "fast-bucket").await;
+        let asked = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|u| u.contains("?accelerate"))
+            .count();
+        assert_eq!(asked, 1);
+
+        let (s3, seen) = scripted_s3(true, "Suspended");
+        let url = head_url(&s3, &seen, "slow-bucket").await;
+        assert!(
+            url.starts_with("https://slow-bucket.s3.eu-west-1.amazonaws.com/"),
+            "{url}"
+        );
+    }
+
+    /// A scripted `S3` for a custom endpoint that records "METHOD URL" lines.
+    fn recording_s3(compat: CompatOptions) -> (S3, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        let http = aws_smithy_http_client::test_util::infallible_client_fn(move |request| {
+            let line = format!("{} {}", request.method(), request.uri());
+            log.lock().unwrap().push(line.clone());
+            let builder = http::Response::builder();
+            if line.contains("x-id=ListBuckets") {
+                let region_tag = if line.contains("one.example") {
+                    "a-bucket"
+                } else {
+                    "b-bucket"
+                };
+                return builder.status(200).body(format!(
+                    "<ListAllMyBucketsResult><Buckets><Bucket><Name>{region_tag}</Name></Bucket><Bucket><Name>shared</Name></Bucket></Buckets></ListAllMyBucketsResult>"
+                )).unwrap();
+            }
+            if line.contains("?delete") {
+                return builder
+                    .status(200)
+                    .body("<DeleteResult/>".to_owned())
+                    .unwrap();
+            }
+            builder.status(204).body(String::new()).unwrap()
+        });
+        let account = Account {
+            region: "r1".into(),
+            endpoint: Some("https://one.example".into()),
+            path_style: true,
+            options: crate::model::AccountOptions {
+                compat: Box::new(compat),
+                ..Default::default()
+            },
+            ..Account::default()
+        };
+        let options = ClientOptions {
+            http_client: Some(http),
+            ..ClientOptions::default()
+        };
+        (
+            S3::new(&account, &Credentials::new("AK", "SK", None), &options).unwrap(),
+            seen,
+        )
+    }
+
+    /// An `S3` whose ListBuckets is refused with AccessDenied; every request
+    /// is recorded.
+    fn denied_s3(cannot_list: bool, known: &[&str]) -> (S3, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        let http = aws_smithy_http_client::test_util::infallible_client_fn(move |request| {
+            log.lock()
+                .unwrap()
+                .push(format!("{} {}", request.method(), request.uri()));
+            http::Response::builder()
+                .status(403)
+                .body(
+                    "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>"
+                        .to_owned(),
+                )
+                .unwrap()
+        });
+        let account = Account {
+            region: "r1".into(),
+            endpoint: Some("https://one.example".into()),
+            path_style: true,
+            options: crate::model::AccountOptions {
+                cannot_list_buckets: cannot_list,
+                known_buckets: known.iter().map(|k| (*k).to_owned()).collect(),
+                ..Default::default()
+            },
+            ..Account::default()
+        };
+        let options = ClientOptions {
+            http_client: Some(http),
+            max_attempts: 1,
+            ..ClientOptions::default()
+        };
+        (
+            S3::new(&account, &Credentials::new("AK", "SK", None), &options).unwrap(),
+            seen,
+        )
+    }
+
+    #[tokio::test]
+    async fn an_account_that_cannot_list_never_sends_list_buckets() {
+        let (s3, seen) = denied_s3(true, &["drop-box/uploads/", "drop-box", "archive"]);
+        let buckets = s3
+            .list_buckets_with_pinned(&["pinned".to_owned()])
+            .await
+            .unwrap();
+        let names: Vec<_> = buckets.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, ["archive", "drop-box", "pinned"]);
+        assert!(buckets.iter().all(|b| b.kind == BucketKind::External));
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_refused_listing_shows_the_known_buckets_or_explains_itself() {
+        // Known buckets stand in for the refused listing.
+        let (s3, seen) = denied_s3(false, &["drop-box/in/"]);
+        let buckets = s3.list_buckets_with_pinned(&[]).await.unwrap();
+        assert_eq!(buckets.len(), 1);
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        // Nothing known: one clear error that names the way out.
+        let (s3, _) = denied_s3(false, &[]);
+        let err = s3.list_buckets_with_pinned(&[]).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Auth);
+        assert!(err.to_string().contains("Cannot list buckets"), "{err}");
+    }
+
+    const AP_ARN: &str = "arn:aws:s3:us-west-2:123456789012:accesspoint/my-ap";
+    const MRAP_ARN: &str = "arn:aws:s3::123456789012:accesspoint/mfzwi23gnjvgw.mrap";
+
+    #[tokio::test]
+    async fn access_point_arns_are_routed_through_the_sdk() {
+        // A path-style account in another region: the ARN decides both.
+        let (s3, seen) = scripted_s3(false, "Enabled");
+        let s3 = s3.with_region_resolution(true);
+        let url = head_url(&s3, &seen, AP_ARN).await;
+        assert!(
+            url.starts_with("https://my-ap-123456789012.s3-accesspoint.us-west-2.amazonaws.com/"),
+            "{url}"
+        );
+        // No HeadBucket was needed to find the region.
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn multi_region_access_points_are_signed_with_sigv4a() {
+        let (s3, seen) = scripted_s3(false, "Enabled");
+        let url = head_url(&s3, &seen, MRAP_ARN).await;
+        assert!(
+            url.starts_with("https://mfzwi23gnjvgw.mrap.accesspoint.s3-global.amazonaws.com/"),
+            "{url}"
+        );
+    }
+
+    #[tokio::test]
+    async fn access_point_arns_need_an_aws_account() {
+        let (s3, _) = recording_s3(CompatOptions::default());
+        let err = s3.client_for(AP_ARN).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Usage);
+        assert!(err.to_string().contains("AWS accounts only"), "{err}");
+    }
+
+    #[test]
+    fn copy_sources_name_access_points_by_arn() {
+        assert_eq!(copy_source("b", "a b", None), "b/a%20b");
+        assert_eq!(
+            copy_source(AP_ARN, "dir/k", Some("v1")),
+            format!("{AP_ARN}/object/dir/k?versionId=v1")
+        );
+    }
+
+    #[tokio::test]
+    async fn single_deletes_replace_the_multi_object_delete() {
+        let keys = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        let (s3, seen) = recording_s3(CompatOptions::default());
+        let outcome = s3.delete_objects("bkt", &keys).await.unwrap();
+        assert_eq!(outcome.deleted, 3);
+        let lines = seen.lock().unwrap().clone();
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].starts_with("POST") && lines[0].contains("?delete"),
+            "{lines:?}"
+        );
+
+        let (s3, seen) = recording_s3(CompatOptions {
+            single_deletes: true,
+            ..Default::default()
+        });
+        let outcome = s3.delete_objects("bkt", &keys).await.unwrap();
+        assert_eq!(outcome.deleted, 3);
+        assert!(outcome.failures.is_empty());
+        let lines = seen.lock().unwrap().clone();
+        assert_eq!(lines.len(), 3);
+        assert!(lines.iter().all(|l| l.starts_with("DELETE")), "{lines:?}");
+    }
+
+    #[tokio::test]
+    async fn listing_across_regions_merges_the_answers() {
+        let (s3, seen) = recording_s3(CompatOptions::default());
+        let buckets = s3.list_buckets().await.unwrap();
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(seen.lock().unwrap().len(), 1);
+
+        let (s3, seen) = recording_s3(CompatOptions {
+            regions: vec!["r1".into(), "r2".into()],
+            list_all_regions: true,
+            ..Default::default()
+        });
+        let buckets = s3.list_buckets().await.unwrap();
+        // "shared" is reported by both listings and kept once.
+        let names: Vec<_> = buckets.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, ["a-bucket", "shared"]);
+        assert!(buckets.iter().all(|b| b.region.is_some()));
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn multipart_copy_can_be_turned_off() {
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&seen);
+        // Every request is answered with a 200 that says the object is 6 GiB.
+        let http = aws_smithy_http_client::test_util::infallible_client_fn(move |request| {
+            log.lock()
+                .unwrap()
+                .push(format!("{} {}", request.method(), request.uri()));
+            http::Response::builder()
+                .status(200)
+                .header("content-length", "6442450944")
+                .body(String::new())
+                .unwrap()
+        });
+        let account = Account {
+            region: "r1".into(),
+            endpoint: Some("https://one.example".into()),
+            path_style: true,
+            ..Account::default()
+        };
+        let options = ClientOptions {
+            http_client: Some(http),
+            ..ClientOptions::default()
+        };
+        let s3 = S3::new(&account, &Credentials::new("AK", "SK", None), &options)
+            .unwrap()
+            .with_compat(CompatOptions {
+                no_multipart_copy: true,
+                ..Default::default()
+            });
+        let src = S3Uri::new("b1", "k1").unwrap();
+        let dst = S3Uri::new("b2", "k2").unwrap();
+        let err = s3.copy_object(&src, &dst).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Usage);
+        assert!(err.to_string().contains("multipart copy"), "{err}");
+        // Only the HEAD went out: no multipart upload was started.
+        let lines = seen.lock().unwrap().clone();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].starts_with("HEAD"));
+    }
+
+    #[tokio::test]
+    async fn acceleration_falls_back_to_the_regional_endpoint() {
+        // Access denied while reading the status.
+        let (s3, seen) = scripted_s3(true, "deny");
+        let url = head_url(&s3, &seen, "denied-bucket").await;
+        assert!(url.contains(".s3.eu-west-1.amazonaws.com"), "{url}");
+        // A dotted bucket name cannot use acceleration; nothing is asked.
+        let (s3, seen) = scripted_s3(true, "Enabled");
+        let url = head_url(&s3, &seen, "my.dotted.bucket").await;
+        assert!(!url.contains("s3-accelerate"), "{url}");
+        assert!(
+            !seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|u| u.contains("?accelerate"))
+        );
+        // The account option is off: no status request, no acceleration.
+        let (s3, seen) = scripted_s3(false, "Enabled");
+        let url = head_url(&s3, &seen, "plain-bucket").await;
+        assert!(!url.contains("s3-accelerate"), "{url}");
+        assert!(
+            !seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|u| u.contains("?accelerate"))
+        );
     }
 
     #[test]

@@ -9,9 +9,12 @@ import { AppModal } from "../../components/AppModal";
 import { tr } from "../../i18n";
 import type { BucketPropertiesTab } from "../../state/dialogs";
 import { AccelerationTab } from "./AccelerationTab";
+import { AclTab } from "./AclTab";
+import { EncryptionTab } from "./EncryptionTab";
 import { LoggingTab } from "./LoggingTab";
 import { PolicyTab } from "./PolicyTab";
 import { PublicAccessTab } from "./PublicAccessTab";
+import { TagsTab } from "./TagsTab";
 import { UsageTab } from "./UsageTab";
 import { VersioningTab } from "./VersioningTab";
 import { WebsiteTab } from "./WebsiteTab";
@@ -25,6 +28,9 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "logging", label: "Logging" },
   { id: "website", label: "Website" },
   { id: "acceleration", label: "Acceleration" },
+  { id: "encryption", label: "Encryption" },
+  { id: "tags", label: "Tags" },
+  { id: "acl", label: "ACL" },
   { id: "usage", label: "Usage" },
 ];
 
@@ -42,6 +48,9 @@ const FIRST_REVISIONS: Revisions = {
   logging: 0,
   website: 0,
   acceleration: 0,
+  encryption: 0,
+  tags: 0,
+  acl: 0,
   usage: 0,
 };
 
@@ -80,6 +89,9 @@ async function readSection(api: Backend, tab: TabId, ref: BucketRef): Promise<Pa
       return { website: await settle(() => api.get_bucket_website(ref)) };
     case "acceleration":
       return { acceleration: await settle(() => api.get_bucket_acceleration(ref)) };
+    case "encryption":
+    case "tags":
+    case "acl":
     case "usage":
       return {};
   }
@@ -236,6 +248,15 @@ export function BucketPropertiesDialog({
             section={config.acceleration}
             reload={() => reload("acceleration")}
           />
+        </Tabs.Panel>
+        <Tabs.Panel value="encryption" pt="md">
+          <EncryptionTab accountId={accountId} bucket={bucket} />
+        </Tabs.Panel>
+        <Tabs.Panel value="tags" pt="md">
+          <TagsTab accountId={accountId} bucket={bucket} />
+        </Tabs.Panel>
+        <Tabs.Panel value="acl" pt="md">
+          <AclTab accountId={accountId} bucket={bucket} />
         </Tabs.Panel>
         <Tabs.Panel value="usage" pt="md">
           <UsageTab accountId={accountId} bucket={bucket} versioning={config.versioning} />

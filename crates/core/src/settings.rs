@@ -41,6 +41,8 @@ pub struct Settings {
     pub transfer: TransferSettings,
     /// Optional URL shortener for share links.
     pub shortener: ShortenerSettings,
+    /// Upload rules: headers, storage class and encryption by file pattern.
+    pub upload_rules: crate::upload_rules::UploadRulesSettings,
 }
 
 /// General settings.
@@ -587,6 +589,10 @@ impl Settings {
         }
         c.range("transfer.retry_attempts", t.retry_attempts, 0, 20);
 
+        if let Err(err) = crate::upload_rules::validate_list(&self.upload_rules) {
+            c.problems.push(err.to_string());
+        }
+
         if c.problems.is_empty() {
             Ok(())
         } else {
@@ -685,7 +691,8 @@ mod tests {
                     "retry_attempts": 3,
                     "if_exists": "overwrite"
                 },
-                "shortener": { "provider": "none", "token_ref": null }
+                "shortener": { "provider": "none", "token_ref": null },
+                "upload_rules": { "enabled": true, "rules": [] }
             })
         );
         Settings::default().validate().unwrap();

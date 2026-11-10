@@ -132,4 +132,29 @@ export const zhTools: Record<string, string> = {
   Applied: "使用中",
   "Apply filter {name}": "应用筛选 {name}",
   "Delete filter {name}": "删除筛选 {name}",
+  // ---- 恢复未完成的上传 ----
+  "Resume...": "恢复...",
+  "Resume upload": "恢复上传",
+  "Choose the file this upload was made from": "选择此上传所用的文件",
+  "Choose another file...": "选择其他文件...",
+  "This file is smaller than the part of the upload that is already on the server, so it is not the file the upload was made from.":
+    "此文件比服务器上已有的上传部分还小，所以它不是该上传所用的文件。",
+  "The parts on the server do not fit this file, so it is not the file the upload was made from.":
+    "服务器上的分片与此文件不匹配，所以它不是该上传所用的文件。",
+  "Part {part} on the server is not the same as this file, so it is not the file the upload was made from.":
+    "服务器上的第 {part} 个分片与此文件不一致，所以它不是该上传所用的文件。",
+  "Choose the file this upload was made from. It is compared with the parts already on the server, and only the missing parts are uploaded.":
+    "选择此上传所用的文件。它会与服务器上已有的分片比对，只上传缺少的分片。",
+  "Upload to s3://{bucket}/{key}": "上传到 s3://{bucket}/{key}",
+  "This file cannot finish the upload": "此文件无法完成该上传",
+  "This file matches the upload": "此文件与该上传一致",
+  "{count} of {total} parts are already uploaded ({size}).": "已上传 {count} / {total} 个分片（{size}）。",
+  "{count} parts remain to upload ({size}).": "还需上传 {count} 个分片（{size}）。",
+  "The content of the uploaded parts was not compared; their sizes and positions fit.":
+    "未比对已上传分片的内容；它们的大小和位置相符。",
+  "The uploaded parts were compared with the file.": "已上传的分片已与文件比对。",
+  "Do not compare the content of the uploaded parts with the file": "不将已上传分片的内容与文件比对",
+  "Use this when the upload is encrypted with a KMS key or a customer key and has no checksums: the parts then cannot be compared. Only the sizes and positions are checked.":
+    "当上传使用 KMS 密钥或客户密钥加密且没有校验和时使用：此时无法比对分片，只检查大小和位置。",
+  "The upload of {key} continues in the transfers list.": "{key} 的上传将在传输列表中继续。",
 };

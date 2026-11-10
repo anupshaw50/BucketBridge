@@ -229,6 +229,74 @@ const CLAP_PHRASES: &[(&str, &str)] = &[
     ("Commands:", "命令："),
     ("Options:", "选项："),
     ("Arguments:", "参数："),
+    // `bb bucket`.
+    ("{base}, key {key}", "{base}，密钥 {key}"),
+    ("{base}, bucket key", "{base}，使用存储桶密钥"),
+    ("days", "天"),
+    ("years", "年"),
+    (
+        "default retention {mode} {amount} {unit}",
+        "默认保留 {mode} {amount} {unit}",
+    ),
+    (
+        "Object Lock cannot be turned off again once it is on for {bucket}; run the command again with --yes to turn it on",
+        "对象锁定一旦为 {bucket} 开启就无法再关闭；请加上 --yes 再次运行以开启",
+    ),
+    (
+        "turned on Object Lock for {bucket}",
+        "已为 {bucket} 开启对象锁定",
+    ),
+    (
+        "Object Lock is already on for {bucket}",
+        "{bucket} 的对象锁定已经开启",
+    ),
+    (
+        "ACLs are disabled (BucketOwnerEnforced)",
+        "已禁用 ACL（BucketOwnerEnforced）",
+    ),
+    (
+        "set the ACL of {target} to {acl}",
+        "已将 {target} 的 ACL 设为 {acl}",
+    ),
+    ("granted {what} on {target}", "已在 {target} 上授予 {what}"),
+    (
+        "{target} already has the grant {what}",
+        "{target} 已有授权 {what}",
+    ),
+    ("revoked {what} on {target}", "已在 {target} 上撤销 {what}"),
+    ("{target} has no grant {what}", "{target} 没有授权 {what}"),
+    (
+        "{uri} is not an object; give s3://bucket/key",
+        "{uri} 不是对象；请给出 s3://bucket/key",
+    ),
+    (
+        "'{text}' is not a permission; use READ, WRITE, READ_ACP, WRITE_ACP or FULL_CONTROL",
+        "'{text}' 不是权限；请使用 READ、WRITE、READ_ACP、WRITE_ACP 或 FULL_CONTROL",
+    ),
+    (
+        "'{text}' is not a grantee; use id=ID, email=ADDRESS or group=all-users|authenticated-users|log-delivery",
+        "'{text}' 不是被授权者；请使用 id=ID、email=地址 或 group=all-users|authenticated-users|log-delivery",
+    ),
+    (
+        "set the default encryption of {bucket} to {what}",
+        "已将 {bucket} 的默认加密设为 {what}",
+    ),
+    (
+        "removed the default encryption of {bucket}",
+        "已移除 {bucket} 的默认加密",
+    ),
+    (
+        "set {count} tags on {bucket}",
+        "已为 {bucket} 设置 {count} 个标签",
+    ),
+    (
+        "removed every tag of {bucket}",
+        "已移除 {bucket} 的全部标签",
+    ),
+    (
+        "removed {count} tags from {bucket}",
+        "已从 {bucket} 移除 {count} 个标签",
+    ),
     ("Print help", "显示帮助"),
     ("Print version", "显示版本"),
 ];
@@ -412,6 +480,127 @@ pub(crate) static HELP: &[(&str, &str)] = &[
     ),
     ("Make a bucket.", "创建存储桶。"),
     ("Remove an empty bucket.", "删除空存储桶。"),
+    (
+        "Settings of a bucket: default encryption and tags.",
+        "存储桶的设置：默认加密与标签。",
+    ),
+    (
+        "Read, set and remove the default encryption of a bucket.",
+        "读取、设置和移除存储桶的默认加密。",
+    ),
+    (
+        "Print the default encryption of a bucket.",
+        "输出存储桶的默认加密。",
+    ),
+    (
+        "Set the default encryption: SSE-S3 or SSE-KMS.",
+        "设置默认加密：SSE-S3 或 SSE-KMS。",
+    ),
+    (
+        "The algorithm: s3 (SSE-S3) or kms (SSE-KMS).",
+        "算法：s3（SSE-S3）或 kms（SSE-KMS）。",
+    ),
+    (
+        "With kms: a KMS key ID, key ARN, alias name or alias ARN (default: the AWS managed key).",
+        "配合 kms：KMS 密钥 ID、密钥 ARN、别名或别名 ARN（默认：AWS 托管密钥）。",
+    ),
+    (
+        "With kms: use an S3 Bucket Key to reduce the requests to KMS.",
+        "配合 kms：使用 S3 存储桶密钥以减少对 KMS 的请求。",
+    ),
+    (
+        "Remove the default encryption setting.",
+        "移除默认加密设置。",
+    ),
+    (
+        "Read, set and remove the tags of a bucket (cost allocation).",
+        "读取、设置和移除存储桶的标签（成本分配）。",
+    ),
+    ("Print the tags of a bucket.", "输出存储桶的标签。"),
+    (
+        "Add tags to a bucket; with --replace make them the whole tag set.",
+        "为存储桶添加标签；加 --replace 则让它们成为完整的标签集。",
+    ),
+    (
+        "Remove the named tags from a bucket, or every tag when none is named.",
+        "从存储桶移除指定的标签；未指定时移除全部标签。",
+    ),
+    (
+        "Turn Object Lock on (it can never be turned off again; S3 turns versioning on with it).",
+        "开启对象锁定（开启后无法再关闭；S3 会同时开启版本控制）。",
+    ),
+    (
+        "Object Ownership: BucketOwnerEnforced (ACLs disabled), BucketOwnerPreferred or ObjectWriter.",
+        "对象所有权：BucketOwnerEnforced（禁用 ACL）、BucketOwnerPreferred 或 ObjectWriter。",
+    ),
+    (
+        "Set the public access block: on turns all four switches on, off turns them all off.",
+        "设置公共访问封锁：on 打开全部四个开关，off 全部关闭。",
+    ),
+    (
+        "Read and turn on Object Lock of a bucket.",
+        "读取并开启存储桶的对象锁定。",
+    ),
+    (
+        "Print whether Object Lock is on for a bucket and its default retention.",
+        "输出存储桶是否已开启对象锁定及其默认保留期。",
+    ),
+    (
+        "Turn Object Lock on for an existing bucket (needs versioning; it can never be turned off).",
+        "为已有存储桶开启对象锁定（需要版本控制；开启后无法再关闭）。",
+    ),
+    (
+        "Confirm that Object Lock cannot be turned off again.",
+        "确认对象锁定开启后无法再关闭。",
+    ),
+    (
+        "Read and change the ACL of a bucket, grant by grant.",
+        "读取并逐条修改存储桶的 ACL。",
+    ),
+    (
+        "Print the ACL of a bucket and whether ACLs are disabled on it.",
+        "输出存储桶的 ACL，以及该存储桶是否禁用了 ACL。",
+    ),
+    (
+        "Apply a canned ACL: private, public-read, public-read-write or authenticated-read.",
+        "应用预设 ACL：private、public-read、public-read-write 或 authenticated-read。",
+    ),
+    (
+        "private, public-read, public-read-write or authenticated-read.",
+        "private、public-read、public-read-write 或 authenticated-read。",
+    ),
+    (
+        "Add one grant to the ACL of a bucket.",
+        "为存储桶的 ACL 添加一条授权。",
+    ),
+    (
+        "Remove one grant from the ACL of a bucket.",
+        "从存储桶的 ACL 移除一条授权。",
+    ),
+    (
+        "READ, WRITE, READ_ACP, WRITE_ACP or FULL_CONTROL.",
+        "READ、WRITE、READ_ACP、WRITE_ACP 或 FULL_CONTROL。",
+    ),
+    (
+        "id=CANONICAL_USER_ID, email=ADDRESS, or group=all-users|authenticated-users|log-delivery.",
+        "id=规范用户ID、email=地址，或 group=all-users|authenticated-users|log-delivery。",
+    ),
+    (
+        "Add one grant (an account ID, e-mail address or group, and a permission) to the ACL of an object.",
+        "为对象的 ACL 添加一条授权（账户 ID、电子邮件地址或组，加一个权限）。",
+    ),
+    (
+        "Remove one grant from the ACL of an object.",
+        "从对象的 ACL 移除一条授权。",
+    ),
+    (
+        "`s3://bucket/key` of one object.",
+        "单个对象的 `s3://bucket/key`。",
+    ),
+    (
+        "READ, READ_ACP, WRITE_ACP or FULL_CONTROL.",
+        "READ、READ_ACP、WRITE_ACP 或 FULL_CONTROL。",
+    ),
     (
         "Delete objects, folders or object versions.",
         "删除对象、文件夹或对象版本。",
@@ -744,6 +933,10 @@ pub(crate) static HELP: &[(&str, &str)] = &[
         "目标已存在时的处理：overwrite（覆盖）、skip（跳过）、newer（源较新时才替换）或 rename（重命名，`name (1).ext`）。不带它时使用传输设置；`ask` 会在终端逐个询问冲突，其他环境会拒绝。",
     ),
     (
+        "Do not apply the upload rules of the settings (headers, storage class and encryption by file pattern).",
+        "不应用设置中的上传规则（按文件模式设置标头、存储类别和加密）。",
+    ),
+    (
         "Do not store the local modification time of uploads, nor give downloaded files the time of the object.",
         "不为上传保存本地修改时间，也不让下载的文件使用对象的时间。",
     ),
@@ -905,8 +1098,62 @@ pub(crate) static HELP: &[(&str, &str)] = &[
         "列出未完成的分片上传。",
     ),
     (
+        "Make a new bucket with the settings of an existing one, and copy its objects.",
+        "用现有存储桶的设置创建一个新存储桶，并复制其中的对象。",
+    ),
+    (
+        "The bucket to clone, or `s3://bucket`.",
+        "要克隆的存储桶，或 `s3://bucket`。",
+    ),
+    (
+        "The new bucket, or `s3://bucket`.",
+        "新存储桶，或 `s3://bucket`。",
+    ),
+    (
+        "Region to create the new bucket in (default: the region of the source).",
+        "新存储桶所在的区域（默认：源存储桶所在的区域）。",
+    ),
+    (
+        "Copy only the objects under PREFIX (a folder ending with `/`); their keys stay as they are.",
+        "只复制 PREFIX（以 `/` 结尾的文件夹）下的对象；键保持不变。",
+    ),
+    (
+        "Do not copy the objects, only create the bucket and its settings.",
+        "不复制对象，只创建存储桶及其设置。",
+    ),
+    (
+        "Settings to copy: `all`, `none`, or a comma separated list of policy, cors, lifecycle, versioning, tags, encryption, website and public_access_block.",
+        "要复制的设置：`all`、`none`，或用逗号分隔的 policy、cors、lifecycle、versioning、tags、encryption、website、public_access_block。",
+    ),
+    (
+        "Show which settings the source has and would be copied, and create nothing.",
+        "显示源存储桶有哪些设置、哪些会被复制，不创建任何内容。",
+    ),
+    (
         "Abort uncompleted multipart uploads (frees the storage of their parts).",
         "中止未完成的分片上传（释放分片占用的存储）。",
+    ),
+    (
+        "Finish an uncompleted multipart upload from the local file it was made from.",
+        "用生成它的本地文件完成一个未完成的分片上传。",
+    ),
+    ("Bucket of the upload.", "上传所在的存储桶。"),
+    ("Key of the upload.", "上传的键。"),
+    (
+        "ID of the upload (see `bb mpu list`).",
+        "上传的 ID（见 `bb mpu list`）。",
+    ),
+    (
+        "The local file the upload was made from.",
+        "生成该上传的本地文件。",
+    ),
+    (
+        "Do not compare the uploaded parts with the file (for uploads encrypted with a KMS key or a customer key); sizes and positions are still checked.",
+        "不将已上传的分片与文件比对（用于以 KMS 密钥或客户密钥加密的上传）；仍会检查大小和位置。",
+    ),
+    (
+        "Check the file and print what would be uploaded without uploading anything.",
+        "检查文件并打印将上传的内容，但不上传。",
     ),
     ("Bucket to mount.", "要挂载的存储桶。"),
     (
@@ -1058,6 +1305,46 @@ pub(crate) static HELP: &[(&str, &str)] = &[
         "为请求者付费（requester-pays）存储桶的请求付费。",
     ),
     (
+        "Use the S3 Transfer Acceleration endpoint for buckets that have it enabled (AWS only).",
+        "对已启用传输加速的存储桶使用 S3 传输加速端点（仅限 AWS）。",
+    ),
+    (
+        "Proxy for this account: global (the app's proxy, the default), none, or http://HOST:PORT or socks5://HOST:PORT.",
+        "此账户使用的代理：global（应用的代理，默认）、none，或 http://HOST:PORT、socks5://HOST:PORT。",
+    ),
+    (
+        "The account may not list buckets (limited permissions): never send ListBuckets.",
+        "该账户无权列出存储桶（权限受限）：从不发送 ListBuckets 请求。",
+    ),
+    (
+        "A bucket (or bucket/folder/) to show instead of a listing (repeatable).",
+        "代替列表显示的存储桶（或 bucket/folder/）（可重复）。",
+    ),
+    (
+        "A storage class the S3-compatible provider offers (repeatable).",
+        "S3 兼容服务商提供的存储类别（可重复）。",
+    ),
+    (
+        "A region the S3-compatible provider has (repeatable).",
+        "S3 兼容服务商拥有的区域（可重复）。",
+    ),
+    (
+        "Delete objects one request at a time (providers without multi-object delete).",
+        "逐个请求删除对象（适用于不支持批量删除的服务商）。",
+    ),
+    (
+        "Copy objects with one request instead of in parts.",
+        "使用单个请求而不是分段复制对象。",
+    ),
+    (
+        "List buckets once per --provider-region and merge the answers.",
+        "对每个 --provider-region 各列出一次存储桶并合并结果。",
+    ),
+    (
+        "Use dual-stack (IPv4 and IPv6) endpoints (AWS only).",
+        "使用双栈（IPv4 和 IPv6）端点（仅限 AWS）。",
+    ),
+    (
         "Serial number or ARN of the account's MFA device (for --assume-role: the device the role's trust policy asks for).",
         "账户 MFA 设备的序列号或 ARN（对 --assume-role：角色信任策略要求的设备）。",
     ),
@@ -1194,8 +1481,8 @@ pub(crate) static HELP: &[(&str, &str)] = &[
         "更改该对象的这个版本。",
     ),
     (
-        "Days the restored copy stays available.",
-        "恢复的副本保持可用的天数。",
+        "Days the restored copy stays available (needed for Glacier objects; objects in an Intelligent-Tiering archive tier are restored without it).",
+        "恢复的副本保持可用的天数（Glacier 对象必须提供；智能分层归档层中的对象无需此项）。",
     ),
     (
         "Expedited, Standard or Bulk.",
@@ -2016,7 +2303,39 @@ pub(crate) static OUTPUT: &[(&str, &str)] = &[
         "{scanned} buckets scanned: {critical} critical, {high} high, {medium} medium, {low} low",
         "已扫描 {scanned} 个存储桶：{critical} 个 critical、{high} 个 high、{medium} 个 medium、{low} 个 low",
     ),
+    // clonebucket.rs
+    (
+        "the new bucket must have a different name than the source",
+        "新存储桶的名称必须与源存储桶不同",
+    ),
+    (
+        "the prefix '{prefix}' must end with '/'",
+        "前缀 '{prefix}' 必须以 '/' 结尾",
+    ),
+    (
+        "some settings could not be copied; the bucket was created",
+        "有些设置无法复制；存储桶已创建",
+    ),
+    ("would be copied", "将被复制"),
+    ("configured, not selected", "已设置，未选择"),
+    ("not set on the source", "源存储桶未设置"),
+    ("not supported by the server", "服务器不支持"),
+    ("copied", "已复制"),
+    ("nothing to copy", "没有可复制的内容"),
+    ("failed: {error}", "失败：{error}"),
     // mpu.rs
+    (
+        "this file cannot finish the upload: {reason}",
+        "此文件无法完成该上传：{reason}",
+    ),
+    (
+        "would upload {missing} of {total} parts to finish upload {id} of s3://{bucket}/{key}",
+        "（试运行）将上传 {total} 个分片中的 {missing} 个，以完成 {id} 在 s3://{bucket}/{key} 的上传",
+    ),
+    (
+        "finished upload {id} of s3://{bucket}/{key} ({missing} of {total} parts uploaded)",
+        "已完成 {id} 在 s3://{bucket}/{key} 的上传（上传了 {total} 个分片中的 {missing} 个）",
+    ),
     (
         "aborted upload {id} of s3://{bucket}/{key}",
         "已中止 {id} 在 s3://{bucket}/{key} 的上传",
@@ -2234,6 +2553,11 @@ pub(crate) static OUTPUT: &[(&str, &str)] = &[
         "requested the restore of {uri} for {days} days ({tier})",
         "已请求恢复 {uri}，持续 {days} 天（{tier}）",
     ),
+    (
+        "would request the restore of {uri}",
+        "（试运行）将请求恢复 {uri}",
+    ),
+    ("requested the restore of {uri}", "已请求恢复 {uri}"),
     // presign.rs
     (
         "{uri} names a bucket; presign needs an object, for example s3://{bucket}/key",

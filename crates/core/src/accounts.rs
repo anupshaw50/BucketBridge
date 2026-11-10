@@ -268,6 +268,7 @@ impl AccountManager {
         if let Some(endpoint) = endpoint {
             validate_endpoint(endpoint)?;
         }
+        input.options.check(endpoint, &input.region)?;
         let mut mfa_serial = non_empty(input.mfa_serial.as_deref());
         if let Some(serial) = mfa_serial {
             validate_mfa_serial(serial)?;
@@ -319,6 +320,7 @@ impl AccountManager {
             request_payer: input.request_payer,
             mfa_serial: mfa_serial.map(str::to_owned),
             source: input.source.clone(),
+            options: input.options.clone(),
         };
 
         let mut changes = Vec::new();
@@ -396,6 +398,12 @@ impl AccountManager {
         if let Some(request_payer) = update.request_payer {
             updated.request_payer = request_payer;
         }
+        if let Some(options) = &update.options {
+            updated.options = options.clone();
+        }
+        updated
+            .options
+            .check(updated.endpoint.as_deref(), &updated.region)?;
         if update.clear_mfa_serial {
             updated.mfa_serial = None;
         } else if let Some(serial) = non_empty(update.mfa_serial.as_deref()) {
@@ -1820,6 +1828,7 @@ mod tests {
 
     fn input(label: &str, secret: &str) -> AccountInput {
         AccountInput {
+            options: Default::default(),
             source: crate::model::CredentialSource::StaticKeys,
             label: label.to_owned(),
             access_key_id: "AKIAIOSFODNN7EXAMPLE".to_owned(),
@@ -1905,6 +1914,40 @@ mod tests {
         assert_eq!(kind(f.manager.set_default("missing")), ErrorKind::NotFound);
         assert_eq!(kind(f.manager.get("missing")), ErrorKind::NotFound);
         assert!(!f.journal_exists());
+    }
+
+    #[test]
+    fn network_options_are_stored_updated_and_checked() {
+        use crate::model::AccountOptions;
+        let f = Fixture::new();
+        let mut aws = input("Aws", SECRET_A);
+        aws.options = AccountOptions {
+            accelerate: true,
+            dual_stack: true,
+            ..Default::default()
+        };
+        let a = f.manager.add(&aws).unwrap();
+        assert!(a.options.accelerate && a.options.dual_stack);
+        assert_eq!(f.manager.get(&a.id).unwrap().options, a.options);
+
+        // A custom endpoint cannot use either option, on add or on update.
+        let mut custom = input("Custom", SECRET_B);
+        custom.endpoint = Some("https://s3.example.test".into());
+        custom.options.dual_stack = true;
+        assert_eq!(kind(f.manager.add(&custom)), ErrorKind::Usage);
+        let to_custom = updating(|u| u.endpoint = Some("https://s3.example.test".into()));
+        assert_eq!(kind(f.manager.update(&a.id, &to_custom)), ErrorKind::Usage);
+        assert_eq!(f.manager.get(&a.id).unwrap().endpoint, None);
+
+        // No Transfer Acceleration in the China regions.
+        let to_china = updating(|u| u.region = Some("cn-north-1".into()));
+        assert_eq!(kind(f.manager.update(&a.id, &to_china)), ErrorKind::Usage);
+
+        let off = updating(|u| u.options = Some(AccountOptions::default()));
+        let updated = f.manager.update(&a.id, &off).unwrap();
+        assert!(updated.options.is_default());
+        let moved = f.manager.update(&a.id, &to_china).unwrap();
+        assert_eq!(moved.region, "cn-north-1");
     }
 
     #[test]

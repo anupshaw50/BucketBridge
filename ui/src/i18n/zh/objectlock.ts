@@ -42,6 +42,19 @@ export const zhObjectlock: Record<string, string> = {
   Standard: "标准",
   Bulk: "批量",
   "Keep the restored copy for (days)": "恢复副本保留天数",
+  "{n} archived objects, {size} in total.": "共 {n} 个已归档对象，合计 {size}。",
+  "{n} selected objects are not archived or could not be read; they are not counted.":
+    "所选对象中有 {n} 个未归档或无法读取，未计入。",
+  "Only the first 1,000 objects are counted in the estimate.": "估算只统计前 1,000 个对象。",
+  "Approximate, list prices as of {date}, check your AWS bill.": "仅为估算，按 {date} 的标价计算，请以 AWS 账单为准。",
+  "Objects in an Intelligent-Tiering archive tier are restored to the Frequent Access tier. There is no tier and no number of days to choose, and no retrieval fee.":
+    "智能分层归档层中的对象会恢复到频繁访问层。无需选择层级和天数，也没有取回费用。",
+  "{n} of the selected objects cannot be restored with this tier.": "所选对象中有 {n} 个无法使用此层级恢复。",
+  "The number of days does not apply to objects in an Intelligent-Tiering archive tier.":
+    "天数不适用于智能分层归档层中的对象。",
+  "{tier}: not available for these objects.": "{tier}：不适用于这些对象。",
+  "{tier}: about {cost}": "{tier}：约 {cost}",
+  "{text} ({n} objects cannot use this tier)": "{text}（{n} 个对象无法使用此层级）",
 
   // ---- restoreText.ts ----
   "Archived ({class}), not restored.": "已归档（{class}），尚未恢复。",
@@ -79,4 +92,16 @@ export const zhObjectlock: Record<string, string> = {
     "以 bucket-owner-full-control ACL 上传的对象由存储桶所有者持有。",
   "The account that uploads an object owns it.": "上传对象的账户拥有该对象。",
   "No setting is configured; S3 behaves as Object writer.": "未配置该项；S3 的行为如同「由上传者持有」。",
+
+  // ---- BucketLockDialog.tsx：对现有存储桶开启对象锁定 ----
+  "Object Lock cannot be turned off again once it is on for {bucket}, by you or by anyone else. With Compliance retention, protected object versions cannot be deleted until their retention ends. Versioning must be enabled.":
+    "{bucket} 开启对象锁定后，任何人（包括你）都无法再将其关闭。使用合规保留时，受保护的对象版本在保留期结束前无法删除。必须已启用版本控制。",
+  "Versioning is needed first": "需要先启用版本控制",
+  "Object Lock needs versioning, and versioning is suspended on this bucket.": "对象锁定需要版本控制，而该存储桶的版本控制已暂停。",
+  "Object Lock needs versioning, and versioning has never been enabled on this bucket.":
+    "对象锁定需要版本控制，而该存储桶从未启用过版本控制。",
+  "Enable versioning": "启用版本控制",
+  "This cannot be undone": "此操作无法撤销",
+  "Once Object Lock is on, it stays on for this bucket. You will be asked to type the bucket name to confirm.":
+    "对象锁定一旦开启，就会一直保持开启。你需要输入存储桶名称来确认。",
 };

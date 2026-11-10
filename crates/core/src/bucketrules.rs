@@ -31,6 +31,8 @@
 //! now, so editing a rule never resets them.
 
 use std::collections::BTreeSet;
+use std::io::Write;
+use std::path::Path;
 
 use aws_sdk_s3::types::{
     AbortIncompleteMultipartUpload, BucketLifecycleConfiguration, CorsConfiguration,
@@ -50,7 +52,7 @@ use serde::{Deserialize, Serialize};
 use crate::bucketcfg::{
     Section, VersioningStatus, build_error, context, delete_optional, read_optional,
 };
-use crate::error::{Error, Result};
+use crate::error::{Error, IoContext, Result};
 use crate::ops::S3;
 use crate::s3uri::{MAX_KEY_BYTES, validate_bucket_name};
 
@@ -311,6 +313,65 @@ fn check_json<T: serde::de::DeserializeOwned>(
         Ok(value) => check(&value),
         Err(error) => vec![RuleIssue::new("", format!("not valid: {error}"))],
     }
+}
+
+/// The largest rules document that is read from or written to a file.
+pub const MAX_RULES_FILE_BYTES: u64 = 1024 * 1024;
+
+fn check_rules_path(path: &Path) -> Result<()> {
+    let json = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+    if json {
+        Ok(())
+    } else {
+        Err(Error::Usage(format!(
+            "{} is not a .json file",
+            path.display()
+        )))
+    }
+}
+
+/// Reads a rules document (lifecycle, CORS, ...) saved as a `.json` file.
+/// The text is returned as it is; a rules editor checks it.
+pub fn read_rules_file(path: &Path) -> Result<String> {
+    check_rules_path(path)?;
+    let meta = std::fs::metadata(path).io_context(|| format!("reading {}", path.display()))?;
+    if meta.len() > MAX_RULES_FILE_BYTES {
+        return Err(Error::Usage(format!(
+            "{} is too large to be a rules document",
+            path.display()
+        )));
+    }
+    let bytes = std::fs::read(path).io_context(|| format!("reading {}", path.display()))?;
+    String::from_utf8(bytes)
+        .map_err(|_| Error::Usage(format!("{} is not UTF-8 text", path.display())))
+}
+
+/// Saves a rules document as a `.json` file, replacing it atomically
+/// (temporary file, then rename). The text must be JSON.
+pub fn write_rules_file(path: &Path, text: &str) -> Result<()> {
+    check_rules_path(path)?;
+    if text.len() as u64 > MAX_RULES_FILE_BYTES {
+        return Err(Error::Usage("the document is too large".into()));
+    }
+    serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|error| Error::Usage(format!("the document is not JSON: {error}")))?;
+    let dir = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(dir)
+        .io_context(|| format!("creating a file next to {}", path.display()))?;
+    temp.write_all(text.as_bytes())
+        .and_then(|()| temp.write_all(b"\n"))
+        .and_then(|()| temp.as_file().sync_all())
+        .io_context(|| format!("writing {}", path.display()))?;
+    temp.persist(path)
+        .map_err(|error| error.error)
+        .io_context(|| format!("replacing {}", path.display()))?;
+    Ok(())
 }
 
 /// Problems of a lifecycle document given as JSON text ([`check_json`]).
@@ -1852,6 +1913,43 @@ impl S3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rules_files_round_trip_and_refuse_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rules.JSON");
+        write_rules_file(&path, r#"{"rules":[]}"#).unwrap();
+        assert_eq!(
+            read_rules_file(&path).unwrap().trim_end(),
+            r#"{"rules":[]}"#
+        );
+        // Replaced, not appended.
+        write_rules_file(&path, r#"{"rules":[1]}"#).unwrap();
+        assert_eq!(
+            read_rules_file(&path).unwrap().trim_end(),
+            r#"{"rules":[1]}"#
+        );
+
+        let text = dir.path().join("rules.txt");
+        assert!(matches!(
+            write_rules_file(&text, "{}"),
+            Err(Error::Usage(_))
+        ));
+        assert!(!text.exists());
+        assert!(matches!(
+            write_rules_file(&path, "{oops"),
+            Err(Error::Usage(_))
+        ));
+        std::fs::write(&text, "{}").unwrap();
+        assert!(matches!(read_rules_file(&text), Err(Error::Usage(_))));
+
+        let big = dir.path().join("big.json");
+        std::fs::write(&big, vec![b' '; MAX_RULES_FILE_BYTES as usize + 1]).unwrap();
+        assert!(matches!(read_rules_file(&big), Err(Error::Usage(_))));
+        let binary = dir.path().join("binary.json");
+        std::fs::write(&binary, [0xff, 0xfe]).unwrap();
+        assert!(matches!(read_rules_file(&binary), Err(Error::Usage(_))));
+    }
 
     fn paths(issues: &[RuleIssue]) -> Vec<String> {
         issues.iter().map(RuleIssue::to_string).collect()

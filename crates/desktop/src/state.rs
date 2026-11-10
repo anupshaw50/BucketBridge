@@ -112,6 +112,7 @@ impl Core {
         let store = SyncStore::open_in(&parts.dirs)?;
         let session = Arc::new(parts.session);
         let runner = S3Runner::new(s3_provider(&session), settings.data_integrity.clone());
+        runner.set_upload_rules(&settings.upload_rules);
         let options = QueueOptions {
             stop_grace: QUEUE_STOP_GRACE,
             ..QueueOptions::persistent(parts.dirs.data_dir.join(QUEUE_FILE))
@@ -226,6 +227,7 @@ impl Core {
         self.lifecycle.apply_settings(settings);
         self.runner
             .set_data_integrity(settings.data_integrity.clone());
+        self.runner.set_upload_rules(&settings.upload_rules);
         if let Err(error) = self.queue.update_settings(settings.transfer.clone()) {
             // The queue only refuses once it has been shut down.
             tracing::warn!(

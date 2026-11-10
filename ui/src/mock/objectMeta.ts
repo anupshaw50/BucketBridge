@@ -29,6 +29,7 @@ import {
   validateMetaKey,
   validateTag,
 } from "../lib/objectMeta";
+import { validateGrantList } from "../lib/aclGrants";
 import { isFolderKey } from "../lib/s3keys";
 import { nowIso, seededBytes, toBase64 } from "./util";
 import type { MockBucket, MockObject, Provider } from "./world";
@@ -44,6 +45,8 @@ export interface MockObjectMeta {
   tags: Record<string, string>;
   sse: Sse;
   acl: CannedAcl;
+  /** Custom grants set with `put_object_acl_grants`; they replace `acl` until a canned ACL is applied. */
+  grants?: AclGrant[];
   restore: RestoreStatus | null;
 }
 
@@ -53,6 +56,8 @@ export interface MetaHost {
   bucket(accountId: string, name: string): MockBucket;
   latency(): Promise<void>;
   log(message: string): void;
+  /** Object Ownership is BucketOwnerEnforced: ACL changes are refused. */
+  aclsDisabled(accountId: string, bucket: string): boolean;
 }
 
 const MAX_BATCH_KEYS = 10_000;
@@ -61,8 +66,10 @@ const BUCKET_OWNER = "bucket-owner-canonical-id";
 const ALL_USERS = "http://acs.amazonaws.com/groups/global/AllUsers";
 const AUTHENTICATED_USERS = "http://acs.amazonaws.com/groups/global/AuthenticatedUsers";
 
-/** Buckets that reject ACL changes, like buckets with Object Ownership BucketOwnerEnforced. */
-const ACLS_DISABLED = new Set(["demo-website"]);
+/** The message of a refused ACL change on a bucket with ACLs disabled. */
+export function aclsDisabledMessage(bucket: string): string {
+  return `ACLs are disabled for bucket '${bucket}' (Object Ownership is BucketOwnerEnforced); change the bucket's Object Ownership setting to use ACLs`;
+}
 
 function fail(code: BbErrorCode, message: string): never {
   throw new BackendError(code, message);
@@ -109,7 +116,7 @@ function fingerprint(hex: string): string {
   return toBase64(seededBytes(`sse-c:${hex}`, 16));
 }
 
-function grantsOf(acl: CannedAcl): AclGrant[] {
+export function grantsOf(acl: CannedAcl): AclGrant[] {
   const owner: AclGrant = { grantee_type: "canonical_user", grantee: OWNER, permission: "FULL_CONTROL" };
   const group = (uri: string, permission: AclGrant["permission"]): AclGrant => ({
     grantee_type: "group",
@@ -132,10 +139,33 @@ function grantsOf(acl: CannedAcl): AclGrant[] {
   }
 }
 
+const NAMED_CANNED: readonly CannedAcl[] = ["private", "public-read", "public-read-write", "authenticated-read"];
+
+function sameGrantSet(a: readonly AclGrant[], b: readonly AclGrant[]): boolean {
+  const ids = (grants: readonly AclGrant[]) =>
+    grants.map((grant) => `${grant.grantee_type}/${grant.grantee}/${grant.permission}`).sort();
+  const left = ids(a);
+  const right = ids(b);
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+/** The canned ACL whose grants are exactly `grants`; the bucket-owner ACLs are never named. */
+export function cannedOf(grants: readonly AclGrant[]): CannedAcl | null {
+  return NAMED_CANNED.find((name) => sameGrantSet(grantsOf(name), grants)) ?? null;
+}
+
 /** The bucket-owner ACLs are grants to another account, which no canned name identifies. */
 function aclOf(acl: CannedAcl): ObjectAcl {
   const canned = acl === "bucket-owner-read" || acl === "bucket-owner-full-control" ? null : acl;
   return { owner: OWNER, grants: grantsOf(acl), canned };
+}
+
+/** The ACL of an object: its custom grants when it has any, else the canned ACL it was given. */
+function aclOfMeta(meta: MockObjectMeta): ObjectAcl {
+  if (meta.grants !== undefined) {
+    return { owner: OWNER, grants: meta.grants.map((grant) => ({ ...grant })), canned: cannedOf(meta.grants) };
+  }
+  return aclOf(meta.acl);
 }
 
 function applyHeader(current: string | null, change: HeaderChange): string | null {
@@ -164,7 +194,7 @@ export class ObjectMetaMock {
     const object = this.objectOf(bucket, args.key);
     const meta = metaOf(object, args.key);
     this.checkKey(bucket.name, args.key, meta, supplied);
-    const acl = aclOf(meta.acl);
+    const acl = aclOfMeta(meta);
     return {
       key: args.key,
       size: object.size,
@@ -311,22 +341,43 @@ export class ObjectMetaMock {
     const results = this.batch(args.keys, (key) => {
       const object = this.objectOf(bucket, key);
       const meta = metaOf(object, key);
-      const current = aclOf(meta.acl);
+      const current = aclOfMeta(meta);
       const previous = current.canned ?? "custom";
       if (current.canned === wanted) {
         return this.result(key, false, previous);
       }
-      if (ACLS_DISABLED.has(bucket.name)) {
+      if (this.host.aclsDisabled(args.account_id, bucket.name)) {
         if (wanted === "private" && current.canned === "private") {
           return this.result(key, false, previous);
         }
-        fail("conflict", `ACLs are disabled for bucket '${bucket.name}' (Object Ownership is BucketOwnerEnforced); change the bucket's Object Ownership setting to use ACLs`);
+        fail("conflict", aclsDisabledMessage(bucket.name));
       }
-      object.meta = { ...meta, acl: wanted };
+      const next: MockObjectMeta = { ...meta, acl: wanted };
+      delete next.grants;
+      object.meta = next;
       return this.result(key, true, previous);
     });
     this.host.log(`Set the ACL ${wanted} on ${this.changedCount(results)} objects in bucket ${args.bucket}.`);
     return results;
+  }
+
+  async put_object_acl_grants(args: CommandArgs["put_object_acl_grants"]): Promise<void> {
+    await this.host.latency();
+    const bucket = this.host.bucket(args.account_id, args.bucket);
+    if (isFolderKey(args.key)) {
+      fail("usage", "Choose an object, not a folder.");
+    }
+    const problem = validateGrantList(args.grants);
+    if (problem !== null) {
+      fail("usage", problem);
+    }
+    const object = this.objectOf(bucket, args.key);
+    const meta = metaOf(object, args.key);
+    if (this.host.aclsDisabled(args.account_id, bucket.name)) {
+      fail("conflict", aclsDisabledMessage(bucket.name));
+    }
+    object.meta = { ...meta, grants: args.grants.map((grant) => ({ ...grant })) };
+    this.host.log(`Replaced the ACL grants of s3://${args.bucket}/${args.key}.`);
   }
 
   // ---- internals ----

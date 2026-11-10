@@ -1,4 +1,4 @@
-import type { Account, AccountInput, AccountUpdate, CredentialSource } from "../api/types";
+import type { Account, AccountInput, AccountOptions, AccountProxy, AccountUpdate, CredentialSource } from "../api/types";
 import { tr } from "../i18n";
 import { validateEndpoint, validateRegion } from "./validation";
 
@@ -21,6 +21,25 @@ export interface AccountDraft {
   region: string;
   path_style: boolean;
   request_payer: boolean;
+  /** Transfer Acceleration endpoint (AWS only). */
+  accelerate: boolean;
+  /** Dual-stack endpoints (AWS only). */
+  dual_stack: boolean;
+  /** S3-compatible provider settings. */
+  compat_storage_classes: string[];
+  compat_regions: string[];
+  single_deletes: boolean;
+  no_multipart_copy: boolean;
+  list_all_regions: boolean;
+  /** Limited permissions: the account cannot list buckets and names the ones it uses. */
+  cannot_list_buckets: boolean;
+  known_buckets: string[];
+  /** How the account uses the proxy; the fields below apply to "custom". */
+  proxy_mode: ProxyMode;
+  proxy_kind: "http" | "socks5";
+  proxy_host: string;
+  proxy_port: string;
+  proxy_bypass: string[];
   access_key_id: string;
   secret_access_key: string;
   session_token: string;
@@ -57,6 +76,20 @@ export function emptyDraft(): AccountDraft {
     region: DEFAULT_REGION,
     path_style: false,
     request_payer: false,
+    accelerate: false,
+    dual_stack: false,
+    compat_storage_classes: [],
+    compat_regions: [],
+    single_deletes: false,
+    no_multipart_copy: false,
+    list_all_regions: false,
+    cannot_list_buckets: false,
+    known_buckets: [],
+    proxy_mode: "global",
+    proxy_kind: "http",
+    proxy_host: "",
+    proxy_port: "8080",
+    proxy_bypass: [],
     access_key_id: "",
     secret_access_key: "",
     session_token: "",
@@ -118,6 +151,20 @@ export function draftFromAccount(account: Account): AccountDraft {
     region: account.region,
     path_style: account.path_style,
     request_payer: account.request_payer,
+    accelerate: account.options.accelerate,
+    dual_stack: account.options.dual_stack,
+    compat_storage_classes: [...account.options.compat.storage_classes],
+    compat_regions: [...account.options.compat.regions],
+    single_deletes: account.options.compat.single_deletes,
+    no_multipart_copy: account.options.compat.no_multipart_copy,
+    list_all_regions: account.options.compat.list_all_regions,
+    cannot_list_buckets: account.options.cannot_list_buckets,
+    known_buckets: [...account.options.known_buckets],
+    proxy_mode: account.options.proxy.type,
+    proxy_kind: account.options.proxy.type === "custom" ? account.options.proxy.kind : "http",
+    proxy_host: account.options.proxy.type === "custom" ? account.options.proxy.host : "",
+    proxy_port: account.options.proxy.type === "custom" ? String(account.options.proxy.port) : "8080",
+    proxy_bypass: account.options.proxy.type === "custom" ? [...account.options.proxy.bypass] : [],
     access_key_id: account.access_key_id,
     secret_access_key: "",
     session_token: "",
@@ -231,9 +278,37 @@ export function validateConnection(
   if (endpointError) {
     errors.endpoint = endpointError;
   }
+  const badClass = draft.compat_storage_classes.find((item) => !/^[A-Za-z0-9_-]{1,64}$/.test(item.trim()));
+  if (badClass !== undefined) {
+    errors.compat_storage_classes = tr("{name} is not a storage class name (letters, digits, _ and - only).", { name: badClass });
+  }
+  if (draft.proxy_mode === "custom") {
+    if (draft.proxy_host.trim().length === 0 || /\s/.test(draft.proxy_host.trim())) {
+      errors.proxy_host = tr("Enter the proxy host name or address.");
+    }
+    const port = Number(draft.proxy_port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errors.proxy_port = tr("The port must be a number from 1 to 65535.");
+    }
+  }
+  const badKnown = draft.known_buckets.find((item) => !/^[^\s/]{3,255}(\/.*)?$/.test(item.trim()));
+  if (badKnown !== undefined) {
+    errors.known_buckets = tr("{name} is not a bucket name or bucket/folder/.", { name: badKnown });
+  }
+  const badRegion = draft.compat_regions.find((item) => validateRegion(item.trim()) !== null);
+  if (badRegion !== undefined) {
+    errors.compat_regions = tr("{name} is not a valid region name.", { name: badRegion });
+  }
   const regionError = validateRegion(draft.region.trim());
   if (regionError) {
     errors.region = regionError;
+  }
+  if (draft.endpoint.trim().length > 0 && (draft.accelerate || draft.dual_stack)) {
+    errors.accelerate = tr("Transfer Acceleration and dual-stack endpoints are for AWS only; clear the endpoint or turn them off.");
+  } else if (draft.list_all_regions && draft.compat_regions.length === 0) {
+    errors.compat_regions = tr("Name the regions to list buckets across.");
+  } else if (draft.accelerate && draft.region.trim().startsWith("cn-")) {
+    errors.accelerate = tr("S3 Transfer Acceleration is not available in the China regions.");
   }
   return errors;
 }
@@ -308,6 +383,7 @@ export function toAccountInput(draft: AccountDraft): AccountInput {
       request_payer: draft.request_payer,
       mfa_serial: null,
       source: sourceOfDraft(draft),
+      ...optionsOfDraft(draft),
     };
   }
   return {
@@ -320,7 +396,69 @@ export function toAccountInput(draft: AccountDraft): AccountInput {
     path_style: draft.path_style,
     request_payer: draft.request_payer,
     mfa_serial: blankToNull(draft.mfa_serial),
+    ...optionsOfDraft(draft),
   };
+}
+
+export type ProxyMode = "global" | "none" | "custom";
+
+function proxyOfDraft(draft: AccountDraft): AccountProxy {
+  switch (draft.proxy_mode) {
+    case "none":
+      return { type: "none" };
+    case "custom":
+      return {
+        type: "custom",
+        kind: draft.proxy_kind,
+        host: draft.proxy_host.trim(),
+        port: Number.parseInt(draft.proxy_port, 10),
+        bypass: draft.proxy_bypass.map((item) => item.trim()).filter((item) => item.length > 0),
+      };
+    case "global":
+      return { type: "global" };
+  }
+}
+
+function fullOptions(draft: AccountDraft): AccountOptions {
+  return {
+    accelerate: draft.accelerate,
+    dual_stack: draft.dual_stack,
+    compat: {
+      storage_classes: draft.compat_storage_classes.map((item) => item.trim()).filter((item) => item.length > 0),
+      regions: draft.compat_regions.map((item) => item.trim()).filter((item) => item.length > 0),
+      single_deletes: draft.single_deletes,
+      no_multipart_copy: draft.no_multipart_copy,
+      list_all_regions: draft.list_all_regions,
+    },
+    cannot_list_buckets: draft.cannot_list_buckets,
+    known_buckets: draft.known_buckets.map((item) => item.trim()).filter((item) => item.length > 0),
+    proxy: proxyOfDraft(draft),
+  };
+}
+
+/** The network options of a new account (omitted while every option has its default). */
+function optionsOfDraft(draft: AccountDraft): { options?: AccountOptions } {
+  const options = fullOptions(draft);
+  return sameOptions(options, EMPTY_OPTIONS) ? {} : { options };
+}
+
+/** The network options of an update, when they changed. */
+function optionsChange(original: Account, draft: AccountDraft): { options?: AccountOptions } {
+  const options = fullOptions(draft);
+  return sameOptions(options, original.options) ? {} : { options };
+}
+
+const EMPTY_OPTIONS: AccountOptions = {
+  accelerate: false,
+  dual_stack: false,
+  compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false },
+  cannot_list_buckets: false,
+  known_buckets: [],
+  proxy: { type: "global" },
+};
+
+function sameOptions(a: AccountOptions, b: AccountOptions): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Builds the minimal update: unchanged fields stay `null` ("keep current value"). */
@@ -348,6 +486,7 @@ export function toAccountUpdate(original: Account, draft: AccountDraft): Account
     request_payer: draft.request_payer !== original.request_payer ? draft.request_payer : null,
     mfa_serial: serial !== null && serial !== original.mfa_serial ? serial : null,
     clear_mfa_serial: serial === null && original.mfa_serial !== null,
+    ...optionsChange(original, draft),
   };
 }
 
@@ -372,6 +511,7 @@ function toKeylessUpdate(original: Account, draft: AccountDraft): AccountUpdate 
     mfa_serial: null,
     clear_mfa_serial: false,
     source: sourceChanged && original.source.type === "assume_role" ? source : null,
+    ...optionsChange(original, draft),
   };
 }
 
@@ -397,7 +537,8 @@ export function isEmptyUpdate(update: AccountUpdate): boolean {
     update.request_payer === null &&
     update.mfa_serial === null &&
     !update.clear_mfa_serial &&
-    (update.source ?? null) === null
+    (update.source ?? null) === null &&
+    (update.options ?? null) === null
   );
 }
 

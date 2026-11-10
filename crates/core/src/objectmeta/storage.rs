@@ -13,6 +13,7 @@ use super::inplace::{Edit, Plan};
 use super::sse::CustomerKey;
 use super::{BatchOptions, ObjectChange, run_batch};
 use crate::error::{Error, Result};
+use crate::objectlock::ArchiveKind;
 use crate::ops::{S3, to_utc};
 use crate::s3uri::validate_bucket_name;
 
@@ -161,6 +162,24 @@ pub(crate) fn unrestored_archive(head: &HeadObjectOutput) -> Option<String> {
         .and_then(parse_restore)
         .is_some_and(|restore| !restore.in_progress);
     (!restored).then_some(name)
+}
+
+/// The archive an object sits in, from its storage class and archive
+/// status, whether or not a restore ran. `None` for a class whose data is
+/// always readable (including Intelligent-Tiering outside its archive tiers).
+pub(crate) fn archive_kind(head: &HeadObjectOutput) -> Option<ArchiveKind> {
+    match head.archive_status() {
+        Some(ArchiveStatus::ArchiveAccess) => return Some(ArchiveKind::IntelligentArchive),
+        Some(ArchiveStatus::DeepArchiveAccess) => {
+            return Some(ArchiveKind::IntelligentDeepArchive);
+        }
+        _ => {}
+    }
+    match head.storage_class().map(SdkStorageClass::as_str) {
+        Some("GLACIER") => Some(ArchiveKind::Glacier),
+        Some("DEEP_ARCHIVE") => Some(ArchiveKind::DeepArchive),
+        _ => None,
+    }
 }
 
 /// The class a HEAD response reports; S3 omits it for `STANDARD`.
@@ -338,6 +357,40 @@ mod tests {
             unrestored_archive(&HeadObjectOutput::builder().build()),
             None
         );
+    }
+
+    #[test]
+    fn the_archive_kind_follows_the_class_and_the_archive_status() {
+        let class = |class| HeadObjectOutput::builder().storage_class(class).build();
+        assert_eq!(
+            archive_kind(&class(SdkStorageClass::Glacier)),
+            Some(ArchiveKind::Glacier)
+        );
+        assert_eq!(
+            archive_kind(&class(SdkStorageClass::DeepArchive)),
+            Some(ArchiveKind::DeepArchive)
+        );
+        assert_eq!(archive_kind(&class(SdkStorageClass::GlacierIr)), None);
+        assert_eq!(
+            archive_kind(&class(SdkStorageClass::IntelligentTiering)),
+            None
+        );
+        for (status, kind) in [
+            (
+                ArchiveStatus::ArchiveAccess,
+                ArchiveKind::IntelligentArchive,
+            ),
+            (
+                ArchiveStatus::DeepArchiveAccess,
+                ArchiveKind::IntelligentDeepArchive,
+            ),
+        ] {
+            let head = HeadObjectOutput::builder()
+                .storage_class(SdkStorageClass::IntelligentTiering)
+                .archive_status(status)
+                .build();
+            assert_eq!(archive_kind(&head), Some(kind));
+        }
     }
 
     #[test]

@@ -1,4 +1,10 @@
 import type {
+  CloneBucketResult,
+  ClonePreview,
+  CloneSetting,
+  UploadResumeCheck,
+  UploadRuleMatch,
+  UploadRulesSettings,
   ConflictEvent,
   IfExists,
   OverwriteChoice,
@@ -16,6 +22,8 @@ import type {
   DefaultRetentionRule,
   ObjectLockState,
   ObjectOwnership,
+  RestoreEstimate,
+  ShortenerProvider,
   RestoreTier,
   RetentionChange,
   AccelerationStatus,
@@ -31,6 +39,7 @@ import type {
   AccountList,
   AccountUpdate,
   AppInfo,
+  RegionEntry,
   AwsProfileEntry,
   Bucket,
   BucketConfig,
@@ -71,7 +80,12 @@ import type {
   FilterSpec,
   ListingFormat,
   DeleteOutcome,
+  AclGrant,
+  BucketAcl,
+  BucketEncryption,
   CannedAcl,
+  CreateBucketOptions,
+  CreateBucketResult,
   EncryptionChange,
   HeaderChanges,
   LogEntry,
@@ -123,6 +137,14 @@ import type {
  * name. Keys are snake_case exactly as `invoke()` expects them, and optional
  * values are `null`, never omitted (see docs/desktop-api.md, Conventions).
  */
+/**
+ * The arguments of check_multipart_resume and resume_multipart_upload: account_id, bucket, key, upload_id and
+ * the absolute path of the local file the upload was made from, plus skip_part_verification (leave the content
+ * comparison out for uploads encrypted with a KMS key).
+ */
+export type MultipartResumeArgs = Record<"account_id" | "bucket" | "key" | "upload_id" | "path", string> &
+  Record<"skip_part_verification", boolean>;
+
 export interface CommandArgs {
   set_master_password: { current: string | null; new_password: string | null };
   unlock: { password: string };
@@ -144,7 +166,17 @@ export interface CommandArgs {
     token: string | null;
   };
   create_folder: { account_id: string; bucket: string; key: string };
-  create_bucket: { account_id: string; name: string; region: string | null };
+  create_bucket: { account_id: string; name: string; region: string | null; options?: CreateBucketOptions | null };
+  preview_bucket_clone: { account_id: string; bucket: string };
+  clone_bucket: {
+    account_id: string;
+    source_bucket: string;
+    new_bucket: string;
+    region: string | null; // null: the region of the source
+    prefix: string; // "" or a folder ending with "/": the objects to copy
+    copy_objects: boolean;
+    settings: CloneSetting[];
+  };
   delete_bucket: { account_id: string; name: string };
   presign: {
     account_id: string;
@@ -179,6 +211,15 @@ export interface CommandArgs {
   list_external_buckets: { account_id: string };
   add_external_bucket: { account_id: string; name: string };
   remove_external_bucket: { account_id: string; name: string };
+  put_object_acl_grants: { account_id: string; bucket: string; key: string; grants: AclGrant[] };
+  put_bucket_acl_grants: { account_id: string; bucket: string; grants: AclGrant[] };
+  set_bucket_acl: { account_id: string; bucket: string; acl: CannedAcl };
+  get_bucket_acl: { account_id: string; bucket: string };
+  put_bucket_tags: { account_id: string; bucket: string; tags: Record<string, string> };
+  get_bucket_tags: { account_id: string; bucket: string };
+  delete_bucket_encryption: { account_id: string; bucket: string };
+  put_bucket_encryption: { account_id: string; bucket: string; config: BucketEncryption };
+  get_bucket_encryption: { account_id: string; bucket: string };
   add_bookmark: { account_id: string; bucket: string; prefix: string; label: string | null };
   rename_bookmark: { id: string; label: string };
   remove_bookmark: { id: string };
@@ -189,6 +230,8 @@ export interface CommandArgs {
   put_bucket_lifecycle: { account_id: string; bucket: string; config: LifecycleConfig };
   delete_bucket_lifecycle: { account_id: string; bucket: string };
   validate_bucket_lifecycle: { document: string };
+  read_rules_file: { path: string };
+  write_rules_file: { path: string; document: string };
   get_bucket_cors: { account_id: string; bucket: string };
   put_bucket_cors: { account_id: string; bucket: string; config: CorsConfig };
   delete_bucket_cors: { account_id: string; bucket: string };
@@ -304,7 +347,7 @@ export interface CommandArgs {
 
   save_settings: { settings: Settings };
   set_proxy_password: { password: string | null };
-  shorten_url: { url: string };
+  shorten_url: { url: string; provider?: ShortenerProvider | null };
   set_shortener_token: { token: string | null };
   get_log: { levels: LogLevel[] | null; text: string | null; limit: number | null };
   export_log: { path: string; format: LogExportFormat };
@@ -347,8 +390,11 @@ export interface CommandArgs {
   cancel_bucket_usage: { job_id: string };
   list_multipart_uploads: { account_id: string; buckets: string[] };
   abort_multipart_uploads: { account_id: string; uploads: UploadRef[] };
+  check_multipart_resume: MultipartResumeArgs;
+  resume_multipart_upload: MultipartResumeArgs;
   save_filter: { filter: SavedFilter; replaces: string | null };
   delete_filter: { name: string };
+  test_upload_rules: { rules: UploadRulesSettings; name: string };
   // Mount as drive (T04); read-only, prefix null mounts the whole bucket.
   mount_bucket: { account_id: string; bucket: string; prefix: string | null; mount_point: string };
   // Credential sources (v0.2.0).
@@ -426,10 +472,11 @@ export interface CommandArgs {
     account_id: string;
     bucket: string;
     keys: string[];
-    days: number;
+    days: number | null;
     tier: RestoreTier;
     version_id: string | null;
   };
+  estimate_restore: { account_id: string; bucket: string; keys: string[] };
   get_restore_state: { account_id: string; bucket: string; key: string; version_id: string | null };
   cse_probe_object: { account_id: string; bucket: string; key: string };
   cse_check_password: { account_id: string; bucket: string; key: string; password: string | null };
@@ -524,7 +571,9 @@ export interface Backend {
   list_buckets: (args: CommandArgs["list_buckets"]) => Promise<Bucket[]>;
   list_objects: (args: CommandArgs["list_objects"]) => Promise<ObjectPage>;
   create_folder: (args: CommandArgs["create_folder"]) => Promise<void>;
-  create_bucket: (args: CommandArgs["create_bucket"]) => Promise<void>;
+  create_bucket: (args: CommandArgs["create_bucket"]) => Promise<CreateBucketResult>;
+  preview_bucket_clone: (args: CommandArgs["preview_bucket_clone"]) => Promise<ClonePreview>;
+  clone_bucket: (args: CommandArgs["clone_bucket"]) => Promise<CloneBucketResult>;
   delete_bucket: (args: CommandArgs["delete_bucket"]) => Promise<void>;
   presign: (args: CommandArgs["presign"]) => Promise<string>;
   open_object: (args: CommandArgs["open_object"]) => Promise<void>;
@@ -554,6 +603,15 @@ export interface Backend {
   list_external_buckets: (args: CommandArgs["list_external_buckets"]) => Promise<string[]>;
   add_external_bucket: (args: CommandArgs["add_external_bucket"]) => Promise<void>;
   remove_external_bucket: (args: CommandArgs["remove_external_bucket"]) => Promise<void>;
+  put_object_acl_grants: (args: CommandArgs["put_object_acl_grants"]) => Promise<void>;
+  put_bucket_acl_grants: (args: CommandArgs["put_bucket_acl_grants"]) => Promise<void>;
+  set_bucket_acl: (args: CommandArgs["set_bucket_acl"]) => Promise<void>;
+  get_bucket_acl: (args: CommandArgs["get_bucket_acl"]) => Promise<BucketAcl>;
+  put_bucket_tags: (args: CommandArgs["put_bucket_tags"]) => Promise<void>;
+  get_bucket_tags: (args: CommandArgs["get_bucket_tags"]) => Promise<Record<string, string>>;
+  delete_bucket_encryption: (args: CommandArgs["delete_bucket_encryption"]) => Promise<void>;
+  put_bucket_encryption: (args: CommandArgs["put_bucket_encryption"]) => Promise<void>;
+  get_bucket_encryption: (args: CommandArgs["get_bucket_encryption"]) => Promise<BucketEncryption | null>;
   list_bookmarks: () => Promise<Bookmark[]>;
   add_bookmark: (args: CommandArgs["add_bookmark"]) => Promise<Bookmark[]>;
   rename_bookmark: (args: CommandArgs["rename_bookmark"]) => Promise<Bookmark[]>;
@@ -566,6 +624,8 @@ export interface Backend {
   put_bucket_lifecycle: (args: CommandArgs["put_bucket_lifecycle"]) => Promise<void>;
   delete_bucket_lifecycle: (args: CommandArgs["delete_bucket_lifecycle"]) => Promise<void>;
   validate_bucket_lifecycle: (args: CommandArgs["validate_bucket_lifecycle"]) => Promise<RuleIssue[]>;
+  read_rules_file: (args: CommandArgs["read_rules_file"]) => Promise<string>;
+  write_rules_file: (args: CommandArgs["write_rules_file"]) => Promise<void>;
   get_bucket_cors: (args: CommandArgs["get_bucket_cors"]) => Promise<CorsConfig | null>;
   put_bucket_cors: (args: CommandArgs["put_bucket_cors"]) => Promise<void>;
   delete_bucket_cors: (args: CommandArgs["delete_bucket_cors"]) => Promise<void>;
@@ -642,6 +702,7 @@ export interface Backend {
   export_log: (args: CommandArgs["export_log"]) => Promise<void>;
   clear_log: () => Promise<void>;
   app_info: () => Promise<AppInfo>;
+  list_regions: () => Promise<RegionEntry[]>;
   last_crash_report: () => Promise<CrashReport | null>;
   dismiss_crash_report: (args: CommandArgs["dismiss_crash_report"]) => Promise<void>;
   /** The `bb://` link waiting for this window, removed by the call. */
@@ -677,6 +738,8 @@ export interface Backend {
   cancel_bucket_usage: (args: CommandArgs["cancel_bucket_usage"]) => Promise<void>;
   list_multipart_uploads: (args: CommandArgs["list_multipart_uploads"]) => Promise<UploadListing>;
   abort_multipart_uploads: (args: CommandArgs["abort_multipart_uploads"]) => Promise<AbortResult[]>;
+  check_multipart_resume: (args: CommandArgs["check_multipart_resume"]) => Promise<UploadResumeCheck>;
+  resume_multipart_upload: (args: CommandArgs["resume_multipart_upload"]) => Promise<TransferTask>;
   list_aws_profiles: () => Promise<AwsProfileEntry[]>;
   import_aws_profiles: (args: CommandArgs["import_aws_profiles"]) => Promise<ImportOutcome>;
   probe_instance_role: () => Promise<InstanceRoleProbe>;
@@ -699,6 +762,7 @@ export interface Backend {
   list_filters: () => Promise<SavedFilter[]>;
   save_filter: (args: CommandArgs["save_filter"]) => Promise<SavedFilter[]>;
   delete_filter: (args: CommandArgs["delete_filter"]) => Promise<SavedFilter[]>;
+  test_upload_rules: (args: CommandArgs["test_upload_rules"]) => Promise<UploadRuleMatch>;
   export_listing: (args: CommandArgs["export_listing"]) => Promise<ExportOutcome>;
   // Object metadata (T06)
   get_object_details: (args: CommandArgs["get_object_details"]) => Promise<ObjectDetails>;
@@ -716,6 +780,7 @@ export interface Backend {
   put_object_ownership: (args: CommandArgs["put_object_ownership"]) => Promise<void>;
   restore_objects: (args: CommandArgs["restore_objects"]) => Promise<ObjectChange[]>;
   get_restore_state: (args: CommandArgs["get_restore_state"]) => Promise<ArchiveState>;
+  estimate_restore: (args: CommandArgs["estimate_restore"]) => Promise<RestoreEstimate>;
   // Client-side encryption (T07)
   cse_probe_object: (args: CommandArgs["cse_probe_object"]) => Promise<ObjectCse>;
   cse_check_password: (args: CommandArgs["cse_check_password"]) => Promise<ObjectCse>;
@@ -749,6 +814,8 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   list_objects: true,
   create_folder: true,
   create_bucket: true,
+  preview_bucket_clone: true,
+  clone_bucket: true,
   delete_bucket: true,
   presign: true,
   open_object: true,
@@ -776,6 +843,15 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   list_external_buckets: true,
   add_external_bucket: true,
   remove_external_bucket: true,
+  put_object_acl_grants: true,
+  put_bucket_acl_grants: true,
+  set_bucket_acl: true,
+  get_bucket_acl: true,
+  put_bucket_tags: true,
+  get_bucket_tags: true,
+  delete_bucket_encryption: true,
+  put_bucket_encryption: true,
+  get_bucket_encryption: true,
   list_bookmarks: true,
   add_bookmark: true,
   rename_bookmark: true,
@@ -787,6 +863,8 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   put_bucket_lifecycle: true,
   delete_bucket_lifecycle: true,
   validate_bucket_lifecycle: true,
+  read_rules_file: true,
+  write_rules_file: true,
   get_bucket_cors: true,
   put_bucket_cors: true,
   delete_bucket_cors: true,
@@ -852,6 +930,7 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   export_log: true,
   clear_log: true,
   app_info: true,
+  list_regions: true,
   last_crash_report: true,
   dismiss_crash_report: true,
   take_pending_link: true,
@@ -882,9 +961,12 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   cancel_bucket_usage: true,
   list_multipart_uploads: true,
   abort_multipart_uploads: true,
+  check_multipart_resume: true,
+  resume_multipart_upload: true,
   list_filters: true,
   save_filter: true,
   delete_filter: true,
+  test_upload_rules: true,
   list_aws_profiles: true,
   import_aws_profiles: true,
   probe_instance_role: true,
@@ -920,6 +1002,7 @@ const COMMAND_TABLE: Record<CommandName, true> = {
   put_object_ownership: true,
   restore_objects: true,
   get_restore_state: true,
+  estimate_restore: true,
   cse_probe_object: true,
   cse_check_password: true,
   cse_encrypt_object: true,

@@ -54,6 +54,7 @@ export const en: Messages = {
   "action.bookmark.add": "Bookmark…",
   "action.list.filter": "Filter…",
   "action.bucket.sharing-wizard": "Sharing wizard…",
+  "action.bucket.clone": "Clone bucket…",
   "action.bucket.mount": "Mount as drive",
   "action.bucket.open-browser": "Open in browser",
   "action.bucket.add-external": "Add external bucket…",

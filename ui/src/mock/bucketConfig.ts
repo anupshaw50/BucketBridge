@@ -1,3 +1,4 @@
+import { isAccessPointArn } from "../lib/accessPoint";
 // The bucket configuration of the mock cloud: policy, public access block,
 // versioning, logging, website and acceleration of every bucket, behaving like
 // the real commands (docs/desktop-api.md, "Bucket configuration (T03)"):
@@ -87,6 +88,11 @@ function emptySettings(): Settings {
 export function checkExistingBucketName(name: string): string | null {
   if (name.length === 0) {
     return "bucket name is empty";
+  }
+  if (name.startsWith("arn:")) {
+    return isAccessPointArn(name)
+      ? null
+      : `'${name}' is not an S3 access point ARN; expected arn:aws:s3:<region>:<account>:accesspoint/<name>`;
   }
   if (name.length > 255) {
     return `bucket name is ${name.length} characters long; the maximum is 255`;

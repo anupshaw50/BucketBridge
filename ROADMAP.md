@@ -27,28 +27,25 @@ remembered window size and position, richer previews (image zoom, CSV and
 Parquet tables, XML, GIF), bucket usage (`bb du`), a better versions dialog
 and automatic log cleanup. See the [changelog](CHANGELOG.md#030---2026-11-09).
 
-## Priority 3: buckets and storage
+## Done on main (next release)
+
+Priority 3 (buckets and storage) is built and will ship in the next release:
+bucket default encryption and tags, a full ACL grant editor, advanced options
+when creating a bucket, turning on Object Lock for an existing bucket, a cost
+estimate before a Glacier restore, restore of Intelligent-Tiering archives, a
+lifecycle form editor with copy, paste and JSON import and export, upload rules
+by file pattern, resuming an unfinished multipart upload, cloning a bucket,
+access points and Multi-Region Access Points by ARN, Transfer Acceleration and
+dual-stack endpoints, settings for S3-compatible providers, a per-account proxy,
+accounts that cannot list buckets, public links on a CloudFront or custom host
+with HTML and Markdown snippets, and up-to-date regions and partitions. See the
+[changelog](CHANGELOG.md#unreleased).
+
+Still open from Priority 3:
 
 | # | Item | Size |
 |---|---|---|
-| 25 | Bucket default encryption (SSE-S3, SSE-KMS with bucket key). | S |
-| 26 | Bucket tags for cost allocation. | S |
-| 27 | A full ACL grant editor: grant by account ID or email, permission by permission. | M |
-| 28 | Advanced options when creating a bucket: object lock, ownership, public access block, region. | S |
-| 29 | Enable object lock on an existing bucket. | S |
-| 30 | Cost estimate per retrieval tier before a Glacier restore. | M |
-| 31 | Restore of objects archived by Intelligent-Tiering. | S |
-| 32 | Lifecycle rules: copy and paste, JSON import and export, a structured editor next to the JSON one. | M |
-| 33 | Upload rules: default headers, content type, storage class and encryption chosen by file pattern. | M |
-| 34 | Resume an unfinished multipart upload from the multipart uploads tool. | M |
-| 35 | Clone a bucket (objects and settings). | M |
-| 36 | S3 Access Points and Multi-Region Access Points as targets (by ARN). | M |
-| 37 | Transfer-acceleration endpoint for transfers (per account), and dual-stack endpoints. | S |
-| 38 | Settings for S3-compatible providers: custom storage classes and regions, switches for multi-object delete and multipart copy, listing buckets across regions. | M |
-| 39 | Per-account proxy, and an explicit per-account option to skip TLS certificate checks. | S |
-| 40 | Accounts with limited permissions, such as write-only access without listing. | M |
-| 41 | Link generator: CloudFront or custom host names, HTML snippets for images, choice of shortener. | S |
-| 42 | Up-to-date regions and partitions (sovereign cloud, China, GovCloud). | S |
+| 39 | A custom per-account proxy with a password (kept in the secret store), and an explicit per-account option to skip TLS certificate checks for self-hosted servers. | S |
 
 ## Priority 4: command line
 

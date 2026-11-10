@@ -171,6 +171,9 @@ struct Clients {
     http: Option<CachedHttp>,
     next_generation: u64,
     s3: HashMap<String, CachedS3>,
+    /// HTTP clients of accounts with their own proxy choice, by the proxy
+    /// settings they were built for, each with its generation.
+    account_http: HashMap<String, (SharedHttpClient, u64)>,
     /// The distributions of each account, listed once per session (see
     /// [`Session::cloudfront_distributions`]).
     cloudfront: HashMap<String, Arc<Vec<Distribution>>>,
@@ -487,6 +490,20 @@ impl Session {
             .await
     }
 
+    /// Like [`Session::shorten_url`], with `provider` choosing the service
+    /// for this link. A shortener must still be chosen in the settings
+    /// (`none` there means shortening is off, whatever `provider` says). The
+    /// stored token belongs to the service of the settings: with another
+    /// `provider` it is not used.
+    pub async fn shorten_url_as(
+        &self,
+        provider: Option<crate::settings::ShortenerProvider>,
+        long_url: &str,
+    ) -> Result<String> {
+        self.shorten_url_via(&self.shortener_endpoints, None, provider, long_url)
+            .await
+    }
+
     /// Like [`Session::shorten_url`] at explicit `endpoints`, with `token`
     /// replacing the stored token when it is not empty (`bb` reads it from
     /// the environment).
@@ -496,6 +513,17 @@ impl Session {
         token: Option<SecretString>,
         long_url: &str,
     ) -> Result<String> {
+        self.shorten_url_via(endpoints, token, None, long_url).await
+    }
+
+    /// [`Session::shorten_url_with`] and [`Session::shorten_url_as`] together.
+    pub async fn shorten_url_via(
+        &self,
+        endpoints: &crate::shorten::Endpoints,
+        token: Option<SecretString>,
+        provider: Option<crate::settings::ShortenerProvider>,
+        long_url: &str,
+    ) -> Result<String> {
         let manager = Arc::clone(&self.manager);
         let (shortener, stored) = self
             .managed(move || manager.shortener_credentials())
@@ -503,16 +531,17 @@ impl Session {
         if shortener.provider == crate::settings::ShortenerProvider::None {
             return Err(Error::Usage("no URL shortener is configured".into()));
         }
-        let token = token.filter(|t| !t.is_empty()).or(stored);
+        let chosen = provider
+            .filter(|p| *p != crate::settings::ShortenerProvider::None)
+            .unwrap_or(shortener.provider);
+        // The stored token is the one of the service in the settings.
+        let token = if chosen == shortener.provider {
+            token.filter(|t| !t.is_empty()).or(stored)
+        } else {
+            token.filter(|t| !t.is_empty())
+        };
         let client = self.http_client().await?;
-        crate::shorten::shorten_at(
-            &client,
-            endpoints,
-            shortener.provider,
-            token.as_ref(),
-            long_url,
-        )
-        .await
+        crate::shorten::shorten_at(&client, endpoints, chosen, token.as_ref(), long_url).await
     }
 
     /// The proxy-aware HTTP client for the current settings.
@@ -535,7 +564,13 @@ impl Session {
         // Read before the credentials: anything that forgets MFA sessions
         // after this point (a lock, an account change) makes the login fail.
         let generation = self.mfa.generation();
-        let http_client = self.http_client().await?;
+        let (account, _) = self.account_state(account_id).await?;
+        let epoch = self.clients().epoch;
+        let manager = Arc::clone(&self.manager);
+        let config = self.managed(move || manager.load()).await?;
+        let (http_client, _) = self
+            .account_http_client(&account, &config.settings.proxy, epoch)
+            .await?;
         let (account, client, role) = self.mfa_login_client(account_id, http_client).await?;
         let session = if role {
             crate::creds::assume::request_role_session(&account, &client, code).await?
@@ -572,7 +607,10 @@ impl Session {
         let account = account_in(&config, account_id)?;
         // Refuse before any secret is read.
         crate::cloudfront::check_account(&account)?;
-        let http_client = self.http_client().await?;
+        let epoch = self.clients().epoch;
+        let (http_client, _) = self
+            .account_http_client(&account, &config.settings.proxy, epoch)
+            .await?;
         let provider = self
             .provider_for(&config, &account, &http_client, &mut Vec::new())
             .await?;
@@ -689,8 +727,9 @@ impl Session {
             false => None,
         };
         let mfa_until = mfa_session.as_ref().map(|(_, until)| *until);
-        let (http_client, http_generation) =
-            self.http_client_for(&config.settings.proxy, epoch).await?;
+        let (http_client, http_generation) = self
+            .account_http_client(&account, &config.settings.proxy, epoch)
+            .await?;
         let key = S3Key {
             chain: self.source_chain(&config, &account),
             account,
@@ -754,7 +793,9 @@ impl Session {
             return Err(Error::Usage(iam::NOT_AVAILABLE.to_owned()));
         }
         let epoch = self.clients().epoch;
-        let (http_client, _) = self.http_client_for(&config.settings.proxy, epoch).await?;
+        let (http_client, _) = self
+            .account_http_client(&account, &config.settings.proxy, epoch)
+            .await?;
         let provider = self
             .provider_for(&config, &account, &http_client, &mut Vec::new())
             .await?;
@@ -765,6 +806,42 @@ impl Session {
             builder = hook(builder);
         }
         Ok(Iam::from_config(builder.build(), options.read_timeout))
+    }
+
+    /// The HTTP client of one account: the shared one of the app settings,
+    /// or, when the account chose its own proxy (none, or a custom one), a
+    /// client built for that choice and cached like the shared one. Such a
+    /// client ignores the app's proxy and the proxy environment variables.
+    async fn account_http_client(
+        &self,
+        account: &Account,
+        global: &ProxySettings,
+        epoch: u64,
+    ) -> Result<(SharedHttpClient, u64)> {
+        let Some(settings) = account.options.proxy.settings() else {
+            return self.http_client_for(global, epoch).await;
+        };
+        let cache_key = format!("{settings:?}");
+        if let Some((client, generation)) = self.clients().account_http.get(&cache_key) {
+            return Ok((client.clone(), *generation));
+        }
+        let client = self
+            .managed(move || {
+                HttpClientBuilder::new()
+                    .proxy(&settings, None)?
+                    .environment_proxy(false)
+                    .build()
+            })
+            .await?;
+        let mut clients = self.clients();
+        let generation = clients.next_generation;
+        clients.next_generation += 1;
+        if clients.epoch == epoch {
+            clients
+                .account_http
+                .insert(cache_key, (client.clone(), generation));
+        }
+        Ok((client, generation))
     }
 
     async fn http_client_for(
@@ -816,6 +893,7 @@ impl Session {
     fn forget_clients(&self) {
         let mut clients = self.clients();
         clients.http = None;
+        clients.account_http.clear();
         clients.s3.clear();
         clients.cloudfront.clear();
         clients.epoch += 1;
@@ -1049,6 +1127,7 @@ mod tests {
 
         fn input(&self, label: &str, mfa_serial: Option<&str>) -> AccountInput {
             AccountInput {
+                options: Default::default(),
                 source: crate::model::CredentialSource::StaticKeys,
                 label: label.to_owned(),
                 access_key_id: ACCESS_KEY.to_owned(),
@@ -1187,6 +1266,85 @@ mod tests {
         other.update_account(&account.id, back).await.unwrap();
         let s3 = session.s3_for(&account.id).await.unwrap();
         assert!(signed_by(&recorder.request_head(&s3).await, ACCESS_KEY));
+    }
+
+    #[tokio::test]
+    async fn an_account_can_choose_its_own_proxy() {
+        use crate::model::{AccountOptions, AccountProxy};
+        use crate::settings::ProxyKind;
+        let server = Recorder::start().await;
+        let proxy = Recorder::start().await;
+        let dead = Recorder::start().await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MemoryStore::new());
+        let session = open(&dir, &store, options());
+
+        // The app's proxy points at `dead`, which only records what it gets.
+        let mut settings = session.settings().await.unwrap();
+        settings.proxy.enabled = true;
+        settings.proxy.host = "127.0.0.1".into();
+        settings.proxy.port = dead.endpoint.rsplit(':').next().unwrap().parse().unwrap();
+        session.save_settings(settings).await.unwrap();
+
+        let with_proxy = |label: &str, proxy_choice: AccountProxy| {
+            let mut input = server.input(label, None);
+            input.options = AccountOptions {
+                proxy: Box::new(proxy_choice),
+                ..AccountOptions::default()
+            };
+            input
+        };
+        // `none` bypasses the app's proxy: the server gets the request.
+        let direct = session
+            .add_account(with_proxy("Direct", AccountProxy::None))
+            .await
+            .unwrap();
+        let s3 = session.s3_for(&direct.id).await.unwrap();
+        server.request_head(&s3).await;
+        assert!(dead.heads.lock().unwrap().is_empty());
+
+        // `global` uses the app's proxy (here the one that records).
+        let global = session
+            .add_account(with_proxy("Global", AccountProxy::Global))
+            .await
+            .unwrap();
+        let s3 = session.s3_for(&global.id).await.unwrap();
+        let head = dead.request_head(&s3).await;
+        assert!(head.starts_with("get http://127.0.0.1:"), "{head}");
+
+        // `custom` sends the account's requests to its own proxy.
+        let port: u16 = proxy.endpoint.rsplit(':').next().unwrap().parse().unwrap();
+        let custom = session
+            .add_account(with_proxy(
+                "Custom",
+                AccountProxy::Custom {
+                    kind: ProxyKind::Http,
+                    host: "127.0.0.1".into(),
+                    port,
+                    bypass: Vec::new(),
+                },
+            ))
+            .await
+            .unwrap();
+        let s3 = session.s3_for(&custom.id).await.unwrap();
+        let head = proxy.request_head(&s3).await;
+        assert!(head.starts_with("get http://127.0.0.1:"), "{head}");
+        assert_eq!(server.heads.lock().unwrap().len(), 1);
+
+        // An invalid custom proxy is refused when the account is saved.
+        let bad = with_proxy(
+            "Bad",
+            AccountProxy::Custom {
+                kind: ProxyKind::Http,
+                host: String::new(),
+                port: 8080,
+                bypass: Vec::new(),
+            },
+        );
+        assert_eq!(
+            session.add_account(bad).await.unwrap_err().kind(),
+            ErrorKind::Usage
+        );
     }
 
     #[tokio::test]
@@ -1426,6 +1584,7 @@ mod tests {
 
         fn input(&self) -> AccountInput {
             AccountInput {
+                options: Default::default(),
                 source: crate::model::CredentialSource::StaticKeys,
                 label: "Work".to_owned(),
                 access_key_id: ACCESS_KEY.to_owned(),

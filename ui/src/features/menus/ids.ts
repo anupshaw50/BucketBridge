@@ -54,6 +54,7 @@ export const PLANNED_ACTION_IDS = [
   "bookmark.add",
   "list.filter",
   "bucket.sharing-wizard",
+  "bucket.clone",
   "bucket.mount",
   "bucket.open-browser",
   "bucket.add-external",

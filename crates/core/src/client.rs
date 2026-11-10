@@ -262,6 +262,9 @@ pub fn build_client_with_provider(
     if options.max_attempts == 0 {
         return Err(Error::Usage("max_attempts must be at least 1".into()));
     }
+    account
+        .options
+        .check(account.endpoint.as_deref(), &account.region)?;
     let app_name = AppName::new(APP_NAME)
         .map_err(|err| Error::Internal(format!("invalid app name: {err}")))?;
 
@@ -283,6 +286,10 @@ pub fn build_client_with_provider(
         .force_path_style(account.path_style);
     if let Some(endpoint) = &account.endpoint {
         builder = builder.endpoint_url(endpoint.trim_end_matches('/'));
+    } else if account.options.dual_stack {
+        // The SDK resolves `s3.dualstack.<region>.<suffix>` itself, with
+        // the suffix of the region's partition.
+        builder = builder.use_dual_stack(true);
     }
     if let Some(http_client) = &options.http_client {
         builder = builder.http_client(http_client.clone());
@@ -416,6 +423,92 @@ mod tests {
             region: "eu-west-1".into(),
             ..Account::default()
         }
+    }
+
+    /// URL of a ListBuckets request made for `region` on AWS (no endpoint).
+    async fn request_url(region: &str) -> String {
+        let mut acct = account();
+        acct.region = region.into();
+        let (http, receiver) = aws_smithy_http_client::test_util::capture_request(None);
+        let options = ClientOptions {
+            http_client: Some(SharedHttpClient::new(http)),
+            ..ClientOptions::default()
+        };
+        let client = build_client(&acct, &Credentials::new("AK", "SK", None), &options).unwrap();
+        let _ = client.list_buckets().send().await;
+        receiver.expect_request().uri().to_owned()
+    }
+
+    #[tokio::test]
+    async fn endpoints_follow_the_partition_of_the_region() {
+        for region in [
+            "us-east-1",
+            "eu-west-1",
+            "cn-north-1",
+            "cn-northwest-1",
+            "us-gov-west-1",
+        ] {
+            let url = request_url(region).await;
+            let expected = crate::regions::s3_endpoint(region);
+            assert!(
+                url.starts_with(&expected) || url.starts_with("https://s3.amazonaws.com"),
+                "{region}: {url} vs {expected}"
+            );
+            assert!(
+                url.contains(crate::regions::partition_of(region).dns_suffix()),
+                "{url}"
+            );
+        }
+        assert!(request_url("cn-north-1").await.contains("amazonaws.com.cn"));
+        assert!(
+            !request_url("us-gov-west-1")
+                .await
+                .contains("amazonaws.com.cn")
+        );
+    }
+
+    #[tokio::test]
+    async fn dual_stack_uses_the_dual_stack_endpoint_of_the_partition() {
+        for (region, suffix) in [
+            ("eu-west-1", "amazonaws.com"),
+            ("cn-north-1", "amazonaws.com.cn"),
+        ] {
+            let mut acct = account();
+            acct.region = region.into();
+            acct.options.dual_stack = true;
+            let (http, receiver) = aws_smithy_http_client::test_util::capture_request(None);
+            let options = ClientOptions {
+                http_client: Some(SharedHttpClient::new(http)),
+                ..ClientOptions::default()
+            };
+            let client =
+                build_client(&acct, &Credentials::new("AK", "SK", None), &options).unwrap();
+            let _ = client.list_buckets().send().await;
+            let url = receiver.expect_request().uri().to_owned();
+            assert!(url.contains(".dualstack."), "{url}");
+            assert!(url.contains(&format!(".{region}.{suffix}")), "{url}");
+        }
+    }
+
+    #[test]
+    fn network_options_are_refused_where_they_cannot_work() {
+        let creds = Credentials::new("AK", "SK", None);
+        let mut acct = account();
+        acct.endpoint = Some("https://minio.example.test".into());
+        acct.options.dual_stack = true;
+        let err = build_client(&acct, &creds, &ClientOptions::default()).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Usage);
+        acct.options.dual_stack = false;
+        acct.options.accelerate = true;
+        assert!(build_client(&acct, &creds, &ClientOptions::default()).is_err());
+        let mut china = account();
+        china.region = "cn-north-1".into();
+        china.options.accelerate = true;
+        let err = build_client(&china, &creds, &ClientOptions::default()).unwrap_err();
+        assert!(err.to_string().contains("China"), "{err}");
+        china.options.accelerate = false;
+        china.options.dual_stack = true;
+        assert!(build_client(&china, &creds, &ClientOptions::default()).is_ok());
     }
 
     #[test]

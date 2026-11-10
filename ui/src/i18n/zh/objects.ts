@@ -32,6 +32,8 @@ export const zhObjects: Record<string, string> = {
   "Clear filter": "清除筛选",
   "Loading objects": "正在加载对象",
   "The folder could not be listed": "无法列出该文件夹",
+  "Listing may not be allowed here. Type the folder you want in the address bar; uploading into a folder does not need listing.":
+    "此处可能不允许列出内容。请在地址栏中输入所需的文件夹；上传到文件夹不需要列出权限。",
   "This folder is empty": "此文件夹为空",
   "Upload files or a folder, or paste items you copied.": "可上传文件或文件夹，或粘贴你复制的内容。",
   "Upload files": "上传文件",

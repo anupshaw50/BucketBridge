@@ -1,10 +1,12 @@
 import { tr } from "../i18n";
+import { isAccessPointArn, splitBucketAndKey } from "./accessPoint";
 import { normalizePrefixInput, s3Uri } from "./s3keys";
 
 export type AddressResult = { ok: true; bucket: string; prefix: string } | { ok: false; message: string };
 
 /**
- * Reads a typed or pasted location: `s3://bucket/some/folder/` or `bucket/some/folder`. A path without
+ * Reads a typed or pasted location: `s3://bucket/some/folder/` or `bucket/some/folder`; the bucket may be an
+ * access point ARN (`s3://arn:aws:s3:us-west-2:123456789012:accesspoint/name/folder/`). A path without
  * a trailing slash is taken as a folder. The bucket name is only checked for characters it can contain
  * (providers differ in their naming rules); whether the account can see it is found out by listing it.
  */
@@ -22,13 +24,11 @@ export function parseAddress(text: string): AddressResult {
   } else {
     rest = rest.replace(/^\/+/, "");
   }
-  const slash = rest.indexOf("/");
-  const bucket = slash === -1 ? rest : rest.slice(0, slash);
-  const prefix = slash === -1 ? "" : rest.slice(slash + 1);
+  const [bucket, prefix] = splitBucketAndKey(rest);
   if (bucket === "") {
     return { ok: false, message: tr("The path has no bucket name. Use s3://bucket/folder/.") };
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(bucket)) {
+  if (!isAccessPointArn(bucket) && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(bucket)) {
     return { ok: false, message: tr("\"{bucket}\" is not a valid bucket name.", { bucket }) };
   }
   if (new TextEncoder().encode(prefix).length > 1024) {

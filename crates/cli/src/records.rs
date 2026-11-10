@@ -70,6 +70,56 @@ pub struct BucketRecord {
     pub bucket: String,
     /// Region requested with `--region` (`null`: the default).
     pub region: Option<String>,
+    /// Object Lock was turned on with `--object-lock` (left out otherwise).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_lock: Option<bool>,
+    /// The Object Ownership requested with `--ownership` (left out otherwise).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ownership: Option<String>,
+    /// The public access block requested with `--public-access-block`: `true`
+    /// for all four switches on (left out otherwise).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_access_block: Option<bool>,
+    /// What could not be applied although the bucket exists (left out when
+    /// nothing).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+impl BucketRecord {
+    /// A record with only the bucket and the region.
+    pub fn new(bucket: &str, region: Option<String>) -> Self {
+        BucketRecord {
+            bucket: bucket.to_owned(),
+            region,
+            object_lock: None,
+            ownership: None,
+            public_access_block: None,
+            warnings: Vec::new(),
+        }
+    }
+}
+
+/// `bb clone-bucket`: what became of one setting (or, with `--dry-run`, what
+/// the source has for it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CloneSettingRecord {
+    /// The new bucket.
+    pub bucket: String,
+    /// The setting: `policy`, `cors`, `lifecycle`, `versioning`, `tags`,
+    /// `encryption`, `website` or `public_access_block`.
+    pub setting: String,
+    /// `applied`, `skipped` (the source has none) or `failed`; with
+    /// `--dry-run` `configured`, `not_configured`, `unsupported` or `failed`.
+    pub state: String,
+    /// Items the source setting holds (a dry run).
+    pub count: Option<u32>,
+    /// A short value of the source setting (a dry run).
+    pub detail: Option<String>,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Why it failed.
+    pub error: Option<BbError>,
 }
 
 /// `bb rm`: one object or version.
@@ -274,6 +324,33 @@ pub struct AbortRecord {
     pub aborted: bool,
     /// Why it could not be aborted.
     pub error: Option<BbError>,
+}
+
+/// `bb mpu resume`: the check of the file and, unless `--dry-run`, the result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ResumeRecord {
+    /// Bucket name.
+    pub bucket: String,
+    /// Object key.
+    pub key: String,
+    /// Upload ID.
+    pub upload_id: String,
+    /// Size of the file.
+    pub file_size: u64,
+    /// Size of every part but the last.
+    pub part_size: u64,
+    /// Parts of the whole file.
+    pub part_count: u32,
+    /// Parts that were already on the server.
+    pub parts_uploaded: u32,
+    /// Bytes that still had to be uploaded.
+    pub bytes_remaining: u64,
+    /// Whether this was a `--dry-run`.
+    pub dry_run: bool,
+    /// Whether the upload was completed.
+    pub completed: bool,
+    /// The ETag of the finished object, without quotes.
+    pub etag: Option<String>,
 }
 
 /// `bb sync`: one record per row that needs attention, then one summary.

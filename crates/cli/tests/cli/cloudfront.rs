@@ -392,7 +392,13 @@ async fn run_with_secrets(
         console: Box::new(Terminal::default()),
     };
     let args = std::iter::once("bb").chain(args.iter().copied());
-    let exit = bucketbridge_cli::run(args, io, secrets, std::future::pending::<()>).await;
+    let exit = Box::pin(bucketbridge_cli::run(
+        args,
+        io,
+        secrets,
+        std::future::pending::<()>,
+    ))
+    .await;
     Output {
         code: i32::from(exit.code),
         stdout: stdout.text(),

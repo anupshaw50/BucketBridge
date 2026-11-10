@@ -83,6 +83,33 @@ export class ObjectLockMock {
     });
   }
 
+  /** The Object Ownership of a bucket as the mock cloud has it now; `null` when none is set. */
+  ownershipOf(accountId: string, bucket: string): ObjectOwnership | null {
+    return this.ownership.get(ObjectLockMock.id({ account_id: accountId, bucket })) ?? null;
+  }
+
+  /** Turns Object Lock on for a new bucket (the lock a bucket is created with). */
+  enableLock(args: { account_id: string; bucket: string }): void {
+    this.buckets.set(ObjectLockMock.id(args), { enabled: true, default_retention: null });
+  }
+
+  /** Forgets the lock, ownership and object states of a bucket that no longer exists. */
+  forget(args: { account_id: string; bucket: string }): void {
+    const prefix = ObjectLockMock.id(args, "");
+    for (const map of [this.buckets, this.ownership, this.objects, this.restores]) {
+      for (const key of [...map.keys()]) {
+        if (key.startsWith(prefix)) {
+          map.delete(key);
+        }
+      }
+    }
+  }
+
+  /** Sets the Object Ownership without a request (the starting state of the demo). */
+  seedOwnership(args: { account_id: string; bucket: string }, ownership: ObjectOwnership): void {
+    this.ownership.set(ObjectLockMock.id(args), ownership);
+  }
+
   async get_object_ownership(args: CommandArgs["get_object_ownership"]): Promise<ObjectOwnership | null> {
     return this.ownership.get(ObjectLockMock.id(args)) ?? null;
   }
@@ -92,7 +119,7 @@ export class ObjectLockMock {
   }
 
   async restore_objects(args: CommandArgs["restore_objects"]): Promise<ObjectChange[]> {
-    if (args.days < 1 || args.days > 3650) {
+    if (args.days !== null && (args.days < 1 || args.days > 3650)) {
       throw new BackendError("usage", "restore for 1 to 3650 days");
     }
     return args.keys.map((key) => {
@@ -104,6 +131,7 @@ export class ObjectLockMock {
         storage_class: "GLACIER",
         archived: true,
         restore: { in_progress: true, expires: null },
+        kind: "glacier",
       });
       return change(key, true);
     });
@@ -111,7 +139,7 @@ export class ObjectLockMock {
 
   async get_restore_state(args: CommandArgs["get_restore_state"]): Promise<ArchiveState> {
     return (
-      this.restores.get(ObjectLockMock.id(args, args.key)) ?? { storage_class: "STANDARD", archived: false, restore: null }
+      this.restores.get(ObjectLockMock.id(args, args.key)) ?? { storage_class: "STANDARD", archived: false, restore: null, kind: null }
     );
   }
 }

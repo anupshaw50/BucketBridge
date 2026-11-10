@@ -21,6 +21,7 @@ const base: Account = {
   endpoint: null,
   path_style: false,
   request_payer: false,
+  options: { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } },
   mfa_serial: null,
   source: { type: "static_keys" },
 };

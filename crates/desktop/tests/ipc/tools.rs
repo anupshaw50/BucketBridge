@@ -593,3 +593,207 @@ fn a_failed_export_changes_nothing() {
     assert_eq!(folder, ["keep.csv"]);
     assert_eq!(fs::read_to_string(&path).unwrap(), "old contents");
 }
+
+#[test]
+fn upload_rules_are_tested_and_saved_with_the_settings() {
+    let h = Harness::new();
+    let rules = json!({
+        "enabled": true,
+        "rules": [
+            { "pattern": "*.png", "cache_control": "max-age=60" },
+            { "pattern": "assets/*.css", "content_type": "text/css" }
+        ]
+    });
+    let hit = h.ok(
+        "test_upload_rules",
+        json!({ "rules": rules, "name": "a/Photo.PNG" }),
+    );
+    assert_eq!(hit["index"], 0);
+    assert_eq!(hit["rule"]["cache_control"], "max-age=60");
+    let miss = h.ok(
+        "test_upload_rules",
+        json!({ "rules": rules, "name": "other/x.css" }),
+    );
+    assert_eq!(miss["index"], Value::Null);
+    assert_eq!(
+        h.code(
+            "test_upload_rules",
+            json!({ "rules": { "rules": [{ "pattern": "" }] }, "name": "x" })
+        ),
+        "usage"
+    );
+
+    // The rules are part of the settings; an older settings document has none.
+    let mut settings = h.ok("get_settings", json!({}));
+    assert_eq!(settings["upload_rules"]["rules"], json!([]));
+    settings["upload_rules"] = rules;
+    h.ok("save_settings", json!({ "settings": settings }));
+    let saved = h.ok("get_settings", json!({}));
+    assert_eq!(saved["upload_rules"]["rules"].as_array().unwrap().len(), 2);
+    assert_eq!(saved["upload_rules"]["rules"][1]["case_insensitive"], true);
+
+    let mut invalid = saved.clone();
+    invalid["upload_rules"]["rules"][0]["sse"] = json!("rot13");
+    assert_eq!(
+        h.code("save_settings", json!({ "settings": invalid })),
+        "usage"
+    );
+}
+
+#[test]
+fn an_unfinished_upload_is_checked_and_resumed_as_a_queue_task() {
+    use bucketbridge_core::engine::checksum_of;
+    use bucketbridge_core::settings::ChecksumAlgorithm;
+
+    let part = 5 * 1024 * 1024;
+    let data: Vec<u8> = (0..part + 10).map(|i| (i % 253) as u8).collect();
+    let first = data[..part].to_vec();
+    let mock = MockS3::start(move |request| {
+        let query = |name: &str| request.query_param(name);
+        match request.method.as_str() {
+            "GET" if query("uploadId").is_some() => MockResponse::xml(format!(
+                "<ListPartsResult {NS}><Bucket>b</Bucket><Key>big.bin</Key><UploadId>u1</UploadId><IsTruncated>false</IsTruncated><ChecksumAlgorithm>CRC32</ChecksumAlgorithm><Part><PartNumber>1</PartNumber><ETag>\"p1\"</ETag><Size>{}</Size><ChecksumCRC32>{}</ChecksumCRC32></Part></ListPartsResult>",
+                first.len(),
+                checksum_of(ChecksumAlgorithm::Crc32, &first).unwrap()
+            )),
+            "PUT" if query("partNumber").is_some() => {
+                MockResponse::empty(200).with_header("etag", "\"p2\"")
+            }
+            "POST" if query("uploadId").is_some() => MockResponse::xml(format!(
+                "<CompleteMultipartUploadResult {NS}><Bucket>b</Bucket><Key>big.bin</Key><ETag>\"done-2\"</ETag></CompleteMultipartUploadResult>"
+            )),
+            _ => MockResponse::error(404, "NoSuchUpload", "no such upload"),
+        }
+    });
+    let h = Harness::new();
+    let id = mock_account(&h, &mock);
+    let dir = tempfile::tempdir().unwrap();
+    let good = dir.path().join("good.bin");
+    fs::write(&good, &data).unwrap();
+    let mut other = data.clone();
+    other[3] ^= 1;
+    let bad = dir.path().join("bad.bin");
+    fs::write(&bad, other).unwrap();
+    let args = |path: &std::path::Path| {
+        json!({
+            "account_id": id, "bucket": "b", "key": "big.bin", "upload_id": "u1",
+            "path": path.to_str().unwrap(), "skip_part_verification": false
+        })
+    };
+
+    let check = h.ok("check_multipart_resume", args(&good));
+    assert_eq!(check["problem"], Value::Null);
+    assert_eq!(check["part_count"], 2);
+    assert_eq!(check["missing_parts"], 1);
+    assert_eq!(check["parts"][0]["verified"], "checksum");
+    assert_eq!(check["bytes_remaining"], 10);
+
+    let refused = h.ok("check_multipart_resume", args(&bad));
+    assert_eq!(refused["problem"]["code"], "part_mismatch");
+    assert_eq!(refused["problem"]["part"], 1);
+    assert_eq!(
+        h.code("resume_multipart_upload", args(&bad)),
+        "usage",
+        "a file that does not match queues nothing"
+    );
+    assert_eq!(h.ok("list_tasks", json!({})), json!([]));
+    assert_eq!(
+        h.code(
+            "check_multipart_resume",
+            json!({ "account_id": id, "bucket": "b", "key": "big.bin", "upload_id": "u1",
+                    "path": "relative.bin", "skip_part_verification": false })
+        ),
+        "usage"
+    );
+
+    let task = h.ok("resume_multipart_upload", args(&good));
+    assert_eq!(task["kind"], "upload");
+    assert_eq!(task["dst"]["key"], "big.bin");
+    assert_eq!(task["bytes_total"], data.len());
+}
+
+#[test]
+fn a_bucket_is_cloned_with_its_objects_through_the_queue() {
+    let server = start_s3();
+    let h = Harness::new();
+    let id = h.add_account(&server, "Main");
+    let source = block_on(server.new_bucket());
+    block_on(server.put(&source, "top.txt", "top"));
+    block_on(server.put(&source, "a/b/one.txt", "one"));
+    let new_bucket = server.unique_bucket();
+
+    // The preview has all eight settings, in the order they are applied; this
+    // server implements none of them, which never fails the preview.
+    let preview = h.ok(
+        "preview_bucket_clone",
+        json!({ "account_id": id, "bucket": source }),
+    );
+    assert_eq!(
+        keys(&preview),
+        ["region", "settings", "source_bucket", "warnings"]
+    );
+    let order: Vec<&str> = preview["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["setting"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "versioning",
+            "encryption",
+            "public_access_block",
+            "policy",
+            "website",
+            "cors",
+            "tags",
+            "lifecycle"
+        ]
+    );
+
+    let cloned = h.ok(
+        "clone_bucket",
+        json!({ "account_id": id, "source_bucket": source, "new_bucket": new_bucket,
+                "region": null, "prefix": "", "copy_objects": true, "settings": [] }),
+    );
+    assert_eq!(keys(&cloned), ["copy_error", "outcome", "tasks"]);
+    assert_eq!(cloned["outcome"]["bucket"], new_bucket.as_str());
+    assert_eq!(cloned["outcome"]["results"], json!([]));
+    assert_eq!(cloned["copy_error"], Value::Null);
+    let task_ids = ids(&cloned["tasks"]);
+    assert_eq!(task_ids.len(), 2);
+    for task in &task_ids {
+        h.wait_state(task, "completed");
+    }
+    assert_eq!(block_on(server.get(&new_bucket, "top.txt")), b"top");
+    assert_eq!(block_on(server.get(&new_bucket, "a/b/one.txt")), b"one");
+
+    // A bucket that exists is a conflict, a prefix needs its slash, and the
+    // same name is refused.
+    assert_eq!(
+        h.code(
+            "clone_bucket",
+            json!({ "account_id": id, "source_bucket": source, "new_bucket": new_bucket,
+                    "region": null, "prefix": "", "copy_objects": false, "settings": [] })
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        h.code(
+            "clone_bucket",
+            json!({ "account_id": id, "source_bucket": source, "new_bucket": source,
+                    "region": null, "prefix": "", "copy_objects": false, "settings": [] })
+        ),
+        "usage"
+    );
+    let other = server.unique_bucket();
+    let cloned = h.ok(
+        "clone_bucket",
+        json!({ "account_id": id, "source_bucket": source, "new_bucket": other,
+                "region": null, "prefix": "a", "copy_objects": true, "settings": [] }),
+    );
+    // The bucket exists; the objects could not be queued.
+    assert_eq!(cloned["copy_error"]["code"], "usage");
+    assert_eq!(cloned["tasks"], json!([]));
+}

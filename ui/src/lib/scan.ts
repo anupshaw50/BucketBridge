@@ -21,7 +21,7 @@ export const FIX_TAB_LABELS: Readonly<Record<ScanFixTab, string>> = {
 
 /** The Properties tab of the dialog for a fix, or null when this build has no editor for that setting. */
 export function openableTab(tab: ScanFixTab): BucketPropertiesTab | null {
-  return tab === "policy" || tab === "public-access" || tab === "versioning" ? tab : null;
+  return tab === "policy" || tab === "public-access" || tab === "versioning" || tab === "encryption" ? tab : null;
 }
 
 export interface ScanRow {

@@ -1568,12 +1568,28 @@ impl S3 {
     /// the server refuses to list buckets (`AccessDenied`) and buckets are
     /// pinned, the pinned buckets are all there is to show, so they are
     /// returned alone; without any pinned bucket the refusal is the error.
+    ///
+    /// The account's known buckets count as pinned. For an account marked as
+    /// unable to list buckets (`cannot_list_buckets`) no request is sent at
+    /// all: the known and pinned buckets are the list.
     pub async fn list_buckets_with_pinned(&self, pinned: &[String]) -> Result<Vec<Bucket>> {
-        match self.list_buckets().await {
-            Ok(listed) => Ok(merge_pinned(listed, pinned)),
-            Err(error) if !pinned.is_empty() && is_listing_denied(&error) => {
-                Ok(merge_pinned(Vec::new(), pinned))
+        let mut pinned = pinned.to_vec();
+        for name in self.known_bucket_names() {
+            if !pinned.contains(&name) {
+                pinned.push(name);
             }
+        }
+        if self.cannot_list_buckets() {
+            return Ok(merge_pinned(Vec::new(), &pinned));
+        }
+        match self.list_buckets().await {
+            Ok(listed) => Ok(merge_pinned(listed, &pinned)),
+            Err(error) if !pinned.is_empty() && is_listing_denied(&error) => {
+                Ok(merge_pinned(Vec::new(), &pinned))
+            }
+            Err(error) if is_listing_denied(&error) => Err(error.with_context(
+                "this account may not be allowed to list buckets; turn on \"Cannot list buckets\" in its settings and add the buckets it can use",
+            )),
             Err(error) => Err(error),
         }
     }

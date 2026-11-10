@@ -597,6 +597,39 @@ mod tests {
     }
 
     #[test]
+    fn upload_rules_load_from_the_file_and_older_files_have_none() {
+        let (_dir, store) = store();
+        fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        fs::write(store.path(), "[settings.advanced]\nmax_attempts = 2\n").unwrap();
+        let old = store.load().unwrap();
+        assert!(old.settings.upload_rules.enabled);
+        assert!(old.settings.upload_rules.rules.is_empty());
+
+        store
+            .update(|c| {
+                c.settings
+                    .upload_rules
+                    .rules
+                    .push(crate::upload_rules::UploadRule {
+                        pattern: "*.html".into(),
+                        content_type: Some("text/html".into()),
+                        sse: Some("AES256".into()),
+                        ..Default::default()
+                    });
+                Ok(())
+            })
+            .unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.settings.upload_rules.rules.len(), 1);
+        assert_eq!(loaded.settings.upload_rules.rules[0].pattern, "*.html");
+        assert!(loaded.settings.upload_rules.rules[0].case_insensitive);
+        // An invalid rule is refused when the settings are validated.
+        let mut bad = loaded.settings;
+        bad.upload_rules.rules[0].pattern = String::new();
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
     fn credential_sources_survive_a_round_trip_through_the_file() {
         let (_dir, store) = store();
         let mut config = AppConfig::default();

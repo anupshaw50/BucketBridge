@@ -110,10 +110,10 @@ pub struct UploadOutcome {
 }
 
 /// A part listed by `ListParts`.
-struct ListedPart {
-    etag: String,
-    size: u64,
-    checksum: Option<String>,
+pub(super) struct ListedPart {
+    pub(super) etag: String,
+    pub(super) size: u64,
+    pub(super) checksum: Option<String>,
 }
 
 /// What every part of one multipart upload shares.
@@ -156,16 +156,26 @@ impl TransferEngine {
         }
         let owned = path.to_path_buf();
         let source = blocking(move || FileSource::open(&owned)).await??;
-        let content_type = guess_content_type(path);
-        self.upload(
-            Arc::new(source),
-            dst,
-            Some(content_type),
-            hooks,
-            resume,
-            checkpoint,
-        )
-        .await
+        let mut content_type = guess_content_type(path).to_owned();
+        let mut engine = self.clone();
+        if let Some((_, rule)) = self.rules.as_ref().and_then(|rules| rules.find(dst.key())) {
+            // Headers the caller set for this transfer win over the rule.
+            let base = self.upload_headers.clone().unwrap_or_default();
+            engine = self.with_upload_headers(rule.fill(&base));
+            if let Some(from_rule) = &rule.content_type {
+                content_type.clone_from(from_rule);
+            }
+        }
+        engine
+            .upload(
+                Arc::new(source),
+                dst,
+                Some(&content_type),
+                hooks,
+                resume,
+                checkpoint,
+            )
+            .await
     }
 
     /// Uploads `source` to `dst` (see [`TransferEngine::upload_file`]).
@@ -675,6 +685,8 @@ impl TransferEngine {
                 )
                 .set_expires(self.upload_headers.as_ref().and_then(|h| h.expires))
                 .set_storage_class(self.storage_class())
+                .set_server_side_encryption(self.sse())
+                .set_ssekms_key_id(self.sse_key())
                 .set_if_match(
                     self.write_condition
                         .as_ref()
@@ -757,6 +769,22 @@ impl TransferEngine {
             .map(aws_sdk_s3::types::StorageClass::from)
     }
 
+    /// The server-side encryption of the upload headers.
+    fn sse(&self) -> Option<aws_sdk_s3::types::ServerSideEncryption> {
+        self.upload_headers
+            .as_ref()
+            .and_then(|h| h.server_side_encryption.as_deref())
+            .map(aws_sdk_s3::types::ServerSideEncryption::from)
+    }
+
+    /// The KMS key of the upload headers (only with `aws:kms` encryption).
+    fn sse_key(&self) -> Option<String> {
+        self.upload_headers
+            .as_ref()
+            .and_then(|h| h.sse_kms_key_id.clone())
+            .filter(|key| !key.is_empty())
+    }
+
     // ---- metadata requests ----
 
     async fn create_upload(
@@ -795,6 +823,8 @@ impl TransferEngine {
             )
             .set_expires(self.upload_headers.as_ref().and_then(|h| h.expires))
             .set_storage_class(self.storage_class())
+            .set_server_side_encryption(self.sse())
+            .set_ssekms_key_id(self.sse_key())
             .set_checksum_algorithm(sdk_algorithm(algorithm))
             .set_request_payer(self.s3.request_payer())
             .customize()
@@ -816,6 +846,21 @@ impl TransferEngine {
         upload_id: &str,
         algorithm: ChecksumAlgorithm,
     ) -> Result<BTreeMap<u32, ListedPart>> {
+        self.list_parts_detecting(bucket, key, upload_id, Some(algorithm))
+            .await
+            .map(|(_, parts)| parts)
+    }
+
+    /// Every part of an upload and the checksum algorithm the upload was
+    /// created with. With `algorithm` `None` it is read from the answer of
+    /// the server ([`ChecksumAlgorithm::None`] when the upload has none).
+    pub(super) async fn list_parts_detecting(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+        mut algorithm: Option<ChecksumAlgorithm>,
+    ) -> Result<(ChecksumAlgorithm, BTreeMap<u32, ListedPart>)> {
         let context = || format!("listing the uploaded parts of s3://{bucket}/{key}");
         let client = bucket_client(&self.s3, bucket).await?;
         let mut parts = BTreeMap::new();
@@ -834,6 +879,17 @@ impl TransferEngine {
                 .send()
                 .await
                 .map_err(|err| Error::from(err).with_context(context()))?;
+            let algorithm = *algorithm.get_or_insert_with(|| {
+                use aws_sdk_s3::types::ChecksumAlgorithm as Sdk;
+                match out.checksum_algorithm() {
+                    Some(Sdk::Crc32) => ChecksumAlgorithm::Crc32,
+                    Some(Sdk::Crc32C) => ChecksumAlgorithm::Crc32c,
+                    Some(Sdk::Crc64Nvme) => ChecksumAlgorithm::Crc64nvme,
+                    Some(Sdk::Sha1) => ChecksumAlgorithm::Sha1,
+                    Some(Sdk::Sha256) => ChecksumAlgorithm::Sha256,
+                    _ => ChecksumAlgorithm::None,
+                }
+            });
             for part in out.parts() {
                 let (Some(number), Some(etag), Some(size)) =
                     (part.part_number(), part.e_tag(), part.size())
@@ -856,7 +912,7 @@ impl TransferEngine {
                 );
             }
             if out.is_truncated() != Some(true) {
-                return Ok(parts);
+                return Ok((algorithm, parts));
             }
             let next = out
                 .next_part_number_marker()
@@ -969,14 +1025,14 @@ impl HashError {
 }
 
 /// Whether `part_size` can split `size` bytes into at most 10,000 parts.
-fn valid_plan(size: u64, part_size: u64) -> bool {
+pub(super) fn valid_plan(size: u64, part_size: u64) -> bool {
     (MIN_PART_SIZE..=MAX_PART_SIZE).contains(&part_size)
         && size > 0
         && size.div_ceil(part_size) <= MAX_PARTS
 }
 
 /// Number of parts of `size` bytes split into `part_size` byte parts.
-fn part_count(size: u64, part_size: u64) -> Result<u32> {
+pub(super) fn part_count(size: u64, part_size: u64) -> Result<u32> {
     if !valid_plan(size, part_size) {
         return Err(Error::Internal(format!(
             "{size} bytes cannot be uploaded in parts of {part_size} bytes"
@@ -987,7 +1043,7 @@ fn part_count(size: u64, part_size: u64) -> Result<u32> {
 }
 
 /// Size of part `number` (from 1), or `None` when the object has no such part.
-fn part_len(size: u64, part_size: u64, number: u32) -> Option<u64> {
+pub(super) fn part_len(size: u64, part_size: u64, number: u32) -> Option<u64> {
     let offset = u64::from(number.checked_sub(1)?).checked_mul(part_size)?;
     (offset < size).then(|| part_size.min(size - offset))
 }

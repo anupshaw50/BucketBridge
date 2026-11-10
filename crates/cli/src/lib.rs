@@ -22,6 +22,7 @@
 mod app;
 mod ask;
 mod cli;
+mod cli_bucket;
 mod commands;
 mod context;
 mod duration;

@@ -116,6 +116,241 @@ impl CredentialSource {
     }
 }
 
+/// Per-account network options (AWS endpoint variants).
+///
+/// Every field defaults to off, so accounts saved before these options
+/// existed load unchanged. Both options apply to AWS accounts only (an
+/// account with a custom endpoint is refused when either is on).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountOptions {
+    /// Use the S3 Transfer Acceleration endpoint
+    /// (`<bucket>.s3-accelerate.amazonaws.com`) for object transfers of
+    /// buckets that have acceleration enabled. Other requests, and buckets
+    /// without acceleration, use the regional endpoint.
+    #[serde(default)]
+    pub accelerate: bool,
+    /// Use the dual-stack (IPv4 and IPv6) endpoints, for example
+    /// `s3.dualstack.eu-west-1.amazonaws.com`.
+    #[serde(default)]
+    pub dual_stack: bool,
+    /// Settings for S3-compatible providers.
+    #[serde(default)]
+    pub compat: Box<CompatOptions>,
+    /// The account may not list buckets (write-only or single-bucket
+    /// access): `ListBuckets` is never sent, and the bucket list is made of
+    /// `known_buckets` and the pinned external buckets.
+    #[serde(default)]
+    pub cannot_list_buckets: bool,
+    /// Buckets, or folders of buckets, to show instead of a listing: each
+    /// entry is `bucket` or `bucket/folder/`. Also shown when listing is
+    /// refused although the account was not marked as unable to list.
+    #[serde(default)]
+    pub known_buckets: Vec<String>,
+    /// How the account uses the proxy.
+    #[serde(default)]
+    pub proxy: Box<AccountProxy>,
+}
+
+/// How an account reaches its server with respect to the proxy.
+///
+/// The JSON form is a tagged union with a `type` field (`global`, `none`,
+/// `custom`). Accounts saved before this option have `global`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AccountProxy {
+    /// Use the proxy of the app settings (the default).
+    #[default]
+    Global,
+    /// Connect directly: neither the app's proxy nor the `HTTP_PROXY`
+    /// environment variables apply to this account.
+    None,
+    /// Use this proxy for this account only, without authentication.
+    Custom {
+        /// Proxy protocol.
+        kind: crate::settings::ProxyKind,
+        /// Proxy host name or address.
+        host: String,
+        /// Proxy port, 1 to 65535.
+        port: u16,
+        /// Hosts that bypass the proxy (see [`crate::proxy`]).
+        #[serde(default)]
+        bypass: Vec<String>,
+    },
+}
+
+impl AccountProxy {
+    /// `true` for [`AccountProxy::Global`].
+    pub fn is_global(&self) -> bool {
+        matches!(self, AccountProxy::Global)
+    }
+
+    /// The proxy settings of a custom proxy (enabled, no user name or
+    /// password), or the disabled default for [`AccountProxy::None`];
+    /// `None` for [`AccountProxy::Global`].
+    pub fn settings(&self) -> Option<crate::settings::ProxySettings> {
+        match self {
+            AccountProxy::Global => None,
+            AccountProxy::None => Some(crate::settings::ProxySettings::default()),
+            AccountProxy::Custom {
+                kind,
+                host,
+                port,
+                bypass,
+            } => Some(crate::settings::ProxySettings {
+                enabled: true,
+                kind: *kind,
+                host: host.trim().to_owned(),
+                port: *port,
+                username: None,
+                password_ref: None,
+                bypass: bypass.clone(),
+            }),
+        }
+    }
+
+    /// Checks a custom proxy like the app's proxy settings.
+    pub fn check(&self) -> crate::Result<()> {
+        match self.settings() {
+            Some(settings) => crate::proxy::validate_proxy_settings(&settings),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Most known buckets an account may have.
+pub const MAX_KNOWN_BUCKETS: usize = 256;
+
+/// Splits a known entry (`bucket` or `bucket/folder/`) into the bucket and
+/// the folder prefix (empty, or ending with `/`).
+pub fn split_known_bucket(entry: &str) -> (&str, String) {
+    match entry.split_once('/') {
+        None => (entry, String::new()),
+        Some((bucket, rest)) => {
+            let rest = rest.trim_start_matches('/');
+            if rest.is_empty() {
+                (bucket, String::new())
+            } else if rest.ends_with('/') {
+                (bucket, rest.to_owned())
+            } else {
+                (bucket, format!("{rest}/"))
+            }
+        }
+    }
+}
+
+/// Most entries a custom storage class or region list may have.
+pub const MAX_COMPAT_LIST: usize = 64;
+
+/// Settings for S3-compatible providers that differ from AWS. Everything
+/// is off or empty by default (AWS behaviour).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatOptions {
+    /// Storage classes the provider offers (for example `HOT`, `COLD`),
+    /// offered instead of the AWS list when changing a storage class or
+    /// filtering. Empty means the AWS list.
+    #[serde(default)]
+    pub storage_classes: Vec<String>,
+    /// Regions the provider has, offered by the region field instead of the
+    /// AWS table. Empty means the AWS table.
+    #[serde(default)]
+    pub regions: Vec<String>,
+    /// Delete objects one request at a time instead of with
+    /// `DeleteObjects` (providers without multi-object delete).
+    #[serde(default)]
+    pub single_deletes: bool,
+    /// Never copy with multipart `UploadPartCopy`: objects are copied in one
+    /// `CopyObject` request (up to 5 GiB; larger ones fail with a message).
+    #[serde(default)]
+    pub no_multipart_copy: bool,
+    /// List buckets once per region in `regions` and merge the answers
+    /// (providers that list only the buckets of the region asked).
+    #[serde(default)]
+    pub list_all_regions: bool,
+}
+
+impl CompatOptions {
+    /// `true` when every setting has its AWS default.
+    pub fn is_default(&self) -> bool {
+        *self == CompatOptions::default()
+    }
+
+    /// Checks the lists: at most [`MAX_COMPAT_LIST`] entries each, valid
+    /// region names, storage class names of letters, digits, `_` and `-`,
+    /// and regions named when listing across them.
+    pub fn check(&self) -> crate::Result<()> {
+        if self.storage_classes.len() > MAX_COMPAT_LIST || self.regions.len() > MAX_COMPAT_LIST {
+            return Err(crate::Error::Usage(format!(
+                "a list of storage classes or regions has at most {MAX_COMPAT_LIST} entries"
+            )));
+        }
+        for class in &self.storage_classes {
+            let ok = !class.is_empty()
+                && class.len() <= 64
+                && class
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            if !ok {
+                return Err(crate::Error::Usage(format!(
+                    "'{class}' is not a storage class name (letters, digits, _ and - only)"
+                )));
+            }
+        }
+        for region in &self.regions {
+            crate::client::validate_region(region)?;
+        }
+        if self.list_all_regions && self.regions.is_empty() {
+            return Err(crate::Error::Usage(
+                "listing buckets across regions needs the list of regions".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl AccountOptions {
+    /// `true` when every option is off.
+    pub fn is_default(&self) -> bool {
+        *self == AccountOptions::default()
+    }
+
+    /// Checks the options against the account they belong to: `endpoint`
+    /// is the custom endpoint (`None` for AWS) and `region` the signing
+    /// region. Fails with [`crate::Error::Usage`] for an option that needs
+    /// AWS on an account with a custom endpoint, and for Transfer
+    /// Acceleration in the China partition, which has none.
+    pub fn check(&self, endpoint: Option<&str>, region: &str) -> crate::Result<()> {
+        self.compat.check()?;
+        self.proxy.check()?;
+        if self.known_buckets.len() > MAX_KNOWN_BUCKETS {
+            return Err(crate::Error::Usage(format!(
+                "an account has at most {MAX_KNOWN_BUCKETS} known buckets"
+            )));
+        }
+        for entry in &self.known_buckets {
+            let (bucket, prefix) = split_known_bucket(entry);
+            crate::s3uri::validate_bucket_name(bucket)
+                .map_err(|err| crate::Error::Usage(format!("known bucket '{entry}': {err}")))?;
+            if !prefix.is_empty() {
+                crate::s3uri::validate_key(&prefix)
+                    .map_err(|err| crate::Error::Usage(format!("known bucket '{entry}': {err}")))?;
+            }
+        }
+        if endpoint.is_some() && (self.accelerate || self.dual_stack) {
+            return Err(crate::Error::Usage(
+                "Transfer Acceleration and dual-stack endpoints are for AWS only; remove the custom endpoint or turn them off".into(),
+            ));
+        }
+        if self.accelerate
+            && crate::regions::partition_of(region) == crate::regions::Partition::AwsCn
+        {
+            return Err(crate::Error::Usage(
+                "S3 Transfer Acceleration is not available in the China regions".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// An S3 account as stored in the configuration file.
 ///
 /// The secret access key and any static session token live in the secret
@@ -154,6 +389,9 @@ pub struct Account {
     /// have static keys.
     #[serde(default)]
     pub source: CredentialSource,
+    /// Network options; accounts saved before version 0.4.0 have none.
+    #[serde(default)]
+    pub options: AccountOptions,
 }
 
 impl Default for Account {
@@ -170,6 +408,7 @@ impl Default for Account {
             request_payer: false,
             mfa_serial: None,
             source: CredentialSource::StaticKeys,
+            options: AccountOptions::default(),
         }
     }
 }
@@ -249,6 +488,10 @@ pub struct AccountInput {
     #[serde(default)]
     #[zeroize(skip)]
     pub source: CredentialSource,
+    /// Network options; all off when omitted.
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub options: AccountOptions,
 }
 
 impl Default for AccountInput {
@@ -264,6 +507,7 @@ impl Default for AccountInput {
             request_payer: false,
             mfa_serial: None,
             source: CredentialSource::StaticKeys,
+            options: AccountOptions::default(),
         }
     }
 }
@@ -284,6 +528,7 @@ impl fmt::Debug for AccountInput {
             .field("request_payer", &self.request_payer)
             .field("mfa_serial", &self.mfa_serial)
             .field("source", &self.source)
+            .field("options", &self.options)
             .finish()
     }
 }
@@ -338,6 +583,10 @@ pub struct AccountUpdate {
     #[serde(default)]
     #[zeroize(skip)]
     pub source: Option<CredentialSource>,
+    /// New network options (replaces all of them).
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub options: Option<AccountOptions>,
 }
 
 impl fmt::Debug for AccountUpdate {
@@ -357,6 +606,7 @@ impl fmt::Debug for AccountUpdate {
             .field("mfa_serial", &self.mfa_serial)
             .field("clear_mfa_serial", &self.clear_mfa_serial)
             .field("source", &self.source)
+            .field("options", &self.options)
             .finish()
     }
 }
@@ -391,6 +641,7 @@ mod tests {
 
     fn sample() -> Account {
         Account {
+            options: Default::default(),
             id: "6f1c2b8e-3f7a-4c1d-9a55-0d2b7e4f9a10".into(),
             label: "Work".into(),
             access_key_id: "AKIAEXAMPLE".into(),
@@ -421,7 +672,21 @@ mod tests {
                 "path_style": true,
                 "request_payer": false,
                 "mfa_serial": null,
-                "source": { "type": "static_keys" }
+                "source": { "type": "static_keys" },
+                "options": {
+                    "accelerate": false,
+                    "dual_stack": false,
+                    "compat": {
+                        "storage_classes": [],
+                        "regions": [],
+                        "single_deletes": false,
+                        "no_multipart_copy": false,
+                        "list_all_regions": false
+                    },
+                    "cannot_list_buckets": false,
+                    "known_buckets": [],
+                    "proxy": { "type": "global" }
+                }
             })
         );
         let back: Account = serde_json::from_value(value).unwrap();
@@ -502,6 +767,130 @@ mod tests {
         assert_eq!(account.source, CredentialSource::StaticKeys);
         assert!(account.has_static_keys());
         assert!(!account.needs_mfa_session());
+    }
+
+    #[test]
+    fn options_default_off_for_older_accounts_and_round_trip() {
+        let account: Account = serde_json::from_value(json!({
+            "id": "a", "label": "b", "access_key_id": "c", "secret_ref": "d"
+        }))
+        .unwrap();
+        assert_eq!(account.options, AccountOptions::default());
+        assert!(account.options.is_default());
+        let mut changed = account.clone();
+        changed.options.accelerate = true;
+        let back: Account =
+            serde_json::from_value(serde_json::to_value(&changed).unwrap()).unwrap();
+        assert!(back.options.accelerate && !back.options.dual_stack);
+        let input: AccountInput = serde_json::from_value(json!({
+            "label": "a", "access_key_id": "b", "secret_access_key": "c",
+            "options": { "dual_stack": true }
+        }))
+        .unwrap();
+        assert!(input.options.dual_stack && !input.options.accelerate);
+        let update: AccountUpdate =
+            serde_json::from_value(json!({ "options": { "accelerate": true } })).unwrap();
+        assert!(update.options.as_ref().unwrap().accelerate);
+    }
+
+    #[test]
+    fn account_proxy_forms_and_checks() {
+        assert!(AccountOptions::default().proxy.is_global());
+        assert_eq!(AccountOptions::default().proxy.settings(), None);
+        let none: AccountProxy = serde_json::from_value(json!({ "type": "none" })).unwrap();
+        assert!(!none.settings().unwrap().enabled);
+        let custom: AccountProxy = serde_json::from_value(json!({
+            "type": "custom", "kind": "socks5", "host": " proxy.example ", "port": 1080
+        }))
+        .unwrap();
+        let settings = custom.settings().unwrap();
+        assert!(settings.enabled && settings.username.is_none() && settings.password_ref.is_none());
+        assert_eq!(settings.host, "proxy.example");
+        assert_eq!(settings.kind, crate::settings::ProxyKind::Socks5);
+        assert!(custom.check().is_ok());
+        let bad = AccountProxy::Custom {
+            kind: crate::settings::ProxyKind::Http,
+            host: String::new(),
+            port: 0,
+            bypass: Vec::new(),
+        };
+        assert!(bad.check().is_err());
+        // Old accounts have no proxy field.
+        let old: AccountOptions = serde_json::from_value(json!({ "accelerate": true })).unwrap();
+        assert!(old.proxy.is_global());
+        assert_eq!(
+            serde_json::to_value(AccountProxy::Global).unwrap(),
+            json!({ "type": "global" })
+        );
+    }
+
+    #[test]
+    fn known_buckets_split_and_are_checked() {
+        assert_eq!(split_known_bucket("b"), ("b", String::new()));
+        assert_eq!(split_known_bucket("b/"), ("b", String::new()));
+        assert_eq!(split_known_bucket("b/in"), ("b", "in/".to_owned()));
+        assert_eq!(split_known_bucket("b/in/out/"), ("b", "in/out/".to_owned()));
+        let mut options = AccountOptions {
+            cannot_list_buckets: true,
+            known_buckets: vec!["drop-box/in/".into(), "archive".into()],
+            ..Default::default()
+        };
+        assert!(options.check(None, "eu-west-1").is_ok());
+        options.known_buckets.push("a b".into());
+        assert!(options.check(None, "eu-west-1").is_err());
+        options.known_buckets = (0..=MAX_KNOWN_BUCKETS)
+            .map(|i| format!("bucket-{i}"))
+            .collect();
+        assert!(options.check(None, "eu-west-1").is_err());
+        let old: AccountOptions = serde_json::from_value(json!({ "dual_stack": true })).unwrap();
+        assert!(!old.cannot_list_buckets && old.known_buckets.is_empty());
+    }
+
+    #[test]
+    fn compat_options_default_and_are_checked() {
+        let old: AccountOptions = serde_json::from_value(json!({ "accelerate": true })).unwrap();
+        assert!(old.compat.is_default());
+        let parsed: AccountOptions = serde_json::from_value(json!({
+            "compat": { "storage_classes": ["HOT", "COLD"], "regions": ["r1", "r2"],
+                        "single_deletes": true, "no_multipart_copy": true, "list_all_regions": true }
+        }))
+        .unwrap();
+        assert_eq!(parsed.compat.storage_classes, ["HOT", "COLD"]);
+        assert!(parsed.check(Some("https://x.test"), "r1").is_ok());
+        let mut bad = parsed.clone();
+        bad.compat.storage_classes = vec!["not a class".into()];
+        assert!(bad.check(Some("https://x.test"), "r1").is_err());
+        let mut bad = parsed.clone();
+        bad.compat.regions = vec!["bad region!".into()];
+        assert!(bad.check(Some("https://x.test"), "r1").is_err());
+        let mut bad = parsed.clone();
+        bad.compat.regions.clear();
+        assert!(bad.check(Some("https://x.test"), "r1").is_err());
+        let mut big = parsed;
+        big.compat.regions = (0..=MAX_COMPAT_LIST).map(|i| format!("r{i}")).collect();
+        assert!(big.check(Some("https://x.test"), "r1").is_err());
+    }
+
+    #[test]
+    fn options_check_needs_aws_and_a_partition_with_acceleration() {
+        let both = AccountOptions {
+            accelerate: true,
+            dual_stack: true,
+            ..Default::default()
+        };
+        assert!(both.check(None, "eu-west-1").is_ok());
+        assert!(both.check(Some("https://x.test"), "eu-west-1").is_err());
+        assert!(both.check(None, "cn-north-1").is_err());
+        let dual = AccountOptions {
+            dual_stack: true,
+            ..Default::default()
+        };
+        assert!(dual.check(None, "cn-north-1").is_ok());
+        assert!(
+            AccountOptions::default()
+                .check(Some("https://x.test"), "auto")
+                .is_ok()
+        );
     }
 
     #[test]

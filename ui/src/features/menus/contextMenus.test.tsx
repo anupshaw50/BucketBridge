@@ -84,6 +84,7 @@ describe("bucket menu", () => {
       tr("Paste") + " [off]",
       tr("Properties"),
       tr("Sharing wizard…"),
+      tr("Clone bucket…"),
       tr("Folder sync…"),
       tr("Sync jobs…"),
       tr("CloudFront"),

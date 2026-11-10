@@ -115,6 +115,8 @@ impl RunnerState {
 pub struct S3Runner {
     provider: S3Provider,
     data_integrity: Arc<Mutex<DataIntegritySettings>>,
+    /// The upload rules applied to uploads (none until set).
+    upload_rules: Arc<Mutex<crate::upload_rules::UploadRules>>,
     /// Throttle requests waiting right now, across all runs of this runner.
     waiting: Arc<AtomicUsize>,
     /// The bodies that stream right now, across all runs of this runner.
@@ -139,6 +141,7 @@ impl S3Runner {
         S3Runner {
             provider,
             data_integrity: Arc::new(Mutex::new(data_integrity)),
+            upload_rules: Arc::default(),
             waiting: Arc::default(),
             streams: Arc::default(),
             passwords: CsePasswords::new(),
@@ -178,6 +181,18 @@ impl S3Runner {
             .data_integrity
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = settings;
+    }
+
+    /// Replaces the upload rules applied to uploads that start from now on
+    /// (call it when the settings are saved). Rules that do not compile
+    /// switch the feature off; saved settings are validated, so that does
+    /// not happen in practice.
+    pub fn set_upload_rules(&self, settings: &crate::upload_rules::UploadRulesSettings) {
+        let rules = crate::upload_rules::UploadRules::compile(settings).unwrap_or_default();
+        *self
+            .upload_rules
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = rules;
     }
 
     /// The passwords of the client-side encryption groups this runner reads
@@ -228,7 +243,13 @@ impl S3Runner {
             engine = self.engine(&task.account_id, ctx.settings()) => engine?,
         };
         let options = JobOptions::of_group(task.group_id.as_deref());
+        let upload_rules = self
+            .upload_rules
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         let engine = engine
+            .with_upload_rules(upload_rules)
             .with_if_exists(options.if_exists.unwrap_or(ctx.settings().if_exists))
             .with_preserve_mtime(
                 options

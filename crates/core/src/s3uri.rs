@@ -11,6 +11,104 @@ use crate::model::BucketKind;
 /// Maximum length of an object key in bytes (UTF-8).
 pub const MAX_KEY_BYTES: usize = 1024;
 
+/// An S3 access point ARN, used wherever a bucket name is accepted.
+///
+/// `arn:<partition>:s3:<region>:<account>:accesspoint/<name>` is an access
+/// point of one region; `arn:<partition>:s3::<account>:accesspoint/<alias>.mrap`
+/// (no region) is a Multi-Region Access Point, which requests are signed for
+/// with SigV4A. The AWS CLI convention writes them in URIs as
+/// `s3://arn:aws:s3:us-west-2:123456789012:accesspoint/my-ap/key`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccessPointArn<'a> {
+    /// Partition (`aws`, `aws-cn`, `aws-us-gov`, ...).
+    pub partition: &'a str,
+    /// Region of the access point; `None` for a Multi-Region Access Point.
+    pub region: Option<&'a str>,
+    /// The 12-digit account id of the owner.
+    pub account: &'a str,
+    /// The access point name, or the alias of a Multi-Region Access Point.
+    pub name: &'a str,
+}
+
+impl AccessPointArn<'_> {
+    /// `true` for a Multi-Region Access Point.
+    pub fn is_multi_region(&self) -> bool {
+        self.region.is_none()
+    }
+}
+
+/// Parses `text` as an access point ARN (the whole string); `None` when it
+/// is not one.
+pub fn parse_access_point_arn(text: &str) -> Option<AccessPointArn<'_>> {
+    let parts: Vec<&str> = text.splitn(6, ':').collect();
+    let [arn, partition, service, region, account, resource] = parts.as_slice() else {
+        return None;
+    };
+    if *arn != "arn" || *service != "s3" || partition.is_empty() {
+        return None;
+    }
+    if !partition
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c == '-')
+    {
+        return None;
+    }
+    if account.len() != 12 || !account.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let name = resource.strip_prefix("accesspoint/")?;
+    if name.is_empty()
+        || name.len() > 63 + 5
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.'))
+    {
+        return None;
+    }
+    let region = if region.is_empty() {
+        // Only a Multi-Region Access Point has no region.
+        if !name.ends_with(".mrap") {
+            return None;
+        }
+        None
+    } else {
+        if !region
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return None;
+        }
+        Some(*region)
+    };
+    Some(AccessPointArn {
+        partition,
+        region,
+        account,
+        name,
+    })
+}
+
+/// `true` when `bucket` is an access point ARN (see [`parse_access_point_arn`]).
+pub fn is_access_point_arn(bucket: &str) -> bool {
+    parse_access_point_arn(bucket).is_some()
+}
+
+/// Splits `text` (what follows `s3://`) into the bucket, which may be an
+/// access point ARN, and the key.
+fn split_bucket_and_key(text: &str) -> (&str, &str) {
+    if text.starts_with("arn:") {
+        // The ARN ends after the name that follows `accesspoint/`.
+        if let Some(at) = text.find(":accesspoint/") {
+            let name_start = at + ":accesspoint/".len();
+            let end = text[name_start..]
+                .find('/')
+                .map_or(text.len(), |i| name_start + i);
+            return (&text[..end], text.get(end + 1..).unwrap_or(""));
+        }
+    }
+    text.split_once('/').unwrap_or((text, ""))
+}
+
 /// A bucket plus a key or key prefix, written `s3://bucket/key`.
 ///
 /// The key may be empty (the whole bucket) or end with `/` (a prefix). It is
@@ -57,7 +155,7 @@ impl S3Uri {
                     "'{input}' is not an S3 URI; expected s3://bucket or s3://bucket/key"
                 ))
             })?;
-        let (bucket, key) = rest.split_once('/').unwrap_or((rest, ""));
+        let (bucket, key) = split_bucket_and_key(rest);
         if bucket.is_empty() {
             return Err(Error::Usage(format!("S3 URI '{input}' has no bucket name")));
         }
@@ -117,7 +215,8 @@ impl<'de> Deserialize<'de> for S3Uri {
     }
 }
 
-/// Checks a bucket name used to address an existing bucket.
+/// Checks a bucket name used to address an existing bucket, or an S3 access
+/// point ARN (including a Multi-Region Access Point).
 ///
 /// Accepts the legacy rules that some existing buckets still follow: 1 to
 /// 255 characters of ASCII letters, digits, `.`, `_` and `-`, starting with a
@@ -126,6 +225,15 @@ impl<'de> Deserialize<'de> for S3Uri {
 pub fn validate_bucket_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(Error::Usage("bucket name is empty".into()));
+    }
+    if name.starts_with("arn:") {
+        return if is_access_point_arn(name) {
+            Ok(())
+        } else {
+            Err(Error::Usage(format!(
+                "'{name}' is not an S3 access point ARN; expected arn:aws:s3:<region>:<account>:accesspoint/<name>"
+            )))
+        };
     }
     if name.len() > 255 {
         return Err(Error::Usage(format!(
@@ -209,6 +317,55 @@ pub fn validate_key(key: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    const AP: &str = "arn:aws:s3:us-west-2:123456789012:accesspoint/my-ap";
+    const MRAP: &str = "arn:aws:s3::123456789012:accesspoint/mfzwi23gnjvgw.mrap";
+
+    #[test]
+    fn access_point_arns_are_recognised() {
+        let ap = parse_access_point_arn(AP).unwrap();
+        assert_eq!(ap.region, Some("us-west-2"));
+        assert_eq!(ap.account, "123456789012");
+        assert_eq!(ap.name, "my-ap");
+        assert!(!ap.is_multi_region());
+        let mrap = parse_access_point_arn(MRAP).unwrap();
+        assert!(mrap.is_multi_region());
+        assert_eq!(
+            parse_access_point_arn("arn:aws-cn:s3:cn-north-1:123456789012:accesspoint/x")
+                .unwrap()
+                .partition,
+            "aws-cn"
+        );
+        for bad in [
+            "arn:aws:s3:us-west-2:123456789012:accesspoint/",
+            "arn:aws:s3:us-west-2:12345:accesspoint/ap",
+            "arn:aws:s3:us-west-2:123456789012:bucket/ap",
+            "arn:aws:s3::123456789012:accesspoint/not-multi-region",
+            "arn:aws:iam:us-west-2:123456789012:accesspoint/ap",
+            "arn:aws:s3:us-west-2:123456789012:accesspoint/a b",
+            "my-bucket",
+        ] {
+            assert!(parse_access_point_arn(bad).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn uris_accept_access_point_arns_like_the_aws_cli() {
+        let uri = S3Uri::parse(&format!("s3://{AP}/photos/cat.jpg")).unwrap();
+        assert_eq!(uri.bucket(), AP);
+        assert_eq!(uri.key(), "photos/cat.jpg");
+        assert_eq!(uri.to_string(), format!("s3://{AP}/photos/cat.jpg"));
+        let root = S3Uri::parse(&format!("s3://{AP}")).unwrap();
+        assert_eq!(root.bucket(), AP);
+        assert!(root.is_bucket_root());
+        let multi = S3Uri::parse(&format!("s3://{MRAP}/k")).unwrap();
+        assert_eq!(multi.bucket(), MRAP);
+        assert_eq!(multi.key(), "k");
+        assert!(S3Uri::parse("s3://arn:aws:s3:us-west-2:123:accesspoint/ap/k").is_err());
+        assert!(validate_bucket_name(AP).is_ok());
+        assert!(validate_bucket_name("arn:aws:s3:::plain-bucket").is_err());
+        assert!(validate_new_bucket_name(AP, BucketKind::Aws).is_err());
+    }
+
     use super::*;
     use crate::error::ErrorKind;
 

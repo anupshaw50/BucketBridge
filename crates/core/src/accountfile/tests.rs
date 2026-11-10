@@ -394,6 +394,7 @@ fn invalid_entries_are_skipped_and_bad_files_refused() {
             endpoint: None,
             path_style: false,
             request_payer: false,
+            options: Default::default(),
             mfa_serial: None,
             source: ExportedSource::StaticKeys,
         }],

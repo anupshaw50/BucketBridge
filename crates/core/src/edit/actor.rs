@@ -74,6 +74,8 @@ pub(crate) fn header_parts(head: &ObjectHead) -> (UploadHeaders, String) {
         content_encoding: meta.content_encoding.clone(),
         content_language: None,
         expires: None,
+        server_side_encryption: None,
+        sse_kms_key_id: None,
         storage_class: head
             .storage_class
             .clone()

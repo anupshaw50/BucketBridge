@@ -241,7 +241,9 @@ pub async fn run(
 ) -> Result<(), Failure> {
     let started = Instant::now();
     let spec = match target(args)? {
-        Target::Resume(plan_id) => return resume(ctx, plan_id, args.summary, out).await,
+        Target::Resume(plan_id) => {
+            return resume(ctx, plan_id, args.summary, !args.no_upload_rules, out).await;
+        }
         Target::Plan { .. } => spec_from_args(args)?,
         Target::Job(name) => {
             let job = job
@@ -257,7 +259,7 @@ pub async fn run(
     let real = if args.dry_run {
         None
     } else {
-        Some((require_dirs(ctx)?, engine(ctx)?))
+        Some((require_dirs(ctx)?, engine(ctx, !args.no_upload_rules)?))
     };
     let plan = analyze(ctx, &spec, !args.dry_run).await?;
     let Some((dirs, engine)) = real else {
@@ -332,11 +334,16 @@ async fn save_job(ctx: &Context, name: &str, spec: &Spec, out: &mut Output) -> R
 }
 
 /// The transfer engine of the account, with the transfer settings.
-fn engine(ctx: &Context) -> Result<TransferEngine, Error> {
-    TransferEngine::new(
+fn engine(ctx: &Context, upload_rules: bool) -> Result<TransferEngine, Error> {
+    let engine = TransferEngine::new(
         ctx.s3.clone(),
         TransferOptions::from_settings(&ctx.settings),
-    )
+    )?;
+    if upload_rules {
+        engine.with_upload_rule_settings(&ctx.settings.upload_rules)
+    } else {
+        Ok(engine)
+    }
 }
 
 /// The directories that hold the plan store.
@@ -403,10 +410,11 @@ async fn resume(
     ctx: &Context,
     plan_id: &str,
     summary: bool,
+    upload_rules: bool,
     out: &mut Output,
 ) -> Result<(), Failure> {
     let started = Instant::now();
-    let engine = engine(ctx)?;
+    let engine = engine(ctx, upload_rules)?;
     let store = open_store(require_dirs(ctx)?).await?;
     let plan = {
         let store = Arc::clone(&store);

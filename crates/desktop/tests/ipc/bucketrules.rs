@@ -268,3 +268,40 @@ fn a_failing_rule_section_never_hides_the_others() {
     assert_eq!(h.code("get_bucket_replication", site.clone()), "auth");
     assert_eq!(h.code("list_bucket_tiering", site), "remote");
 }
+
+#[test]
+fn rules_documents_are_exported_to_and_imported_from_json_files() {
+    let h = Harness::new();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lifecycle.json");
+    let path = path.to_str().unwrap().to_owned();
+    let text = serde_json::to_string_pretty(&lifecycle()).unwrap();
+    h.ok(
+        "write_rules_file",
+        json!({ "path": path, "document": text }),
+    );
+    let back = h.ok("read_rules_file", json!({ "path": path }));
+    let back: Value = serde_json::from_str(back.as_str().unwrap()).unwrap();
+    assert_eq!(back, lifecycle());
+
+    // Only .json files, only JSON, only absolute paths.
+    let other = dir.path().join("lifecycle.txt");
+    assert_eq!(
+        h.code(
+            "write_rules_file",
+            json!({ "path": other.to_str().unwrap(), "document": text })
+        ),
+        "usage"
+    );
+    assert_eq!(
+        h.code(
+            "write_rules_file",
+            json!({ "path": path, "document": "not json" })
+        ),
+        "usage"
+    );
+    assert_eq!(
+        h.code("read_rules_file", json!({ "path": "relative.json" })),
+        "usage"
+    );
+}

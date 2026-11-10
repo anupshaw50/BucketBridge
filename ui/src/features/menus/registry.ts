@@ -480,7 +480,7 @@ function bucketRules(tab: BucketRulesTab): ActionDef {
 }
 
 /** A bucket entry that opens one of the T07 dialogs. */
-function bucketDialog(kind: "bucket-lock" | "bucket-ownership" | "sharing-wizard"): ActionDef {
+function bucketDialog(kind: "bucket-lock" | "bucket-ownership" | "sharing-wizard" | "bucket-clone"): ActionDef {
   return {
     visible: isSingleBucket,
     disabled: needsAccount,
@@ -607,6 +607,7 @@ const PLANNED_DEFS: Partial<Record<PlannedActionId, ActionDef>> = {
   },
   // ---- T10: sharing wizard ----
   "bucket.sharing-wizard": bucketDialog("sharing-wizard"),
+  "bucket.clone": bucketDialog("bucket-clone"),
 
   // ---- T07: Object Lock, ownership and restore ----
   "bucket.ownership": bucketDialog("bucket-ownership"),

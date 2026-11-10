@@ -30,6 +30,7 @@ fn accounts_lifecycle() {
             "id",
             "label",
             "mfa_serial",
+            "options",
             "path_style",
             "region",
             "request_payer",

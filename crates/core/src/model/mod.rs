@@ -19,9 +19,9 @@ mod sync;
 mod transfer;
 
 pub use account::{
-    Account, AccountInput, AccountList, AccountUpdate, CredentialSource, DEFAULT_REGION,
-    DEFAULT_ROLE_DURATION_SECS, DEFAULT_ROLE_SESSION_NAME, MAX_ROLE_DURATION_SECS,
-    MIN_ROLE_DURATION_SECS, SecurityStatus,
+    Account, AccountInput, AccountList, AccountOptions, AccountProxy, AccountUpdate, CompatOptions,
+    CredentialSource, DEFAULT_REGION, DEFAULT_ROLE_DURATION_SECS, DEFAULT_ROLE_SESSION_NAME,
+    MAX_ROLE_DURATION_SECS, MIN_ROLE_DURATION_SECS, SecurityStatus, split_known_bucket,
 };
 pub use bucket::{Bucket, BucketKind};
 pub use filter::{FilterSpec, SavedFilter};

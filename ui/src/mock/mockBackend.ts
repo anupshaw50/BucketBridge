@@ -15,6 +15,7 @@ import type {
   InvalidationPage,
   PathSet,
   AccelerationStatus,
+  CreateBucketResult,
   AbortResult,
   BucketUsage,
   ExportAccountsOutcome,
@@ -40,7 +41,9 @@ import type {
   QuitRequest,
   TieringConfig,
   AccountList,
+  AccountOptions,
   AppInfo,
+  RegionEntry,
   BbErrorCode,
   Bucket,
   BucketConfig,
@@ -60,6 +63,10 @@ import type {
   PolicyIssue,
   PublicAccessBlock,
   SavedFilter,
+  CloneBucketResult,
+  ClonePreview,
+  UploadResumeCheck,
+  UploadRuleMatch,
   ObjectPreview,
   RestoreOutcome,
   SecurityStatus,
@@ -76,10 +83,16 @@ import type {
   ScanReport,
   VersionGroupPage,
 } from "../api/types";
+import { MockBucketProps } from "./bucketProps";
 import { ObjectLockMock } from "./objectLock";
+import { estimateRestore } from "./restoreEstimate";
+import { isAccessPointArn } from "../lib/accessPoint";
+import { MOCK_REGIONS } from "./regionsMock";
 import { parseTimestamp } from "../lib/format";
 import { baseName, collidingNames, destinationKey, isFolderKey, parentPrefix, utf8Length } from "../lib/s3keys";
 import { cloneSettings, DEFAULT_SETTINGS, hasErrors, validateSettings } from "../lib/settings";
+import { findUploadRule, globToRegExp } from "../lib/uploadRules";
+import { cloneBucket, previewClone } from "./bucketCloneMock";
 import { formatPolicy, issueText } from "../lib/policy";
 import { validateBucketName, validateEndpoint, validateRegion } from "../lib/validation";
 import { corsIssues, lifecycleIssues, MockBucketRules, replicationIssues, tieringIssues } from "./bucketRules";
@@ -241,6 +254,22 @@ function nameMatches(path: string, word: string): boolean {
  * password, S3 buckets and objects, the transfer queue, folder sync, the
  * event log and settings.
  */
+/** Mirrors AccountOptions::check of the core: both options need AWS, and the China regions have no acceleration. */
+function checkAccountOptions(options: AccountOptions, endpoint: string | null, region: string): void {
+  if (options.proxy.type === "custom" && (options.proxy.host.trim() === "" || options.proxy.port < 1 || options.proxy.port > 65535)) {
+    fail("usage", "invalid proxy settings: enter the proxy host and a port from 1 to 65535");
+  }
+  if (options.compat.list_all_regions && options.compat.regions.length === 0) {
+    fail("usage", "listing buckets across regions needs the list of regions");
+  }
+  if (endpoint !== null && (options.accelerate || options.dual_stack)) {
+    fail("usage", "Transfer Acceleration and dual-stack endpoints are for AWS only; remove the custom endpoint or turn them off");
+  }
+  if (options.accelerate && /^cn-[a-z0-9-]+-\d+$/.test(region)) {
+    fail("usage", "S3 Transfer Acceleration is not available in the China regions");
+  }
+}
+
 export class MockBackend implements Backend {
   readonly fs: MockFs;
   private readonly options: Required<Omit<MockOptions, "masterPassword" | "pageSize">>;
@@ -299,6 +328,7 @@ export class MockBackend implements Backend {
     bucket: (accountId, name) => this.bucketFor(this.connect(accountId), name),
     latency: () => this.latency(),
     log: (message) => this.addLog("information", "s3", message),
+    aclsDisabled: (accountId, name) => this.objectLock.ownershipOf(accountId, name) === "BucketOwnerEnforced",
   });
   private readonly accountFiles = new AccountFilesMock();
   private readonly usage = new UsageMock({
@@ -340,6 +370,10 @@ export class MockBackend implements Backend {
     seedObjectMeta(this.providers);
     this.accounts = world.accounts;
     this.defaultAccountId = world.defaultAccountId;
+    if (this.options.fixture === "demo" && world.defaultAccountId !== null) {
+      // The demo website bucket rejects ACL changes, like a bucket with BucketOwnerEnforced.
+      this.objectLock.seedOwnership({ account_id: world.defaultAccountId, bucket: "demo-website" }, "BucketOwnerEnforced");
+    }
     this.secrets = world.secrets;
     if (this.options.fixture === "demo") {
       this.bucketConfigs.seedDemo(
@@ -560,6 +594,7 @@ export class MockBackend implements Backend {
     if (input.endpoint !== null) {
       this.checkEndpoint(input.endpoint);
     }
+    checkAccountOptions(input.options ?? { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } }, input.endpoint, input.region);
     const id = uuid();
     const secretRef = `bucketbridge/account/${id}/secret`;
     this.secrets.set(secretRef, input.secret_access_key);
@@ -580,6 +615,7 @@ export class MockBackend implements Backend {
       request_payer: input.request_payer,
       mfa_serial: input.mfa_serial,
       source: { type: "static_keys" },
+      options: input.options ?? { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } },
     };
     this.accounts.push(account);
     this.defaultAccountId ??= id;
@@ -596,6 +632,7 @@ export class MockBackend implements Backend {
     if (input.endpoint !== null) {
       this.checkEndpoint(input.endpoint);
     }
+    checkAccountOptions(input.options ?? { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } }, input.endpoint, input.region);
     checkSource(source, this.accounts, null);
     const account: Account = {
       id: uuid(),
@@ -609,6 +646,7 @@ export class MockBackend implements Backend {
       request_payer: input.request_payer,
       mfa_serial: source.type === "assume_role" ? (source.mfa_serial ?? null) : null,
       source,
+      options: input.options ?? { accelerate: false, dual_stack: false, compat: { storage_classes: [], regions: [], single_deletes: false, no_multipart_copy: false, list_all_regions: false }, cannot_list_buckets: false, known_buckets: [], proxy: { type: "global" } },
     };
     this.accounts.push(account);
     this.defaultAccountId ??= account.id;
@@ -620,6 +658,11 @@ export class MockBackend implements Backend {
     await this.latency();
     const account = this.getAccount(args.id);
     const update = args.update;
+    checkAccountOptions(
+      update.options ?? account.options,
+      update.clear_endpoint ? null : (update.endpoint ?? account.endpoint),
+      update.region ?? account.region,
+    );
     const touchesSecrets =
       update.secret_access_key !== null || update.session_token !== null || update.clear_session_token;
     if (touchesSecrets) {
@@ -671,6 +714,7 @@ export class MockBackend implements Backend {
     if (update.endpoint !== null) account.endpoint = update.endpoint;
     if (update.path_style !== null) account.path_style = update.path_style;
     if (update.request_payer !== null) account.request_payer = update.request_payer;
+    if (update.options) account.options = { ...update.options };
     if (update.clear_mfa_serial) account.mfa_serial = null;
     if (update.mfa_serial !== null) account.mfa_serial = update.mfa_serial;
     if (update.access_key_id !== null || update.secret_access_key !== null || update.clear_mfa_serial) {
@@ -851,11 +895,22 @@ export class MockBackend implements Backend {
     await this.latency();
     const connection = this.connect(args.account_id);
     const pinned = [...(this.pins.get(args.account_id) ?? [])];
+    for (const entry of this.getAccount(args.account_id).options.known_buckets) {
+      const name = entry.split("/")[0] ?? entry;
+      if (!pinned.includes(name)) {
+        pinned.push(name);
+      }
+    }
     const buckets: Bucket[] = [];
-    if (this.listingDenied.has(args.account_id)) {
+    if (this.getAccount(args.account_id).options.cannot_list_buckets) {
+      // No ListBuckets request at all: the known and pinned buckets are the list.
+    } else if (this.listingDenied.has(args.account_id)) {
       // Like the backend: without pinned buckets the refusal is the error.
       if (pinned.length === 0) {
-        fail("auth", "Access Denied (AccessDenied, HTTP 403)");
+        fail(
+          "auth",
+          "listing buckets: Access Denied (AccessDenied, HTTP 403): this account may not be allowed to list buckets; turn on \"Cannot list buckets\" in its settings and add the buckets it can use",
+        );
       }
     } else {
       for (const item of connection.provider.buckets.values()) {
@@ -954,7 +1009,7 @@ export class MockBackend implements Backend {
     this.addLog("information", "s3", `Folder s3://${args.bucket}/${args.key} created.`);
   }
 
-  async create_bucket(args: CommandArgs["create_bucket"]): Promise<void> {
+  async create_bucket(args: CommandArgs["create_bucket"]): Promise<CreateBucketResult> {
     await this.latency();
     const connection = this.connect(args.account_id);
     const nameError = validateBucketName(args.name);
@@ -979,7 +1034,40 @@ export class MockBackend implements Backend {
       kind: connection.account.endpoint === null ? "aws" : "external",
       objects: new Map(),
     });
+    const warnings: string[] = [];
+    const options = args.options ?? null;
+    const ref = { account_id: args.account_id, bucket: args.name };
+    this.objectLock.forget(ref);
+    this.bucketProps.forget(ref);
+    if (options !== null) {
+      const slot = this.slotOf(connection, args.name);
+      if (options.ownership !== null) {
+        this.objectLock.seedOwnership(ref, options.ownership);
+      }
+      if (options.object_lock) {
+        this.objectLock.enableLock(ref);
+        this.bucketConfigs.putVersioning(slot, "enabled");
+      }
+      if (options.public_access_block !== null) {
+        if (slot.custom) {
+          warnings.push(`the server does not implement the public access block, so it was not applied to bucket '${args.name}'`);
+        } else {
+          this.bucketConfigs.putBlock(slot, options.public_access_block);
+        }
+      }
+    }
     this.addLog("information", "s3", `Bucket ${args.name} created.`);
+    return { warnings };
+  }
+
+  async preview_bucket_clone(args: CommandArgs["preview_bucket_clone"]): Promise<ClonePreview> {
+    await this.latency();
+    return previewClone(this, args);
+  }
+
+  async clone_bucket(args: CommandArgs["clone_bucket"]): Promise<CloneBucketResult> {
+    await this.latency();
+    return cloneBucket(this, args);
   }
 
   async delete_bucket(args: CommandArgs["delete_bucket"]): Promise<void> {
@@ -991,6 +1079,8 @@ export class MockBackend implements Backend {
     }
     connection.provider.buckets.delete(target.name);
     this.bucketConfigs.forget(this.slot(connection, target).key);
+    this.bucketProps.forget({ account_id: args.account_id, bucket: args.name });
+    this.objectLock.forget({ account_id: args.account_id, bucket: args.name });
     this.addLog("information", "s3", `Bucket ${args.name} deleted.`);
   }
 
@@ -1278,6 +1368,37 @@ export class MockBackend implements Backend {
     return lifecycleIssues(args.document);
   }
 
+  private readonly rulesFiles = new Map<string, string>();
+
+  async read_rules_file(args: CommandArgs["read_rules_file"]): Promise<string> {
+    await this.latency();
+    const text = this.rulesFiles.get(args.path);
+    if (text === undefined) {
+      throw new BackendError("not_found", `reading ${args.path}: No such file or directory`);
+    }
+    return text;
+  }
+
+  async write_rules_file(args: CommandArgs["write_rules_file"]): Promise<void> {
+    await this.latency();
+    try {
+      JSON.parse(args.document);
+    } catch (error) {
+      throw new BackendError("usage", `the document is not JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.rulesFiles.set(args.path, `${args.document}\n`);
+  }
+
+  /** The text of a rules file that an export wrote (for tests). */
+  readRulesFile(path: string): string | undefined {
+    return this.rulesFiles.get(path);
+  }
+
+  /** Puts a rules file in place as if an export had written it (for tests). */
+  seedRulesFile(path: string, text: string): void {
+    this.rulesFiles.set(path, text);
+  }
+
   async list_bucket_tiering(args: CommandArgs["list_bucket_tiering"]): Promise<TieringConfig[]> {
     await this.latency();
     return this.bucketRules.tiering(this.configSlot(args.account_id, args.bucket).key);
@@ -1352,7 +1473,8 @@ export class MockBackend implements Backend {
     await this.latency();
     const connection = this.connect(args.account_id);
     this.checkExistingName(args.name);
-    if (!connection.provider.buckets.has(args.name)) {
+    // An access point ARN is not looked up in the simulated buckets.
+    if (!isAccessPointArn(args.name) && !connection.provider.buckets.has(args.name)) {
       fail("not_found", `bucket '${args.name}' does not exist`);
     }
     const names = this.pins.get(args.account_id) ?? new Set<string>();
@@ -1372,6 +1494,67 @@ export class MockBackend implements Backend {
       this.pins.delete(account.id);
     }
     this.addLog("information", "accounts", `External bucket ${args.name} removed from "${account.label}".`);
+  }
+
+  // ---------------------------------------------------------------- bucket encryption and tags (Priority 3)
+
+  private readonly bucketProps = new MockBucketProps((args) => this.objectLock.ownershipOf(args.account_id, args.bucket));
+
+  async get_bucket_encryption(args: CommandArgs["get_bucket_encryption"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    return this.bucketProps.get_bucket_encryption(args);
+  }
+
+  async put_bucket_encryption(args: CommandArgs["put_bucket_encryption"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    await this.bucketProps.put_bucket_encryption(args);
+    this.addLog("information", "s3", `Default encryption of bucket ${args.bucket} saved.`);
+  }
+
+  async delete_bucket_encryption(args: CommandArgs["delete_bucket_encryption"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    await this.bucketProps.delete_bucket_encryption(args);
+    this.addLog("information", "s3", `Default encryption of bucket ${args.bucket} removed.`);
+  }
+
+  async get_bucket_tags(args: CommandArgs["get_bucket_tags"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    return this.bucketProps.get_bucket_tags(args);
+  }
+
+  async put_bucket_tags(args: CommandArgs["put_bucket_tags"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    await this.bucketProps.put_bucket_tags(args);
+    this.addLog("information", "s3", `Tags of bucket ${args.bucket} saved.`);
+  }
+
+  async get_bucket_acl(args: CommandArgs["get_bucket_acl"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    return this.bucketProps.get_bucket_acl(args);
+  }
+
+  async set_bucket_acl(args: CommandArgs["set_bucket_acl"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    await this.bucketProps.set_bucket_acl(args);
+    this.addLog("information", "s3", `Set the ACL ${args.acl} on bucket ${args.bucket}.`);
+  }
+
+  async put_bucket_acl_grants(args: CommandArgs["put_bucket_acl_grants"]) {
+    await this.latency();
+    this.configSlot(args.account_id, args.bucket);
+    await this.bucketProps.put_bucket_acl_grants(args);
+    this.addLog("information", "s3", `Replaced the ACL grants of bucket ${args.bucket}.`);
+  }
+
+  put_object_acl_grants(args: CommandArgs["put_object_acl_grants"]) {
+    return this.objectMeta.put_object_acl_grants(args);
   }
 
   // ---------------------------------------------------------------- bookmarks and windows (T14)
@@ -1513,6 +1696,18 @@ export class MockBackend implements Backend {
 
   get_restore_state(args: CommandArgs["get_restore_state"]) {
     return this.objectLock.get_restore_state(args);
+  }
+
+  estimate_restore(args: CommandArgs["estimate_restore"]) {
+    const bucket = this.findBucket(args.account_id, args.bucket);
+    return Promise.resolve(
+      estimateRestore(
+      args.keys.map((key) => {
+        const object = bucket?.objects.get(key);
+        return object === undefined ? null : { class: object.storage_class, size: object.size };
+      }),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------- client-side encryption (T07)
@@ -2189,11 +2384,13 @@ export class MockBackend implements Backend {
 
   async shorten_url(args: CommandArgs["shorten_url"]): Promise<string> {
     await this.latency();
-    const provider = this.settings.shortener.provider;
-    if (provider === "none") {
+    const configured = this.settings.shortener.provider;
+    if (configured === "none") {
       fail("usage", "No URL shortener is configured.");
     }
-    if (provider === "bitly" && this.shortenerToken === null) {
+    const provider = args.provider === undefined || args.provider === null || args.provider === "none" ? configured : args.provider;
+    // The stored token belongs to the service of the settings.
+    if (provider === "bitly" && (provider !== configured || this.shortenerToken === null)) {
       fail("usage", "Bitly needs an access token: add it in the settings.");
     }
     if (!/^https?:\/\/\S+$/i.test(args.url)) {
@@ -2273,6 +2470,11 @@ export class MockBackend implements Backend {
     };
   }
 
+  async list_regions(): Promise<RegionEntry[]> {
+    await this.latency();
+    return clone(MOCK_REGIONS);
+  }
+
   async last_crash_report(): Promise<CrashReport | null> {
     await this.latency();
     return this.crash === null ? null : clone(this.crash);
@@ -2323,6 +2525,35 @@ export class MockBackend implements Backend {
   async abort_multipart_uploads(args: CommandArgs["abort_multipart_uploads"]): Promise<AbortResult[]> {
     await this.latency();
     return this.tools.abortUploads(args);
+  }
+
+  async check_multipart_resume(args: CommandArgs["check_multipart_resume"]): Promise<UploadResumeCheck> {
+    await this.latency();
+    return this.tools.checkResume(args);
+  }
+
+  async resume_multipart_upload(args: CommandArgs["resume_multipart_upload"]): Promise<TransferTask> {
+    await this.latency();
+    const check = this.tools.checkResume(args);
+    if (check.problem !== null) {
+      fail("usage", `this file cannot finish the upload: ${check.problem.message}`);
+    }
+    const connection = this.connect(args.account_id);
+    const task = this.createTask(
+      connection.account.id,
+      null,
+      "upload",
+      { type: "local", path: args.path },
+      { type: "s3", bucket: args.bucket, key: args.key },
+      check.file_size,
+    );
+    this.tools.finishUpload(args);
+    this.addLog("information", "transfer", `Queued the resumed upload to s3://${args.bucket}/${args.key}.`);
+    const [announced] = this.announce([task], { ifExists: "overwrite", dstAccount: null });
+    if (announced === undefined) {
+      fail("internal", "The task was not queued.");
+    }
+    return announced;
   }
 
   async iam_status(args: CommandArgs["iam_status"]) {
@@ -2447,6 +2678,16 @@ export class MockBackend implements Backend {
   async delete_filter(args: CommandArgs["delete_filter"]): Promise<SavedFilter[]> {
     await this.latency();
     return this.tools.deleteFilter(args);
+  }
+
+  async test_upload_rules(args: CommandArgs["test_upload_rules"]): Promise<UploadRuleMatch> {
+    await this.latency();
+    for (const [index, rule] of args.rules.rules.entries()) {
+      if (rule.pattern.trim() === "" || globToRegExp(rule.pattern, rule.case_insensitive) === null) {
+        fail("usage", `upload_rules.rules[${index}]: the pattern '${rule.pattern}' is not valid`);
+      }
+    }
+    return findUploadRule({ ...args.rules, enabled: true }, args.name);
   }
 
   async mount_status(): Promise<MountStatus> {
