@@ -24,6 +24,7 @@ export function ToolsMenu() {
       <Menu.Target>
         <Button
           variant="subtle"
+          color="gray"
           size="xs"
           leftSection={<IconTools size={15} />}
           rightSection={<IconChevronDown size={12} />}

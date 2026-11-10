@@ -1,5 +1,19 @@
 import { Text, UnstyledButton } from "@mantine/core";
-import { IconChevronDown, IconChevronUp, IconFile, IconFolderFilled } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconChevronUp,
+  IconFile,
+  IconFileCode,
+  IconFileSpreadsheet,
+  IconFileText,
+  IconFileTypePdf,
+  IconFileZip,
+  IconFolderFilled,
+  IconMovie,
+  IconMusic,
+  IconPhoto,
+} from "@tabler/icons-react";
+import { fileKind, type FileKind } from "../../lib/fileKinds";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   type CSSProperties,
@@ -93,7 +107,7 @@ const ObjectRow = memo(function ObjectRow({
         {folder ? (
           <IconFolderFilled size={16} className="bb-folder-icon" aria-hidden />
         ) : (
-          <IconFile size={16} className="bb-file-icon" aria-hidden />
+          <FileIcon kind={fileKind(name)} />
         )}
         <span className="bb-ellipsis" data-empty-name={name === "" || undefined} title={entry.key}>
           {displaySegment(name)}
@@ -455,4 +469,22 @@ export function ObjectTable({ placeholder = null, busy = false }: ObjectTablePro
       <ContextMenu menu={menu.state} onClose={menu.close} />
     </div>
   );
+}
+
+const FILE_ICONS: Record<FileKind, typeof IconFile> = {
+  image: IconPhoto,
+  video: IconMovie,
+  audio: IconMusic,
+  archive: IconFileZip,
+  pdf: IconFileTypePdf,
+  code: IconFileCode,
+  data: IconFileSpreadsheet,
+  text: IconFileText,
+  other: IconFile,
+};
+
+/** The icon of a file row, coloured by the kind of file. */
+function FileIcon({ kind }: { kind: FileKind }) {
+  const Icon = FILE_ICONS[kind];
+  return <Icon size={16} className="bb-file-icon" data-kind={kind} aria-hidden />;
 }

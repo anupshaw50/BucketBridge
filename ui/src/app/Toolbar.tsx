@@ -69,6 +69,7 @@ function ToolButton({ label, shortcut, icon, onClick, disabled = false, pressed,
     <Tooltip label={disabled && reason ? `${tip}: ${reason}` : tip} openDelay={300}>
       <ActionIcon
         variant={pressed ? "light" : "subtle"}
+        color={pressed ? undefined : "gray"}
         size="md"
         aria-label={label}
         aria-pressed={pressed}
@@ -168,7 +169,7 @@ function BucketActions() {
     <Menu position="bottom-start" withinPortal>
       <Menu.Target>
         <Tooltip label={tr("Buckets")} openDelay={300}>
-          <ActionIcon variant="subtle" size="md" aria-label={tr("Bucket actions")} disabled={activeAccountId === null}>
+          <ActionIcon variant="subtle" color="gray" size="md" aria-label={tr("Bucket actions")} disabled={activeAccountId === null}>
             <IconBucket size={17} />
           </ActionIcon>
         </Tooltip>
@@ -252,7 +253,7 @@ export function Toolbar() {
       <Menu position="bottom-start" withinPortal>
         <Menu.Target>
           <Button
-            variant="subtle"
+            variant="filled"
             size="xs"
             leftSection={<IconUpload size={15} />}
             rightSection={<IconChevronDown size={12} />}
@@ -269,7 +270,7 @@ export function Toolbar() {
       <Menu position="bottom-start" withinPortal>
         <Menu.Target>
           <Button
-            variant="subtle"
+            variant="default"
             size="xs"
             leftSection={<IconDownload size={15} />}
             rightSection={<IconChevronDown size={12} />}
@@ -284,24 +285,26 @@ export function Toolbar() {
         </Menu.Dropdown>
       </Menu>
       <ToolButton label={tr("New folder")} icon={<IconFolderPlus size={17} />} {...twin("folder.new")} />
-      <Divider orientation="vertical" />
+      <div className="bb-tgroup">
       <ToolButton label={tr("Copy")} icon={<IconCopy size={17} />} {...twin("clipboard.copy")} />
       <ToolButton label={tr("Cut")} icon={<IconCut size={17} />} {...twin("clipboard.cut")} />
       <ToolButton label={tr("Paste")} icon={<IconClipboard size={17} />} {...twin("clipboard.paste")} />
       <ToolButton label={tr("Rename")} icon={<IconEdit size={17} />} {...twin("item.rename")} />
       <ToolButton label={tr("Delete")} icon={<IconTrash size={17} />} {...twin("item.delete")} />
-      <Divider orientation="vertical" />
+      </div>
+      <div className="bb-tgroup">
       <ToolButton label={tr("Open")} icon={<IconExternalLink size={17} />} {...twin("open")} />
       <ToolButton label={tr("Properties")} icon={<IconInfoCircle size={17} />} {...twin("item.properties")} />
       <ToolButton label={tr("Share link")} icon={<IconLink size={17} />} {...twin("item.share")} />
       <ToolButton label={tr("Export listing")} icon={<IconTableExport size={17} />} {...twin("file.export")} />
       <ToolButton label={tr("Preview")} icon={<IconEye size={17} />} {...twin("file.preview")} />
       <ToolButton label={tr("Versions")} icon={<IconHistory size={17} />} {...twin("item.versions")} />
-      <Divider orientation="vertical" />
+      </div>
+      <div className="bb-tgroup">
       <Menu position="bottom-start" withinPortal>
         <Menu.Target>
           <Tooltip label={tr("Selection")} openDelay={300}>
-            <ActionIcon variant="subtle" size="md" aria-label={tr("Selection")} disabled={!ready}>
+            <ActionIcon variant="subtle" color="gray" size="md" aria-label={tr("Selection")} disabled={!ready}>
               <IconSelectAll size={17} />
             </ActionIcon>
           </Tooltip>
@@ -325,9 +328,11 @@ export function Toolbar() {
       />
       <FilterMenu disabled={!ready} />
       <ToolButton label={tr("Refresh")} icon={<IconRefresh size={17} />} {...twin("list.refresh", { needsList: false })} />
+      </div>
       <BucketActions />
       <Button
         variant="subtle"
+        color="gray"
         size="xs"
         leftSection={<IconTransfer size={15} />}
         disabled={activeAccountId === null}
@@ -336,7 +341,8 @@ export function Toolbar() {
         {tr("Sync")}
       </Button>
       <ToolsMenu />
-      <Group gap={2} ml="auto" wrap="nowrap">
+      <Group gap={6} ml="auto" wrap="nowrap">
+        <div className="bb-tgroup">
         <ToolButton
           label={tr("Transfer queue")}
           icon={<IconLayoutBottombar size={17} />}
@@ -353,6 +359,7 @@ export function Toolbar() {
           reason={notLoaded}
           onClick={() => void togglePanel(model, "log")}
         />
+        </div>
         {security?.master_password_set ? (
           <ToolButton
             label={locked ? tr("Unlock secrets") : tr("Lock secrets")}

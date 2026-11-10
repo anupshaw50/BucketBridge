@@ -9,8 +9,26 @@ body,
   overflow: hidden;
 }
 
+/* Surfaces around the content: toolbar, panel headers, sidebar, status bar. */
+:root {
+  --bb-chrome: #f6f8fb;
+  --bb-sidebar: #fafbfd;
+}
+
+[data-mantine-color-scheme="dark"] {
+  --bb-chrome: var(--mantine-color-dark-8);
+  --bb-sidebar: var(--mantine-color-dark-8);
+}
+
 body {
   background: var(--mantine-color-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-tree-row,
+  .bb-row {
+    transition: none !important;
+  }
 }
 
 .bb-visually-hidden {
@@ -45,9 +63,9 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--mantine-color-default-border);
-  background: var(--mantine-color-default);
+  background: var(--bb-chrome);
   min-width: 0;
   overflow-x: auto;
 }
@@ -56,9 +74,45 @@ body {
   flex-shrink: 0;
 }
 
+/* Disabled toolbar controls stay flat and faded instead of turning into grey tiles. */
+.bb-toolbar .mantine-ActionIcon-root:disabled,
+.bb-toolbar .mantine-ActionIcon-root[data-disabled],
+.bb-panel .mantine-ActionIcon-root:disabled,
+.bb-panel .mantine-ActionIcon-root[data-disabled] {
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.4;
+}
+
+.bb-toolbar .mantine-Button-root:disabled,
+.bb-toolbar .mantine-Button-root[data-disabled] {
+  background: transparent;
+  opacity: 0.5;
+}
+
+/* The current folder in the breadcrumb reads as a title, the ancestors as links. */
+.mantine-Breadcrumbs-root [aria-current="location"] {
+  color: var(--mantine-color-text);
+  font-weight: 600;
+}
+
+/* A segment of related toolbar buttons. */
+.bb-tgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  margin: 0 3px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-body);
+  flex-shrink: 0;
+}
+
 .bb-toolbar .mantine-Divider-root {
-  height: 20px;
-  margin: 0 4px;
+  height: 22px;
+  margin: 0 6px;
+  opacity: 0.7;
 }
 
 .bb-main {
@@ -74,6 +128,7 @@ body {
 
 .bb-sidebar {
   border-right: 1px solid var(--mantine-color-default-border);
+  background: var(--bb-sidebar);
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -108,14 +163,18 @@ body {
 }
 
 .bb-tree-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 26px;
+  gap: 6px;
+  height: 28px;
+  margin: 0 6px;
   padding-right: 8px;
+  border-radius: 6px;
   font-size: 13px;
   cursor: default;
   user-select: none;
+  transition: background-color 120ms ease;
 }
 
 .bb-tree-row:hover {
@@ -124,6 +183,8 @@ body {
 
 .bb-tree-row[data-selected] {
   background: var(--mantine-primary-color-light);
+  color: var(--mantine-primary-color-light-color);
+  font-weight: 500;
 }
 
 .bb-tree-row:focus-visible {
@@ -210,7 +271,12 @@ body {
 
 .bb-head-row {
   position: static;
-  height: 28px;
+  height: 30px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  background: var(--bb-chrome);
+  border-bottom: 1px solid var(--mantine-color-default-border);
 }
 
 .bb-row > div {
@@ -221,16 +287,25 @@ body {
   padding-right: 8px;
 }
 
+.bb-row:not(.bb-head-row) {
+  transition: background-color 120ms ease;
+}
+
 .bb-row:not(.bb-head-row):hover {
   background: var(--mantine-color-default-hover);
 }
 
 .bb-row[data-selected] {
   background: var(--mantine-primary-color-light);
+  box-shadow: inset 3px 0 0 var(--mantine-primary-color-filled);
 }
 
 .bb-row[data-focused] {
   box-shadow: inset 0 0 0 1px var(--mantine-primary-color-filled);
+}
+
+.bb-row[data-selected][data-focused] {
+  box-shadow: inset 3px 0 0 var(--mantine-primary-color-filled), inset 0 0 0 1px var(--mantine-primary-color-filled);
 }
 
 .bb-state-row {
@@ -249,11 +324,13 @@ body {
 
 .bb-col-size {
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .bb-col-modified,
 .bb-col-class {
   color: var(--mantine-color-dimmed);
+  font-variant-numeric: tabular-nums;
 }
 
 .bb-head-row > div {
@@ -294,6 +371,27 @@ body {
   color: var(--mantine-color-dimmed);
 }
 
+.bb-file-icon[data-kind="image"] { color: var(--mantine-color-teal-6); }
+.bb-file-icon[data-kind="video"] { color: var(--mantine-color-grape-6); }
+.bb-file-icon[data-kind="audio"] { color: var(--mantine-color-pink-6); }
+.bb-file-icon[data-kind="archive"] { color: var(--mantine-color-orange-6); }
+.bb-file-icon[data-kind="pdf"] { color: var(--mantine-color-red-6); }
+.bb-file-icon[data-kind="code"] { color: var(--mantine-color-brand-6); }
+.bb-file-icon[data-kind="data"] { color: var(--mantine-color-green-7); }
+
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="image"] { color: var(--mantine-color-teal-4); }
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="video"] { color: var(--mantine-color-grape-4); }
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="audio"] { color: var(--mantine-color-pink-4); }
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="archive"] { color: var(--mantine-color-orange-4); }
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="pdf"] { color: var(--mantine-color-red-4); }
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="code"] { color: var(--mantine-color-brand-4); }
+[data-mantine-color-scheme="dark"] .bb-file-icon[data-kind="data"] { color: var(--mantine-color-green-4); }
+
+.bb-kind-badge {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 /* ---- bottom panels ---- */
 
 .bb-panel {
@@ -307,14 +405,36 @@ body {
   height: 230px;
 }
 
+.bb-transfer-panel[data-collapsed] {
+  height: auto;
+}
+
+.bb-transfer-panel[data-collapsed] .bb-panel-body {
+  display: none;
+}
+
+.bb-transfer-panel[data-collapsed] .bb-panel-header {
+  border-bottom: 0;
+}
+
+.bb-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
 .bb-log-panel {
   height: 190px;
 }
 
 .bb-panel-header {
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--mantine-color-default-border);
-  background: var(--mantine-color-default);
+  background: var(--bb-chrome);
+}
+
+/* Disabled text buttons in panel headers stay flat instead of turning into grey blocks. */
+.bb-panel-header .mantine-Button-root:disabled,
+.bb-panel-header .mantine-Button-root[data-disabled] {
+  background: transparent;
 }
 
 .bb-panel-body {
@@ -380,10 +500,11 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 2px 8px;
-  min-height: 24px;
+  padding: 3px 10px;
+  min-height: 26px;
+  font-size: 12px;
   border-top: 1px solid var(--mantine-color-default-border);
-  background: var(--mantine-color-default);
+  background: var(--bb-chrome);
 }
 
 /* ---- dialogs ---- */

@@ -55,4 +55,7 @@ export const zhTransfers: Record<string, string> = {
   "{count} other transfers of this batch are waiting now; the rest follow the same answer.":
     "此批次中还有 {count} 个传输正在等待；其余将沿用同样的答复。",
   "Cancel this transfer": "取消此传输",
+  "Overall progress": "总体进度",
+  "Expand transfers": "展开传输面板",
+  "Collapse transfers": "折叠传输面板",
 };

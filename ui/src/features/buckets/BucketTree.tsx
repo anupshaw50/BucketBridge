@@ -45,11 +45,11 @@ import { bucketMenu, bucketsEmptyMenu, itemsMenu } from "../menus/surfaces";
 import { isContextClick, isMenuKey, useContextMenu } from "../menus/useContextMenu";
 
 const KIND_LABELS: Record<BucketKind, string> = { aws: "AWS", external: "External", cloudfront: "CloudFront" };
-const KIND_COLORS: Record<BucketKind, string> = { aws: "orange", external: "grape", cloudfront: "cyan" };
+const KIND_COLORS: Record<BucketKind, string> = { aws: "gray", external: "grape", cloudfront: "cyan" };
 
 export function KindBadge({ kind }: { kind: BucketKind }) {
   return (
-    <Badge size="xs" variant="light" color={KIND_COLORS[kind]} radius="sm" style={{ flexShrink: 0 }}>
+    <Badge size="xs" variant="light" color={KIND_COLORS[kind]} radius="sm" className="bb-kind-badge" style={{ flexShrink: 0 }}>
       {tr(KIND_LABELS[kind])}
     </Badge>
   );

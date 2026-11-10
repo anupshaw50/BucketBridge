@@ -18,6 +18,7 @@ export function FilterMenu({ disabled }: { disabled: boolean }) {
         <Tooltip label={tr("Saved filters")} openDelay={300}>
           <ActionIcon
             variant={active === null ? "subtle" : "light"}
+            color={active === null ? "gray" : undefined}
             size="md"
             aria-label={tr("Apply a saved filter")}
             disabled={disabled}

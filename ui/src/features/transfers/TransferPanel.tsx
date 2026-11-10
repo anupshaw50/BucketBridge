@@ -12,6 +12,8 @@ import {
 } from "@mantine/core";
 import {
   IconArrowsMove,
+  IconChevronDown,
+  IconChevronUp,
   IconCopy,
   IconDownload,
   IconPlayerPause,
@@ -36,6 +38,7 @@ import {
   describeLocation,
   inView,
   KIND_LABELS,
+  overallProgress,
   progressText,
   STATE_LABELS,
   TRANSFER_VIEWS,
@@ -225,6 +228,7 @@ const TransferRow = memo(function TransferRow({ task, waiting, top, onAction }: 
 export function TransferPanel() {
   const model = useModel();
   const [view, setView] = useState<TransferView>("all");
+  const [collapsed, setCollapsed] = useState(false);
   const order = useSlice(model.transfers.store, (state) => state.order);
   const tasks = useSlice(model.transfers.store, (state) => state.tasks);
   const counts = useSlice(model.transfers.store, (state) => state.counts);
@@ -278,8 +282,9 @@ export function TransferPanel() {
     }
   };
   const unfinished = counts.queued + counts.running + counts.stopped + counts.failed;
+  const overall = useMemo(() => overallProgress(tasks.values()), [tasks]);
   return (
-    <section className="bb-panel bb-transfer-panel" aria-label={tr("Transfer queue")}>
+    <section className="bb-panel bb-transfer-panel" data-collapsed={collapsed || undefined} aria-label={tr("Transfer queue")}>
       <Group className="bb-panel-header" justify="space-between" wrap="nowrap">
         <Group gap="sm" wrap="nowrap">
           <Group gap={6} wrap="nowrap">
@@ -298,6 +303,14 @@ export function TransferPanel() {
               label: `${VIEW_LABELS[item]} ${formatCount(counts[item])}`,
             }))}
           />
+          {overall === null ? null : (
+            <Group gap={6} wrap="nowrap" className="bb-overall">
+              <Progress value={overall} size="sm" w={120} radius="xl" aria-label={tr("Overall progress")} />
+              <Text size="xs" c="dimmed" className="bb-tabular">
+                {Math.round(overall)}%
+              </Text>
+            </Group>
+          )}
         </Group>
         <Group gap={4} wrap="nowrap">
           <Button size="compact-xs" variant="subtle" disabled={counts.stopped === 0} onClick={() => void bulk("start")}>
@@ -328,6 +341,18 @@ export function TransferPanel() {
           >
             {tr("Clear finished")}
           </Button>
+          <Tooltip label={collapsed ? tr("Expand transfers") : tr("Collapse transfers")} openDelay={300}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label={collapsed ? tr("Expand transfers") : tr("Collapse transfers")}
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed((value) => !value)}
+            >
+              {collapsed ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+            </ActionIcon>
+          </Tooltip>
           <CloseButton
             size="sm"
             aria-label={tr("Hide transfers")}
@@ -359,3 +384,4 @@ export function TransferPanel() {
     </section>
   );
 }
+

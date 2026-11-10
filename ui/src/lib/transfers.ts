@@ -96,3 +96,23 @@ export function touchesListing(task: TransferTask, accountId: string, bucket: st
   }
   return touches(task.dst);
 }
+
+/**
+ * Percent done over the bytes of the transfers that are queued or running, or
+ * null when nothing is under way (then no overall bar is shown).
+ */
+export function overallProgress(tasks: Iterable<TransferTask>): number | null {
+  let done = 0;
+  let total = 0;
+  let active = false;
+  for (const task of tasks) {
+    if (task.state !== "queued" && task.state !== "running") continue;
+    active = true;
+    if (task.bytes_total !== null && task.bytes_total > 0) {
+      total += task.bytes_total;
+      done += Math.min(task.bytes_done, task.bytes_total);
+    }
+  }
+  if (!active) return null;
+  return total > 0 ? (done / total) * 100 : 0;
+}
