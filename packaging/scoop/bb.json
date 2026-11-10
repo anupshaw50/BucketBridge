@@ -1,15 +1,15 @@
 {
-    "version": "0.3.1",
+    "version": "0.4.0",
     "description": "Command line client for S3 and S3-compatible object storage",
     "homepage": "https://github.com/anupshaw50/BucketBridge",
     "license": "GPL-3.0-only",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/anupshaw50/BucketBridge/releases/download/v0.3.1/bb_0.3.1_windows_x64.zip",
-            "hash": "91127e2aede621148b5c796ea7515679f4565b62eebfc3804ca31acf8aff91de"
+            "url": "https://github.com/anupshaw50/BucketBridge/releases/download/v0.4.0/bb_0.4.0_windows_x64.zip",
+            "hash": "e297e40d9d73f96eca578856c37d75c07eb71f551086259a569403a615f49ec0"
         }
     },
-    "extract_dir": "bb_0.3.1_windows_x64",
+    "extract_dir": "bb_0.4.0_windows_x64",
     "bin": "bb.exe",
     "checkver": "github",
     "autoupdate": {

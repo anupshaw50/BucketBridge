@@ -1,0 +1,13 @@
+PackageIdentifier: AnupShaw.bb
+PackageVersion: 0.4.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+- RelativeFilePath: bb_0.4.0_windows_x64\bb.exe
+  PortableCommandAlias: bb
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/anupshaw50/BucketBridge/releases/download/v0.4.0/bb_0.4.0_windows_x64.zip
+  InstallerSha256: E297E40D9D73F96ECA578856C37D75C07EB71F551086259A569403A615F49EC0
+ManifestType: installer
+ManifestVersion: 1.6.0
